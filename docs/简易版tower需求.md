@@ -1,0 +1,1129 @@
+# 简化版 Tower 可开发规格文档
+
+版本：v1.0
+
+更新时间：2026-06-05
+
+## 1. 产品定位
+
+本项目是一个面向中小型团队的轻量任务协作工具，核心能力是：
+
+- 项目看板
+- 任务详情与评论
+- 我的任务
+- 站内通知
+- 飞书协作通知
+- 甘特图排期
+
+第一版应优先保证任务管理闭环稳定可用，再逐步接入飞书和甘特图高级能力。
+
+## 2. 开发分期
+
+### V0：基础可用版
+
+目标：完成团队内项目和任务的基础协作闭环。
+
+包含：
+
+- 邮箱注册、登录、退出
+- 创建团队、团队成员列表
+- 创建项目、编辑项目、归档项目
+- 项目成员管理
+- 看板视图
+- 任务列表创建、重命名、排序、删除
+- 任务创建、编辑、删除、拖拽移动
+- 任务字段：标题、描述、负责人、优先级、开始日期、截止日期、标签
+- 任务评论
+- 我的任务
+- 站内通知
+
+不包含：
+
+- 飞书 OAuth 登录
+- 飞书消息通知
+- 甘特图拖拽
+- 任务依赖
+- 实时 WebSocket 推送
+- 文件上传
+
+### V1：飞书协作版
+
+目标：让任务变化可以通过飞书触达负责人或被提及成员。
+
+包含：
+
+- 飞书账号绑定
+- 飞书 OAuth 登录
+- 任务分配飞书通知
+- 评论 @ 成员飞书通知
+- 截止前 24 小时飞书提醒
+- 飞书通知失败重试
+- 飞书回调验签与事件接收
+
+### V2：甘特图排期版
+
+目标：支持项目维度排期和任务依赖管理。
+
+包含：
+
+- 甘特图只读展示
+- 周 / 月 / 季度缩放
+- 按负责人、标签筛选
+- 拖拽调整任务开始 / 结束日期
+- 任务依赖连线
+- 依赖循环校验
+
+## 3. 角色与权限
+
+### 3.1 团队角色
+
+| 角色 | 说明 |
+|------|------|
+| OWNER | 团队所有者，创建团队的人，拥有全部权限 |
+| ADMIN | 团队管理员，可管理团队成员和项目 |
+| MEMBER | 普通成员，可参与被授权的项目 |
+
+### 3.2 项目角色
+
+| 角色 | 说明 |
+|------|------|
+| OWNER | 项目所有者，可删除项目和管理项目成员 |
+| EDITOR | 可编辑任务、评论、标签、看板列表 |
+| VIEWER | 只读查看项目内容 |
+
+团队 OWNER / ADMIN 默认拥有团队内所有项目的管理权限。
+
+### 3.3 权限矩阵
+
+| 操作 | 团队 OWNER | 团队 ADMIN | 项目 OWNER | 项目 EDITOR | 项目 VIEWER |
+|------|------------|------------|------------|-------------|-------------|
+| 修改团队信息 | 是 | 是 | 否 | 否 | 否 |
+| 邀请团队成员 | 是 | 是 | 否 | 否 | 否 |
+| 移除团队成员 | 是 | 是 | 否 | 否 | 否 |
+| 创建项目 | 是 | 是 | 否 | 否 | 否 |
+| 归档项目 | 是 | 是 | 是 | 否 | 否 |
+| 删除项目 | 是 | 是 | 是 | 否 | 否 |
+| 管理项目成员 | 是 | 是 | 是 | 否 | 否 |
+| 创建 / 编辑任务 | 是 | 是 | 是 | 是 | 否 |
+| 删除任务 | 是 | 是 | 是 | 是 | 否 |
+| 评论任务 | 是 | 是 | 是 | 是 | 否 |
+| 查看项目 | 是 | 是 | 是 | 是 | 是 |
+
+实现要求：
+
+- 所有后端接口必须做服务端权限校验。
+- 前端隐藏无权限操作按钮，但不能只依赖前端判断。
+- 用户必须是团队成员，才可以成为项目成员或任务负责人。
+
+## 4. 核心业务规则
+
+### 4.1 团队
+
+- 用户注册后可以创建第一个团队。
+- 创建团队的用户自动成为团队 OWNER。
+- 团队 OWNER 不允许被移除，除非先转移所有权。
+- 同一用户可以加入多个团队。
+
+### 4.2 项目
+
+- 项目必须属于某个团队。
+- 项目创建人自动成为项目 OWNER。
+- 项目归档后默认不可新建任务、移动任务、发表评论。
+- 项目删除为软删除，保留数据用于恢复和审计。
+
+### 4.3 看板列表
+
+- 每个项目创建时默认生成三列：待处理、进行中、已完成。
+- 列支持重命名和排序。
+- 最后一个列表不允许删除。
+- 删除列表时，如果列表内有任务，接口必须要求目标迁移列表。
+
+### 4.4 任务
+
+- 任务必须属于一个任务列表，任务列表必须属于一个项目。
+- 任务负责人必须是项目成员。
+- 子任务和父任务必须属于同一个项目。
+- 子任务暂不支持无限层级，V0 仅支持一层子任务。
+- 任务开始日期不得晚于截止日期。
+- 移动任务必须在事务中同时更新 `taskListId` 和排序字段。
+- 任务状态不单独使用固定枚举，任务当前状态由所在看板列表表达。系统可用列表类型识别默认完成列。
+
+### 4.5 评论与 @ 成员
+
+- 评论内容支持纯文本和 @ 成员标记。
+- @ 成员必须是项目成员。
+- 删除评论仅允许评论作者、项目 OWNER、团队 ADMIN / OWNER 操作。
+
+### 4.6 标签
+
+- 标签属于项目。
+- 同一项目内标签名称唯一。
+- 删除标签时自动解除任务关联。
+
+### 4.7 通知
+
+触发站内通知的事件：
+
+- 任务被分配给用户
+- 任务截止前 24 小时
+- 评论中 @ 用户
+- 任务移动到完成列
+- 用户被加入项目
+
+通知生成要求：
+
+- 同一事件只生成一次通知，使用 `dedupeKey` 保证幂等。
+- 通知应包含标题、正文、跳转链接、触发人、项目、任务。
+- 站内通知生成成功不依赖飞书通知成功。
+
+## 5. 技术选型
+
+### 5.1 前端
+
+| 技术 | 选型 |
+|------|------|
+| 框架 | React 18 |
+| 语言 | TypeScript |
+| 构建 | Vite |
+| 路由 | React Router v6 |
+| 服务端状态 | TanStack Query |
+| 客户端状态 | Zustand |
+| 样式 | Tailwind CSS |
+| 组件 | shadcn/ui |
+| 看板拖拽 | dnd-kit |
+| 甘特图 | DHTMLX Gantt 或可替代甘特图库 |
+| 请求 | Axios |
+| 表单 | React Hook Form + Zod |
+
+注意：
+
+- 如果项目闭源或商业化，需要在 V2 前确认 DHTMLX Gantt 授权是否满足使用场景。
+- V0 不引入 Socket.io；先使用接口刷新和 TanStack Query 缓存失效。
+
+### 5.2 后端
+
+| 技术 | 选型 |
+|------|------|
+| 运行时 | Node.js LTS |
+| 框架 | Express |
+| 语言 | TypeScript |
+| ORM | Prisma |
+| 数据库 | PostgreSQL |
+| 队列 | BullMQ + Redis |
+| 认证 | JWT access token + refresh token |
+| 密码 | bcrypt 或 argon2 |
+| 参数校验 | Zod |
+| 日志 | pino |
+
+### 5.3 飞书集成
+
+| 能力 | 实现方式 |
+|------|----------|
+| 飞书登录 | OAuth 2.0 |
+| 飞书账号绑定 | 通过 open_id / union_id 关联本地用户 |
+| 单聊通知 | 飞书应用机器人 Bot API |
+| 消息内容 | 飞书消息卡片 |
+| 失败重试 | BullMQ，最多 3 次，指数退避 |
+| 回调安全 | challenge 校验、签名校验、事件幂等 |
+
+不建议用群自定义 Webhook 实现个人任务通知，因为它不适合按负责人进行一对一触达。
+
+## 6. 数据模型
+
+以下为 Prisma Schema 风格的核心模型。字段可在实现中按 Prisma 语法微调。
+
+### User
+
+```prisma
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  passwordHash   String?
+  name           String
+  avatarUrl      String?
+  feishuOpenId   String?  @unique
+  feishuUnionId  String?  @unique
+  emailVerifiedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  teamMembers    TeamMember[]
+  projectMembers ProjectMember[]
+  createdProjects Project[] @relation("ProjectCreator")
+  invitationsSent Invitation[] @relation("InvitationInviter")
+  assignedTasks  Task[] @relation("TaskAssignee")
+  createdTasks   Task[] @relation("TaskCreator")
+  comments       Comment[]
+  notifications  Notification[] @relation("NotificationRecipient")
+  notificationActions Notification[] @relation("NotificationActor")
+}
+```
+
+### Team
+
+```prisma
+model Team {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  members   TeamMember[]
+  projects  Project[]
+  invites   Invitation[]
+}
+```
+
+### TeamMember
+
+```prisma
+model TeamMember {
+  id        String   @id @default(uuid())
+  role      TeamRole
+  userId    String
+  teamId    String
+  createdAt DateTime @default(now())
+
+  user      User @relation(fields: [userId], references: [id])
+  team      Team @relation(fields: [teamId], references: [id])
+
+  @@unique([userId, teamId])
+  @@index([teamId, role])
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+```
+
+### Project
+
+```prisma
+model Project {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  color       String?
+  icon        String?
+  status      ProjectStatus @default(ACTIVE)
+  teamId      String
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+
+  team        Team            @relation(fields: [teamId], references: [id])
+  createdBy   User            @relation("ProjectCreator", fields: [createdById], references: [id])
+  members     ProjectMember[]
+  taskLists   TaskList[]
+  tags        Tag[]
+  tasks       Task[]
+  invites     Invitation[]
+
+  @@index([teamId, status])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+```
+
+### ProjectMember
+
+```prisma
+model ProjectMember {
+  id        String      @id @default(uuid())
+  role      ProjectRole
+  projectId String
+  userId    String
+  createdAt DateTime    @default(now())
+
+  project   Project @relation(fields: [projectId], references: [id])
+  user      User    @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+enum ProjectRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+```
+
+### Invitation
+
+```prisma
+model Invitation {
+  id          String           @id @default(uuid())
+  email       String
+  token       String           @unique
+  status      InvitationStatus @default(PENDING)
+  teamRole    TeamRole?
+  projectRole ProjectRole?
+  teamId      String
+  projectId   String?
+  inviterId   String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime         @default(now())
+
+  team        Team @relation(fields: [teamId], references: [id])
+  project     Project? @relation(fields: [projectId], references: [id])
+  inviter     User @relation("InvitationInviter", fields: [inviterId], references: [id])
+
+  @@index([email, status])
+  @@index([teamId, status])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+```
+
+### TaskList
+
+```prisma
+model TaskList {
+  id        String       @id @default(uuid())
+  name      String
+  type      TaskListType @default(CUSTOM)
+  sortKey   Decimal
+  projectId String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  project   Project @relation(fields: [projectId], references: [id])
+  tasks     Task[]
+
+  @@index([projectId, sortKey])
+}
+
+enum TaskListType {
+  TODO
+  IN_PROGRESS
+  DONE
+  CUSTOM
+}
+```
+
+### Task
+
+```prisma
+model Task {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  priority    Priority  @default(MEDIUM)
+  sortKey     Decimal
+  startDate   DateTime?
+  dueDate     DateTime?
+  taskListId  String
+  projectId   String
+  assigneeId  String?
+  creatorId   String
+  parentId    String?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  taskList    TaskList  @relation(fields: [taskListId], references: [id])
+  project     Project   @relation(fields: [projectId], references: [id])
+  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator     User      @relation("TaskCreator", fields: [creatorId], references: [id])
+  parent      Task?     @relation("SubTasks", fields: [parentId], references: [id])
+  subTasks    Task[]    @relation("SubTasks")
+  tags        TaskTag[]
+  comments    Comment[]
+  dependencies TaskDependency[] @relation("DependentTask")
+  dependents   TaskDependency[] @relation("PrerequisiteTask")
+
+  @@index([projectId])
+  @@index([taskListId, sortKey])
+  @@index([assigneeId, dueDate])
+  @@index([parentId])
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+```
+
+### TaskDependency
+
+```prisma
+model TaskDependency {
+  id                String         @id @default(uuid())
+  type              DependencyType @default(FINISH_TO_START)
+  dependentTaskId   String
+  prerequisiteId    String
+  lagDays           Int            @default(0)
+  createdAt         DateTime       @default(now())
+
+  dependentTask     Task @relation("DependentTask", fields: [dependentTaskId], references: [id])
+  prerequisite      Task @relation("PrerequisiteTask", fields: [prerequisiteId], references: [id])
+
+  @@unique([dependentTaskId, prerequisiteId])
+}
+
+enum DependencyType {
+  FINISH_TO_START
+  START_TO_START
+  FINISH_TO_FINISH
+  START_TO_FINISH
+}
+```
+
+约束：
+
+- `dependentTaskId` 不能等于 `prerequisiteId`。
+- 两个任务必须属于同一个项目。
+- 创建依赖时必须检测循环依赖。
+
+### Tag
+
+```prisma
+model Tag {
+  id        String @id @default(uuid())
+  name      String
+  color     String
+  projectId String
+
+  tasks     TaskTag[]
+
+  @@unique([projectId, name])
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+
+  task   Task @relation(fields: [taskId], references: [id])
+  tag    Tag  @relation(fields: [tagId], references: [id])
+
+  @@id([taskId, tagId])
+}
+```
+
+### Comment
+
+```prisma
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  taskId    String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  task      Task @relation(fields: [taskId], references: [id])
+  author    User @relation(fields: [authorId], references: [id])
+
+  @@index([taskId, createdAt])
+}
+```
+
+### Notification
+
+```prisma
+model Notification {
+  id          String           @id @default(uuid())
+  type        NotificationType
+  title       String
+  content     String
+  link        String?
+  payload     Json?
+  isRead      Boolean          @default(false)
+  readAt      DateTime?
+  dedupeKey   String?          @unique
+  recipientId String
+  actorId     String?
+  teamId      String?
+  projectId   String?
+  taskId      String?
+  createdAt   DateTime         @default(now())
+
+  recipient   User @relation("NotificationRecipient", fields: [recipientId], references: [id])
+  actor       User? @relation("NotificationActor", fields: [actorId], references: [id])
+  deliveries  NotificationDelivery[]
+
+  @@index([recipientId, isRead, createdAt])
+  @@index([taskId])
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  COMMENT_MENTION
+  TASK_COMPLETED
+  PROJECT_JOINED
+}
+```
+
+### NotificationDelivery
+
+```prisma
+model NotificationDelivery {
+  id             String         @id @default(uuid())
+  notificationId String
+  channel        DeliveryChannel
+  status         DeliveryStatus @default(PENDING)
+  attemptCount   Int            @default(0)
+  lastError      String?
+  sentAt         DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  notification   Notification @relation(fields: [notificationId], references: [id])
+
+  @@index([status, channel])
+  @@index([notificationId, channel])
+}
+
+enum DeliveryChannel {
+  IN_APP
+  FEISHU
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+```
+
+## 7. API 设计
+
+所有接口统一前缀 `/api/v1`。
+
+除注册、登录、OAuth 回调外，接口必须携带：
+
+```http
+Authorization: Bearer <access_token>
+```
+
+统一响应格式：
+
+```json
+{
+  "data": {},
+  "requestId": "req_xxx"
+}
+```
+
+统一错误格式：
+
+```json
+{
+  "error": {
+    "code": "PROJECT_NOT_FOUND",
+    "message": "Project not found",
+    "details": {}
+  },
+  "requestId": "req_xxx"
+}
+```
+
+### 7.1 认证
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/auth/register` | 邮箱注册 |
+| POST | `/auth/login` | 邮箱登录 |
+| POST | `/auth/refresh` | 刷新 access token |
+| POST | `/auth/logout` | 注销 refresh token |
+| GET | `/auth/feishu/redirect` | 跳转飞书授权页 |
+| GET | `/auth/feishu/callback` | 飞书 OAuth 回调 |
+
+登录响应：
+
+```json
+{
+  "data": {
+    "accessToken": "jwt",
+    "refreshToken": "jwt",
+    "user": {
+      "id": "user_id",
+      "email": "user@example.com",
+      "name": "Alice"
+    }
+  },
+  "requestId": "req_xxx"
+}
+```
+
+### 7.2 当前用户
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/users/me` | 当前用户信息 |
+| PATCH | `/users/me` | 更新昵称、头像 |
+| GET | `/users/me/tasks` | 我的任务 |
+| GET | `/users/me/notifications` | 通知列表 |
+| PATCH | `/users/me/notifications/:id/read` | 标记已读 |
+| PATCH | `/users/me/notifications/read-all` | 全部标记已读 |
+
+`GET /users/me/tasks` 支持参数：
+
+- `teamId`
+- `projectId`
+- `status`：`open` / `done` / `all`
+- `due`：`today` / `week` / `overdue`
+
+### 7.3 团队
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/teams` | 创建团队 |
+| GET | `/teams` | 我的团队列表 |
+| GET | `/teams/:teamId` | 团队详情 |
+| PATCH | `/teams/:teamId` | 更新团队 |
+| GET | `/teams/:teamId/members` | 成员列表 |
+| POST | `/teams/:teamId/invitations` | 邀请成员 |
+| DELETE | `/teams/:teamId/members/:userId` | 移除成员 |
+| PATCH | `/teams/:teamId/members/:userId/role` | 修改角色 |
+
+### 7.4 项目
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/teams/:teamId/projects` | 团队项目列表 |
+| POST | `/teams/:teamId/projects` | 创建项目 |
+| GET | `/projects/:projectId` | 项目详情 |
+| PATCH | `/projects/:projectId` | 更新项目 |
+| PATCH | `/projects/:projectId/archive` | 归档项目 |
+| DELETE | `/projects/:projectId` | 软删除项目 |
+| GET | `/projects/:projectId/members` | 项目成员 |
+| POST | `/projects/:projectId/members` | 添加项目成员 |
+| PATCH | `/projects/:projectId/members/:userId/role` | 修改项目角色 |
+| DELETE | `/projects/:projectId/members/:userId` | 移除项目成员 |
+
+### 7.5 看板列表
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/projects/:projectId/lists` | 获取任务列表和任务 |
+| POST | `/projects/:projectId/lists` | 创建列表 |
+| PATCH | `/projects/:projectId/lists/:listId` | 重命名列表 |
+| DELETE | `/projects/:projectId/lists/:listId` | 删除列表 |
+| PATCH | `/projects/:projectId/lists/reorder` | 列表排序 |
+
+列表排序请求：
+
+```json
+{
+  "items": [
+    { "id": "list_1", "sortKey": "1000" },
+    { "id": "list_2", "sortKey": "2000" }
+  ]
+}
+```
+
+### 7.6 任务
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/projects/:projectId/tasks` | 创建任务 |
+| GET | `/tasks/:taskId` | 任务详情 |
+| PATCH | `/tasks/:taskId` | 更新任务 |
+| DELETE | `/tasks/:taskId` | 软删除任务 |
+| PATCH | `/tasks/:taskId/move` | 移动任务 |
+| POST | `/tasks/:taskId/comments` | 创建评论 |
+| GET | `/tasks/:taskId/comments` | 评论列表 |
+| DELETE | `/tasks/:taskId/comments/:commentId` | 删除评论 |
+
+创建任务请求：
+
+```json
+{
+  "taskListId": "list_id",
+  "title": "完成登录页",
+  "description": "包含邮箱登录和错误提示",
+  "assigneeId": "user_id",
+  "priority": "HIGH",
+  "startDate": "2026-06-08T00:00:00.000Z",
+  "dueDate": "2026-06-12T23:59:59.000Z",
+  "tagIds": ["tag_id"]
+}
+```
+
+移动任务请求：
+
+```json
+{
+  "targetTaskListId": "list_id",
+  "sortKey": "1500"
+}
+```
+
+实现要求：
+
+- 移动任务必须校验目标列表属于同一个项目。
+- 移动到完成类型列表时写入 `completedAt`。
+- 从完成类型列表移出时清空 `completedAt`。
+
+### 7.7 标签
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/projects/:projectId/tags` | 标签列表 |
+| POST | `/projects/:projectId/tags` | 创建标签 |
+| PATCH | `/projects/:projectId/tags/:tagId` | 更新标签 |
+| DELETE | `/projects/:projectId/tags/:tagId` | 删除标签 |
+| POST | `/tasks/:taskId/tags/:tagId` | 添加任务标签 |
+| DELETE | `/tasks/:taskId/tags/:tagId` | 移除任务标签 |
+
+### 7.8 甘特图
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/projects/:projectId/gantt` | 获取甘特图数据 |
+| PATCH | `/tasks/:taskId/schedule` | 更新任务排期 |
+| POST | `/tasks/:taskId/dependencies` | 创建依赖 |
+| DELETE | `/tasks/:taskId/dependencies/:dependencyId` | 删除依赖 |
+
+甘特图数据响应：
+
+```json
+{
+  "data": {
+    "tasks": [
+      {
+        "id": "task_id",
+        "text": "完成登录页",
+        "startDate": "2026-06-08",
+        "endDate": "2026-06-12",
+        "progress": 0,
+        "assigneeId": "user_id",
+        "tagIds": ["tag_id"]
+      }
+    ],
+    "links": [
+      {
+        "id": "dep_id",
+        "source": "task_a",
+        "target": "task_b",
+        "type": "FINISH_TO_START"
+      }
+    ]
+  },
+  "requestId": "req_xxx"
+}
+```
+
+### 7.9 飞书
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/feishu/webhook` | 飞书事件回调 |
+| POST | `/feishu/bind` | 绑定飞书账号 |
+| DELETE | `/feishu/bind` | 解绑飞书账号 |
+| POST | `/feishu/notify/test` | 开发环境测试通知 |
+
+要求：
+
+- `/feishu/notify/test` 仅开发环境可用。
+- 回调接口必须处理飞书 challenge。
+- 所有回调事件必须通过事件 ID 做幂等。
+
+## 8. 前端结构
+
+```text
+src/
+├── app/
+│   ├── App.tsx
+│   ├── router.tsx
+│   └── providers.tsx
+├── components/
+│   ├── ui/
+│   ├── layout/
+│   └── shared/
+├── features/
+│   ├── auth/
+│   ├── team/
+│   ├── project/
+│   ├── board/
+│   ├── task/
+│   ├── my-tasks/
+│   ├── notification/
+│   ├── feishu/
+│   └── gantt/
+├── hooks/
+├── lib/
+│   ├── api.ts
+│   ├── queryClient.ts
+│   └── permissions.ts
+├── stores/
+├── types/
+└── main.tsx
+```
+
+### 路由
+
+```text
+/login
+/register
+/auth/feishu/callback
+/dashboard
+/teams/:teamId/projects
+/teams/:teamId/settings
+/projects/:projectId/board
+/projects/:projectId/list
+/projects/:projectId/gantt
+/projects/:projectId/settings
+/tasks/:taskId
+/notifications
+```
+
+### 关键页面验收
+
+登录页：
+
+- 邮箱、密码校验
+- 登录失败提示
+- 登录成功后进入最近访问团队或 dashboard
+
+看板页：
+
+- 可创建任务
+- 可拖拽任务跨列移动
+- 移动失败时回滚 UI
+- 支持空列状态
+- 支持加载、错误、无权限状态
+
+任务详情：
+
+- 可编辑标题、描述、负责人、优先级、日期、标签
+- 可查看和发表评论
+- 可展示子任务
+- 无权限用户只读
+
+通知中心：
+
+- 展示未读 / 已读
+- 支持单条已读和全部已读
+- 点击通知跳转对应任务或项目
+
+## 9. 后端结构
+
+```text
+src/
+├── app.ts
+├── server.ts
+├── config/
+├── middleware/
+│   ├── auth.ts
+│   ├── errorHandler.ts
+│   ├── requestId.ts
+│   └── validate.ts
+├── modules/
+│   ├── auth/
+│   ├── users/
+│   ├── teams/
+│   ├── projects/
+│   ├── tasks/
+│   ├── notifications/
+│   ├── feishu/
+│   └── gantt/
+├── jobs/
+│   ├── queues.ts
+│   ├── notification.worker.ts
+│   └── due-reminder.worker.ts
+├── prisma/
+└── utils/
+```
+
+模块内建议结构：
+
+```text
+modules/tasks/
+├── task.routes.ts
+├── task.controller.ts
+├── task.service.ts
+├── task.repository.ts
+├── task.schema.ts
+└── task.policy.ts
+```
+
+## 10. 异步任务与通知
+
+### 10.1 队列
+
+队列：
+
+- `notification-delivery`
+- `due-reminder`
+- `feishu-webhook`
+
+任务要求：
+
+- 队列任务必须幂等。
+- 飞书通知最多重试 3 次。
+- 重试间隔使用指数退避。
+- 失败后记录 `NotificationDelivery.lastError`。
+
+### 10.2 截止提醒
+
+实现方式：
+
+- 每 10 分钟扫描未来 24 小时内到期且未提醒的任务。
+- 使用 `dedupeKey = task_due_soon:{taskId}:{dueDate}` 防止重复通知。
+- 已完成任务不提醒。
+
+## 11. 安全要求
+
+- 密码必须哈希保存，禁止明文存储。
+- 登录接口需要限流。
+- JWT access token 建议 15 分钟过期。
+- refresh token 需要服务端可撤销。
+- 所有写接口必须校验权限。
+- 所有输入必须经过 Zod 校验。
+- 评论内容前端渲染时必须防 XSS。
+- 飞书 App Secret 只能通过环境变量读取。
+- 生产环境必须启用 HTTPS。
+
+## 12. 环境变量
+
+```bash
+DATABASE_URL=
+REDIS_URL=
+JWT_ACCESS_SECRET=
+JWT_REFRESH_SECRET=
+APP_BASE_URL=
+FEISHU_APP_ID=
+FEISHU_APP_SECRET=
+FEISHU_ENCRYPT_KEY=
+FEISHU_VERIFICATION_TOKEN=
+NODE_ENV=
+```
+
+## 13. 错误码
+
+| HTTP | code | 说明 |
+|------|------|------|
+| 400 | VALIDATION_ERROR | 参数校验失败 |
+| 401 | UNAUTHORIZED | 未登录或 token 失效 |
+| 403 | FORBIDDEN | 无权限 |
+| 404 | RESOURCE_NOT_FOUND | 资源不存在 |
+| 409 | CONFLICT | 资源冲突，例如重复邀请 |
+| 422 | BUSINESS_RULE_VIOLATION | 违反业务规则 |
+| 429 | RATE_LIMITED | 请求过快 |
+| 500 | INTERNAL_ERROR | 服务端错误 |
+
+## 14. 测试计划
+
+### 单元测试
+
+- 权限判断
+- 排序 key 生成
+- 日期校验
+- 依赖循环检测
+- 通知 dedupeKey 生成
+
+### 集成测试
+
+- 注册登录
+- 创建团队和项目
+- 邀请成员
+- 创建、移动、删除任务
+- 评论 @ 通知
+- 截止提醒队列
+- 飞书通知重试
+
+### E2E 测试
+
+- 用户登录后创建项目
+- 在看板创建任务并拖拽到完成列
+- 打开任务详情修改负责人
+- 查看我的任务
+- 查看并标记通知已读
+
+## 15. 性能与容量目标
+
+V0 目标：
+
+- 支持 50 人团队并发使用。
+- 项目内 1000 个任务以内看板加载可用。
+- 常规接口 P95 响应时间小于 500ms。
+- 首屏加载时间小于 2 秒。
+
+实现建议：
+
+- 项目列表、看板任务按项目维度查询。
+- 我的任务按 `assigneeId + dueDate` 建索引。
+- 通知按 `recipientId + isRead + createdAt` 建索引。
+- 看板默认只加载未删除任务。
+
+## 16. 部署
+
+本地开发：
+
+- Docker Compose 启动 PostgreSQL 和 Redis。
+- 前端、后端分别启动。
+
+生产部署：
+
+- 前端：Vercel 或 Nginx 静态资源。
+- 后端：云服务器、Railway 或其他 Node.js 托管平台。
+- 数据库：托管 PostgreSQL。
+- 队列：托管 Redis。
+
+最低部署单元：
+
+- Web API 服务
+- Worker 服务
+- PostgreSQL
+- Redis
+
+## 17. 验收标准
+
+V0 完成标准：
+
+- 用户可以注册、登录、退出。
+- 用户可以创建团队和项目。
+- 项目创建后自动生成默认看板列。
+- 项目成员可以创建、编辑、移动任务。
+- 看板拖拽后刷新页面顺序不丢失。
+- 用户可以在任务下发表评论。
+- 被分配任务和被 @ 时可以收到站内通知。
+- 我的任务能展示当前用户负责的未完成任务。
+- 无权限用户无法访问或修改项目数据。
+- 所有核心接口有集成测试覆盖。
+
+V1 完成标准：
+
+- 用户可以绑定飞书账号。
+- 任务分配、评论 @、截止提醒能发送飞书消息。
+- 飞书发送失败会重试并记录失败原因。
+- 飞书回调接口具备验签和幂等处理。
+
+V2 完成标准：
+
+- 甘特图能展示项目任务。
+- 可按周 / 月 / 季度缩放。
+- 可拖拽修改任务排期。
+- 可创建和删除任务依赖。
+- 循环依赖会被拒绝。
+
+## 18. 待决策事项
+
+- 是否商业化或闭源。如果是，需要确认甘特图库商业授权。
+- 是否必须支持移动端拖拽。如果必须，需要单独验证交互方案。
+- 是否需要邮箱验证和密码找回。建议 V0.1 补齐。
+- 是否需要团队所有权转移。建议在团队成员管理上线前补齐。
+- 是否需要任务活动记录。建议 V0.1 加入，便于审计和排查问题。
