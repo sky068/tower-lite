@@ -1,14 +1,24 @@
-import { Bell, FolderKanban, ListChecks } from "lucide-react";
+import { Bell, ListChecks } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
+import { authApi } from "../../lib/api";
 import { useAuthStore } from "../../stores/authStore";
 
 const navItems = [
-  { to: "/dashboard", label: "我的任务", icon: ListChecks },
-  { to: "/projects/demo/board", label: "项目看板", icon: FolderKanban }
+  { to: "/dashboard", label: "工作台", icon: ListChecks }
 ];
 
 export function AppShell() {
-  const { user, clearSession } = useAuthStore();
+  const { user, refreshToken, clearSession } = useAuthStore();
+
+  async function handleLogout() {
+    try {
+      if (refreshToken) {
+        await authApi.logout({ refreshToken });
+      }
+    } finally {
+      clearSession();
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -36,7 +46,7 @@ export function AppShell() {
             <button className="icon-button" aria-label="通知">
               <Bell size={18} />
             </button>
-            <button className="text-button" type="button" onClick={clearSession}>
+            <button className="text-button" type="button" onClick={() => void handleLogout()}>
               退出
             </button>
           </div>

@@ -1,3 +1,4 @@
+import { TaskListType } from "@prisma/client";
 import { AppError } from "../../middleware/error-handler.js";
 
 export function assertValidDateRange(startDate?: Date | null, dueDate?: Date | null) {
@@ -11,6 +12,36 @@ export function assertV0SubTaskParent(parentTask: { parentId: string | null }) {
     throw new AppError(
       "BUSINESS_RULE_VIOLATION",
       "V0 only supports one level of subtasks",
+      422
+    );
+  }
+}
+
+export function assertTaskListDeletable(taskList: { type: TaskListType }) {
+  if (taskList.type !== TaskListType.CUSTOM) {
+    throw new AppError(
+      "BUSINESS_RULE_VIOLATION",
+      "Default task lists cannot be deleted",
+      422
+    );
+  }
+}
+
+export function assertTaskListEditable(taskList: { type: TaskListType }) {
+  if (taskList.type !== TaskListType.CUSTOM) {
+    throw new AppError(
+      "BUSINESS_RULE_VIOLATION",
+      "Default task lists cannot be edited",
+      422
+    );
+  }
+}
+
+export function assertTaskDeletable(task: { subTaskCount: number }) {
+  if (task.subTaskCount > 0) {
+    throw new AppError(
+      "BUSINESS_RULE_VIOLATION",
+      "Task with subtasks cannot be deleted",
       422
     );
   }

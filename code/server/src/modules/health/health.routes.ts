@@ -8,7 +8,9 @@ healthRoutes.get("/health", async (req, res) => {
 
   res.json({
     data: {
-      ok: true
+      ok: true,
+      database: "ok",
+      uptimeSeconds: Math.round(process.uptime())
     },
     requestId: req.requestId
   });

@@ -1,9 +1,16 @@
-import { getApiErrorMessage } from "../../lib/api";
+import { getApiErrorMessage, getApiErrorMeta } from "../../lib/api";
 
 export function MutationError({ error }: { error: unknown }) {
   if (!error) {
     return null;
   }
 
-  return <div className="form-error">{getApiErrorMessage(error)}</div>;
+  const meta = getApiErrorMeta(error);
+
+  return (
+    <div className="form-error">
+      <span>{getApiErrorMessage(error)}</span>
+      {meta ? <small>{meta}</small> : null}
+    </div>
+  );
 }

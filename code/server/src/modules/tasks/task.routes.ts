@@ -7,6 +7,7 @@ import {
   createComment,
   createTask,
   createTaskList,
+  deleteComment,
   deleteTask,
   deleteTaskList,
   getTask,
@@ -25,6 +26,7 @@ import {
   moveTaskSchema,
   projectIdParamsSchema,
   reorderTaskListsSchema,
+  taskCommentParamsSchema,
   taskListIdParamsSchema,
   taskIdParamsSchema,
   updateTaskListSchema,
@@ -158,5 +160,14 @@ taskRoutes.post(
   asyncHandler(async (req, res) => {
     const data = await createComment(getCurrentUserId(req), req.params.taskId, req.body);
     return sendData(req, res, data, 201);
+  })
+);
+
+taskRoutes.delete(
+  "/tasks/:taskId/comments/:commentId",
+  validate("params", taskCommentParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await deleteComment(getCurrentUserId(req), req.params.taskId, req.params.commentId);
+    return sendData(req, res, data);
   })
 );

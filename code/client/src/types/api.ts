@@ -63,12 +63,14 @@ export type Task = {
   dueDate: string | null;
   taskListId: string;
   projectId: string;
-  assigneeId: string | null;
   creatorId: string;
   parentId: string | null;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  assignees?: Array<Pick<User, "id" | "name" | "avatarUrl"> & { isRemoved?: boolean }>;
+  tags?: Tag[];
+  subTaskCount?: number;
 };
 
 export type Comment = {
@@ -101,6 +103,7 @@ export type MyTask = {
   priority: Task["priority"];
   dueDate: string | null;
   completedAt: string | null;
+  parentId: string | null;
   project: {
     id: string;
     name: string;

@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { TaskListType } from "@prisma/client";
 import { AppError } from "../../middleware/error-handler.js";
-import { assertV0SubTaskParent, assertValidDateRange } from "./task.rules.js";
+import {
+  assertTaskListDeletable,
+  assertTaskListEditable,
+  assertTaskDeletable,
+  assertV0SubTaskParent,
+  assertValidDateRange
+} from "./task.rules.js";
 
 describe("task rules", () => {
   it("allows empty or ordered task dates", () => {
@@ -28,6 +35,52 @@ describe("task rules", () => {
   it("rejects creating a subtask under another subtask in V0", () => {
     assert.throws(
       () => assertV0SubTaskParent({ parentId: "parent-task-id" }),
+      (error) =>
+        error instanceof AppError &&
+        error.code === "BUSINESS_RULE_VIOLATION" &&
+        error.status === 422
+    );
+  });
+
+  it("allows deleting custom task lists", () => {
+    assert.doesNotThrow(() => assertTaskListDeletable({ type: TaskListType.CUSTOM }));
+  });
+
+  it("rejects deleting default task lists", () => {
+    for (const type of [TaskListType.TODO, TaskListType.IN_PROGRESS, TaskListType.DONE]) {
+      assert.throws(
+        () => assertTaskListDeletable({ type }),
+        (error) =>
+          error instanceof AppError &&
+          error.code === "BUSINESS_RULE_VIOLATION" &&
+          error.status === 422
+      );
+    }
+  });
+
+  it("allows editing custom task lists", () => {
+    assert.doesNotThrow(() => assertTaskListEditable({ type: TaskListType.CUSTOM }));
+  });
+
+  it("rejects editing default task lists", () => {
+    for (const type of [TaskListType.TODO, TaskListType.IN_PROGRESS, TaskListType.DONE]) {
+      assert.throws(
+        () => assertTaskListEditable({ type }),
+        (error) =>
+          error instanceof AppError &&
+          error.code === "BUSINESS_RULE_VIOLATION" &&
+          error.status === 422
+      );
+    }
+  });
+
+  it("allows deleting tasks without subtasks", () => {
+    assert.doesNotThrow(() => assertTaskDeletable({ subTaskCount: 0 }));
+  });
+
+  it("rejects deleting tasks that still have subtasks", () => {
+    assert.throws(
+      () => assertTaskDeletable({ subTaskCount: 1 }),
       (error) =>
         error instanceof AppError &&
         error.code === "BUSINESS_RULE_VIOLATION" &&

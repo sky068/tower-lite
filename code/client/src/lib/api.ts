@@ -70,11 +70,31 @@ api.interceptors.response.use(
 
 export function getApiErrorMessage(error: unknown, fallback = "操作失败，请稍后再试") {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as { error?: { message?: string } } | undefined;
+    if (!error.response) {
+      return "API 服务不可用，请确认后端服务已经启动。";
+    }
+
+    const data = error.response.data as { error?: { message?: string } } | undefined;
     return data?.error?.message ?? fallback;
   }
 
   return fallback;
+}
+
+export function getApiErrorMeta(error: unknown) {
+  if (!axios.isAxiosError(error) || !error.response) {
+    return null;
+  }
+
+  const data = error.response.data as
+    | { error?: { code?: string }; requestId?: string }
+    | undefined;
+  const parts = [
+    data?.error?.code ? `code: ${data.error.code}` : null,
+    data?.requestId ? `requestId: ${data.requestId}` : null
+  ].filter(Boolean);
+
+  return parts.length > 0 ? parts.join(" / ") : null;
 }
 
 async function unwrap<T>(promise: Promise<{ data: ApiResponse<T> }>) {
@@ -88,6 +108,9 @@ export const authApi = {
   },
   login(input: { email: string; password: string }) {
     return unwrap<AuthResponse>(api.post("/auth/login", input));
+  },
+  logout(input: { refreshToken: string }) {
+    return unwrap<{ ok: boolean }>(api.post("/auth/logout", input));
   },
   me() {
     return unwrap<User & { feishuBound: boolean }>(api.get("/users/me"));
@@ -117,6 +140,9 @@ export const teamApi = {
   },
   create(input: { name: string }) {
     return unwrap<Team>(api.post("/teams", input));
+  },
+  update(teamId: string, input: { name: string }) {
+    return unwrap<Team>(api.patch(`/teams/${teamId}`, input));
   },
   members(teamId: string) {
     return unwrap<Member[]>(api.get(`/teams/${teamId}/members`));
@@ -186,14 +212,17 @@ export const boardApi = {
     title: string;
     parentId?: string;
     description?: string;
-    assigneeId?: string;
+    assigneeIds?: string[];
+    priority?: Task["priority"];
+    startDate?: string | null;
+    dueDate?: string | null;
   }) {
     return unwrap<Task>(api.post(`/projects/${projectId}/tasks`, input));
   },
   getTask(taskId: string) {
     return unwrap<TaskDetail>(api.get(`/tasks/${taskId}`));
   },
-  updateTask(taskId: string, input: Partial<Pick<Task, "title" | "description" | "priority" | "assigneeId" | "startDate" | "dueDate">>) {
+  updateTask(taskId: string, input: Partial<Pick<Task, "title" | "description" | "priority" | "startDate" | "dueDate">> & { assigneeIds?: string[] }) {
     return unwrap<Task>(api.patch(`/tasks/${taskId}`, input));
   },
   moveTask(taskId: string, input: { targetTaskListId: string; sortKey: string }) {
@@ -205,11 +234,20 @@ export const boardApi = {
   createComment(taskId: string, input: { content: string }) {
     return unwrap<Comment>(api.post(`/tasks/${taskId}/comments`, input));
   },
+  deleteComment(taskId: string, commentId: string) {
+    return unwrap<{ ok: boolean }>(api.delete(`/tasks/${taskId}/comments/${commentId}`));
+  },
   tags(projectId: string) {
     return unwrap<Tag[]>(api.get(`/projects/${projectId}/tags`));
   },
   createTag(projectId: string, input: { name: string; color: string }) {
     return unwrap<Tag>(api.post(`/projects/${projectId}/tags`, input));
+  },
+  updateTag(projectId: string, tagId: string, input: Partial<Pick<Tag, "name" | "color">>) {
+    return unwrap<Tag>(api.patch(`/projects/${projectId}/tags/${tagId}`, input));
+  },
+  deleteTag(projectId: string, tagId: string) {
+    return unwrap<{ ok: boolean }>(api.delete(`/projects/${projectId}/tags/${tagId}`));
   },
   addTag(taskId: string, tagId: string) {
     return unwrap<{ ok: boolean }>(api.post(`/tasks/${taskId}/tags/${tagId}`));

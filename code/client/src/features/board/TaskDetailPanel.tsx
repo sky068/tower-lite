@@ -1,33 +1,80 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../../components/shared/MutationError";
 import { boardApi, projectApi } from "../../lib/api";
+import { openDateInputPicker } from "../../lib/dateInput";
+import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { useAuthStore } from "../../stores/authStore";
 
 type TaskDetailPanelProps = {
   projectId: string;
   taskId: string;
+  readOnly?: boolean;
   onClose: () => void;
 };
 
-export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelProps) {
+function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
+  return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+}
+
+export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }: TaskDetailPanelProps) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
+  const subTaskAssigneeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState(taskId);
   const [comment, setComment] = useState("");
+  const [isSubTaskCreateOpen, setIsSubTaskCreateOpen] = useState(false);
+  const [isSubTaskAssigneeOpen, setIsSubTaskAssigneeOpen] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState("");
+  const [subTaskListId, setSubTaskListId] = useState("");
+  const [subTaskAssigneeIds, setSubTaskAssigneeIds] = useState<string[]>([]);
+  const [subTaskStartDate, setSubTaskStartDate] = useState("");
+  const [subTaskDueDate, setSubTaskDueDate] = useState("");
+  const [subTaskDateError, setSubTaskDateError] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [assigneeId, setAssigneeId] = useState("");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [priority, setPriority] = useState<"LOW" | "MEDIUM" | "HIGH" | "URGENT">("MEDIUM");
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dateError, setDateError] = useState("");
   const [tagName, setTagName] = useState("");
   const [tagColor, setTagColor] = useState("#2563eb");
+  const [tagDrafts, setTagDrafts] = useState<Record<string, { name: string; color: string }>>({});
+
+  useEffect(() => {
+    setActiveTaskId(taskId);
+  }, [taskId]);
+
+  useEffect(() => {
+    setIsSubTaskCreateOpen(false);
+    setIsSubTaskAssigneeOpen(false);
+    setSubTaskTitle("");
+    setSubTaskAssigneeIds([]);
+    setSubTaskStartDate("");
+    setSubTaskDueDate("");
+    setSubTaskDateError("");
+  }, [activeTaskId]);
+
+  useEffect(() => {
+    if (!isSubTaskAssigneeOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!subTaskAssigneeDropdownRef.current?.contains(event.target as Node)) {
+        setIsSubTaskAssigneeOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isSubTaskAssigneeOpen]);
 
   const taskQuery = useQuery({
-    queryKey: ["task", taskId],
-    queryFn: () => boardApi.getTask(taskId)
+    queryKey: ["task", activeTaskId],
+    queryFn: () => boardApi.getTask(activeTaskId)
   });
 
   const listsQuery = useQuery({
@@ -48,58 +95,123 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
   const task = taskQuery.data;
   const lists = listsQuery.data ?? [];
   const tags = tagsQuery.data ?? [];
+  const memberUserIds = useMemo(
+    () => new Set((membersQuery.data ?? []).map((member) => member.user.id)),
+    [membersQuery.data]
+  );
+  const removedAssignees = useMemo(
+    () =>
+      (task?.assignees ?? []).filter(
+        (assignee) => assignee.isRemoved || !memberUserIds.has(assignee.id)
+      ),
+    [memberUserIds, task?.assignees]
+  );
   const currentList = useMemo(
     () => lists.find((list) => list.id === task?.taskListId) ?? null,
     [lists, task?.taskListId]
   );
+  const doneList = useMemo(() => lists.find((list) => list.type === "DONE") ?? null, [lists]);
+  const subTaskAssigneeSummary = useMemo(() => {
+    const members = membersQuery.data ?? [];
+    const selectedNames = members
+      .filter((member) => subTaskAssigneeIds.includes(member.user.id))
+      .map((member) => member.user.name);
+
+    if (selectedNames.length === 0) {
+      return "选择负责人";
+    }
+
+    return selectedNames.length > 2
+      ? `${selectedNames.slice(0, 2).join(", ")} 等 ${selectedNames.length} 人`
+      : selectedNames.join(", ");
+  }, [membersQuery.data, subTaskAssigneeIds]);
 
   useEffect(() => {
     if (task) {
       setTitle(task.title);
       setDescription(task.description ?? "");
-      setAssigneeId(task.assigneeId ?? "");
+      setAssigneeIds(
+        task.assignees && task.assignees.length > 0
+          ? task.assignees.map((assignee) => assignee.id)
+          : []
+      );
       setPriority(task.priority);
       setStartDate(task.startDate ? task.startDate.slice(0, 10) : "");
       setDueDate(task.dueDate ? task.dueDate.slice(0, 10) : "");
+      setSubTaskListId(task.taskListId);
     }
   }, [task]);
 
+  useEffect(() => {
+    setTagDrafts((current) => {
+      const next: Record<string, { name: string; color: string }> = {};
+
+      for (const tag of tags) {
+        next[tag.id] = current[tag.id] ?? { name: tag.name, color: tag.color };
+      }
+
+      return next;
+    });
+  }, [tags]);
+
   const createCommentMutation = useMutation({
-    mutationFn: (content: string) => boardApi.createComment(taskId, { content }),
+    mutationFn: (content: string) => boardApi.createComment(activeTaskId, { content }),
     onSuccess: () => {
       setComment("");
-      void queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
+    }
+  });
+
+  const deleteCommentMutation = useMutation({
+    mutationFn: (commentId: string) => boardApi.deleteComment(activeTaskId, commentId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
     }
   });
 
   const createSubTaskMutation = useMutation({
-    mutationFn: (title: string) =>
+    mutationFn: (input: {
+      title: string;
+      assigneeIds: string[];
+      startDate: string | null;
+      dueDate: string | null;
+    }) =>
       boardApi.createTask(projectId, {
-        taskListId: task!.taskListId,
-        parentId: taskId,
-        assigneeId: user?.id,
-        title
+        taskListId: subTaskListId || task!.taskListId,
+        parentId: activeTaskId,
+        assigneeIds: input.assigneeIds,
+        title: input.title,
+        startDate: input.startDate,
+        dueDate: input.dueDate
       }),
     onSuccess: () => {
       setSubTaskTitle("");
-      void queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+      setSubTaskListId(task?.taskListId ?? "");
+      setSubTaskAssigneeIds([]);
+      setSubTaskStartDate("");
+      setSubTaskDueDate("");
+      setSubTaskDateError("");
+      setIsSubTaskCreateOpen(false);
+      setIsSubTaskAssigneeOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
     }
   });
 
   const updateTaskMutation = useMutation({
     mutationFn: () =>
-      boardApi.updateTask(taskId, {
+      boardApi.updateTask(activeTaskId, {
         title: title.trim(),
         description: description.trim() || null,
-        assigneeId: assigneeId || null,
+        assigneeIds,
         priority,
         startDate: startDate || null,
         dueDate: dueDate || null
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      onClose();
     }
   });
 
@@ -108,13 +220,19 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
       const targetList = lists.find((list) => list.id === targetTaskListId);
       const lastSortKey = targetList?.tasks.at(-1)?.sortKey;
       const nextSortKey = lastSortKey ? String(Number(lastSortKey) + 1000) : "1000";
-      return boardApi.moveTask(taskId, { targetTaskListId, sortKey: nextSortKey });
+      return boardApi.moveTask(activeTaskId, { targetTaskListId, sortKey: nextSortKey });
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
     }
   });
+
+  function moveToList(targetTaskListId: string) {
+    if (!readOnly) {
+      moveTaskMutation.mutate(targetTaskListId);
+    }
+  }
 
   const createTagMutation = useMutation({
     mutationFn: () => boardApi.createTag(projectId, { name: tagName.trim(), color: tagColor }),
@@ -124,22 +242,41 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
     }
   });
 
-  const addTagMutation = useMutation({
-    mutationFn: (tagId: string) => boardApi.addTag(taskId, tagId),
+  const updateTagMutation = useMutation({
+    mutationFn: (input: { tagId: string; name: string; color: string }) =>
+      boardApi.updateTag(projectId, input.tagId, { name: input.name, color: input.color }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+      void queryClient.invalidateQueries({ queryKey: ["tags", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
+      void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+    }
+  });
+
+  const deleteTagMutation = useMutation({
+    mutationFn: (tagId: string) => boardApi.deleteTag(projectId, tagId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["tags", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
+      void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+    }
+  });
+
+  const addTagMutation = useMutation({
+    mutationFn: (tagId: string) => boardApi.addTag(activeTaskId, tagId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
     }
   });
 
   const removeTagMutation = useMutation({
-    mutationFn: (tagId: string) => boardApi.removeTag(taskId, tagId),
+    mutationFn: (tagId: string) => boardApi.removeTag(activeTaskId, tagId),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["task", taskId] });
+      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
     }
   });
 
   const deleteTaskMutation = useMutation({
-    mutationFn: () => boardApi.deleteTask(taskId),
+    mutationFn: () => boardApi.deleteTask(activeTaskId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
       onClose();
@@ -150,7 +287,7 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
     event.preventDefault();
     const content = comment.trim();
 
-    if (content) {
+    if (content && !readOnly) {
       createCommentMutation.mutate(content);
     }
   }
@@ -159,8 +296,51 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
     event.preventDefault();
     const title = subTaskTitle.trim();
 
-    if (title && task) {
-      createSubTaskMutation.mutate(title);
+    if (subTaskStartDate && subTaskDueDate && subTaskStartDate > subTaskDueDate) {
+      setSubTaskDateError("开始日期不能晚于截止日期。");
+      return;
+    }
+
+    setSubTaskDateError("");
+
+    if (title && task && !readOnly) {
+      createSubTaskMutation.mutate({
+        title,
+        assigneeIds: subTaskAssigneeIds,
+        startDate: subTaskStartDate || null,
+        dueDate: subTaskDueDate || null
+      });
+    }
+  }
+
+  function handleCancelCreateSubTask() {
+    setIsSubTaskCreateOpen(false);
+    setIsSubTaskAssigneeOpen(false);
+    setSubTaskTitle("");
+    setSubTaskListId(task?.taskListId ?? "");
+    setSubTaskAssigneeIds([]);
+    setSubTaskStartDate("");
+    setSubTaskDueDate("");
+    setSubTaskDateError("");
+  }
+
+  function handleDeleteTask() {
+    const taskTitle = task?.title ? `「${task.title}」` : "这个任务";
+
+    if (!readOnly && window.confirm(`确认删除任务${taskTitle}？此操作不可恢复。`)) {
+      deleteTaskMutation.mutate();
+    }
+  }
+
+  function handleDeleteTag(tagId: string, tagName: string) {
+    if (!readOnly && window.confirm(`确认删除标签「${tagName}」？此标签会从相关任务中移除。`)) {
+      deleteTagMutation.mutate(tagId);
+    }
+  }
+
+  function handleDeleteComment(commentId: string) {
+    if (!readOnly && window.confirm("确认删除这条评论？")) {
+      deleteCommentMutation.mutate(commentId);
     }
   }
 
@@ -174,7 +354,7 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
 
     setDateError("");
 
-    if (title.trim()) {
+    if (title.trim() && !readOnly) {
       updateTaskMutation.mutate();
     }
   }
@@ -182,18 +362,58 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
   function handleCreateTag(event: FormEvent) {
     event.preventDefault();
 
-    if (tagName.trim()) {
+    if (tagName.trim() && !readOnly) {
       createTagMutation.mutate();
     }
   }
 
+  function handleUpdateTag(event: FormEvent, tagId: string) {
+    event.preventDefault();
+    const draft = tagDrafts[tagId];
+    const name = draft?.name.trim();
+
+    if (name && draft?.color && !readOnly) {
+      updateTagMutation.mutate({ tagId, name, color: draft.color });
+    }
+  }
+
+  function toggleTaskAssignee(userId: string, checked: boolean) {
+    const removedIds = removedAssignees.map((assignee) => assignee.id);
+
+    setAssigneeIds((current) => {
+      const activeIds = current.filter((assigneeId) => !removedIds.includes(assigneeId));
+      const nextActiveIds = checked
+        ? [...activeIds, userId]
+        : activeIds.filter((assigneeId) => assigneeId !== userId);
+
+      return [...new Set([...nextActiveIds, ...removedIds])];
+    });
+  }
+
+  function toggleSubTaskAssignee(userId: string, checked: boolean) {
+    setSubTaskAssigneeIds((current) =>
+      checked
+        ? [...new Set([...current, userId])]
+        : current.filter((assigneeId) => assigneeId !== userId)
+    );
+  }
+
   return (
-    <div className="drawer-backdrop">
-      <aside className="task-drawer" aria-label="任务详情">
-        <header className="drawer-header">
+    <div className="modal-backdrop">
+      <section className="task-detail-modal" aria-label="任务详情">
+        <header className="task-detail-header">
           <div>
             <span className="eyebrow">任务详情</span>
             <h2>{task?.title ?? "加载中..."}</h2>
+            {task?.parentId ? (
+              <button
+                className="mini-button inline-mini-button"
+                type="button"
+                onClick={() => setActiveTaskId(task.parentId!)}
+              >
+                返回父任务
+              </button>
+            ) : null}
           </div>
           <button className="text-button" type="button" onClick={onClose}>
             关闭
@@ -202,7 +422,7 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
 
         {taskQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
         {task ? (
-          <div className="drawer-body">
+          <div className="task-detail-body">
             <section className="detail-section">
               <h3>基础信息</h3>
               <MutationError error={updateTaskMutation.error} />
@@ -212,6 +432,7 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                   <input
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}
+                    disabled={readOnly}
                     required
                   />
                 </label>
@@ -222,15 +443,46 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                     onChange={(event) => setDescription(event.target.value)}
                     placeholder="补充任务背景、验收标准或注意事项"
                     rows={4}
+                    disabled={readOnly}
                   />
                 </label>
-                <label>
-                  负责人
-                  <select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)}>
-                    <option value="">未分配</option>
+                <fieldset className="checkbox-field">
+                  <legend>负责人</legend>
+                  <div className="checkbox-list">
                     {(membersQuery.data ?? []).map((member) => (
-                      <option key={member.user.id} value={member.user.id}>
-                        {member.user.name}
+                      <label className="checkbox-row" key={member.user.id}>
+                        <input
+                          type="checkbox"
+                          checked={assigneeIds.includes(member.user.id)}
+                          disabled={readOnly}
+                          onChange={(event) =>
+                            toggleTaskAssignee(member.user.id, event.target.checked)
+                          }
+                        />
+                        <span>{member.user.name}</span>
+                      </label>
+                    ))}
+                    {removedAssignees.map((assignee) => (
+                      <label className="checkbox-row disabled" key={assignee.id}>
+                        <input type="checkbox" checked disabled />
+                        <span>{formatAssigneeName(assignee)}</span>
+                      </label>
+                    ))}
+                    {(membersQuery.data ?? []).length === 0 && removedAssignees.length === 0 ? (
+                      <span className="muted">暂无可选成员</span>
+                    ) : null}
+                  </div>
+                </fieldset>
+                <label>
+                  状态
+                  <select
+                    value={task.taskListId}
+                    disabled={readOnly || moveTaskMutation.isPending}
+                    onChange={(event) => moveToList(event.target.value)}
+                  >
+                    {lists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
                       </option>
                     ))}
                   </select>
@@ -239,12 +491,14 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                   优先级
                   <select
                     value={priority}
+                    disabled={readOnly}
                     onChange={(event) => setPriority(event.target.value as typeof priority)}
                   >
-                    <option value="LOW">LOW</option>
-                    <option value="MEDIUM">MEDIUM</option>
-                    <option value="HIGH">HIGH</option>
-                    <option value="URGENT">URGENT</option>
+                    {PRIORITY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label>
@@ -253,6 +507,8 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                     type="date"
                     value={startDate}
                     max={dueDate || undefined}
+                    disabled={readOnly}
+                    onClick={(event) => openDateInputPicker(event.currentTarget)}
                     onChange={(event) => setStartDate(event.target.value)}
                   />
                 </label>
@@ -262,11 +518,13 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                     type="date"
                     value={dueDate}
                     min={startDate || undefined}
+                    disabled={readOnly}
+                    onClick={(event) => openDateInputPicker(event.currentTarget)}
                     onChange={(event) => setDueDate(event.target.value)}
                   />
                 </label>
                 {dateError ? <span className="form-error inline-error">{dateError}</span> : null}
-                <button type="submit" disabled={updateTaskMutation.isPending}>
+                <button type="submit" disabled={readOnly || updateTaskMutation.isPending}>
                   保存
                 </button>
               </form>
@@ -274,11 +532,21 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                 <span>所在列</span>
                 <strong>{currentList?.name ?? "未知"}</strong>
                 <span>优先级</span>
-                <strong>{task.priority}</strong>
+                <strong>
+                  <span className={getPriorityClassName(task.priority)}>
+                    {getPriorityLabel(task.priority)}
+                  </span>
+                </strong>
                 <span>开始日期</span>
                 <strong>{task.startDate ? new Date(task.startDate).toLocaleDateString() : "未设置"}</strong>
                 <span>截止日期</span>
                 <strong>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "未设置"}</strong>
+                <span>负责人</span>
+                <strong>
+                  {task.assignees && task.assignees.length > 0
+                    ? task.assignees.map(formatAssigneeName).join(", ")
+                    : "未分配"}
+                </strong>
               </div>
             </section>
 
@@ -290,13 +558,28 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                   <button
                     key={list.id}
                     type="button"
-                    disabled={list.id === task.taskListId || moveTaskMutation.isPending}
-                    onClick={() => moveTaskMutation.mutate(list.id)}
+                    disabled={readOnly || list.id === task.taskListId || moveTaskMutation.isPending}
+                    onClick={() => moveToList(list.id)}
                   >
                     {list.name}
                   </button>
                 ))}
               </div>
+              {doneList && doneList.id !== task.taskListId ? (
+                <button
+                  className="primary-inline-button"
+                  type="button"
+                  disabled={readOnly || moveTaskMutation.isPending}
+                  onClick={() => moveToList(doneList.id)}
+                >
+                  标记为已完成
+                </button>
+              ) : null}
+              {task.completedAt ? (
+                <span className="muted">
+                  已完成于 {new Date(task.completedAt).toLocaleString()}
+                </span>
+              ) : null}
             </section>
 
             <section className="detail-section danger-zone">
@@ -305,8 +588,8 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
               <button
                 className="danger-button"
                 type="button"
-                disabled={deleteTaskMutation.isPending}
-                onClick={() => deleteTaskMutation.mutate()}
+                disabled={readOnly || deleteTaskMutation.isPending}
+                onClick={handleDeleteTask}
               >
                 删除任务
               </button>
@@ -314,7 +597,15 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
 
             <section className="detail-section">
               <h3>标签</h3>
-              <MutationError error={createTagMutation.error ?? addTagMutation.error ?? removeTagMutation.error} />
+              <MutationError
+                error={
+                  createTagMutation.error ??
+                  updateTagMutation.error ??
+                  deleteTagMutation.error ??
+                  addTagMutation.error ??
+                  removeTagMutation.error
+                }
+              />
               <div className="tag-list">
                 {tags.map((tag) => {
                   const selected = task.tags.some((item) => item.id === tag.id);
@@ -324,10 +615,13 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                       key={tag.id}
                       type="button"
                       onClick={() =>
-                        selected
+                        readOnly
+                          ? undefined
+                          : selected
                           ? removeTagMutation.mutate(tag.id)
                           : addTagMutation.mutate(tag.id)
                       }
+                      disabled={readOnly}
                     >
                       <span style={{ backgroundColor: tag.color }} />
                       {tag.name}
@@ -341,41 +635,200 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
                   value={tagName}
                   onChange={(event) => setTagName(event.target.value)}
                   placeholder="新标签"
+                  disabled={readOnly}
                 />
                 <input
                   aria-label="标签颜色"
                   type="color"
                   value={tagColor}
+                  disabled={readOnly}
                   onChange={(event) => setTagColor(event.target.value)}
                 />
-                <button type="submit" disabled={createTagMutation.isPending}>
+                <button type="submit" disabled={readOnly || createTagMutation.isPending}>
                   创建
                 </button>
               </form>
+              <div className="tag-manage-list">
+                {tags.map((tag) => {
+                  const draft = tagDrafts[tag.id] ?? { name: tag.name, color: tag.color };
+
+                  return (
+                    <form
+                      className="tag-edit-row"
+                      key={tag.id}
+                      onSubmit={(event) => handleUpdateTag(event, tag.id)}
+                    >
+                      <input
+                        value={draft.name}
+                        onChange={(event) =>
+                          setTagDrafts((current) => ({
+                            ...current,
+                            [tag.id]: {
+                              ...draft,
+                              name: event.target.value
+                            }
+                          }))
+                        }
+                        disabled={readOnly}
+                        required
+                      />
+                      <input
+                        aria-label={`${tag.name} 颜色`}
+                        type="color"
+                        value={draft.color}
+                        onChange={(event) =>
+                          setTagDrafts((current) => ({
+                            ...current,
+                            [tag.id]: {
+                              ...draft,
+                              color: event.target.value
+                            }
+                          }))
+                        }
+                        disabled={readOnly}
+                      />
+                      <button type="submit" disabled={readOnly || updateTagMutation.isPending}>
+                        保存
+                      </button>
+                      <button
+                        className="danger-inline"
+                        type="button"
+                        disabled={readOnly || deleteTagMutation.isPending}
+                        onClick={() => handleDeleteTag(tag.id, tag.name)}
+                      >
+                        删除
+                      </button>
+                    </form>
+                  );
+                })}
+              </div>
             </section>
 
             <section className="detail-section">
               <h3>子任务</h3>
               <MutationError error={createSubTaskMutation.error} />
-              <form className="compact-form" onSubmit={handleCreateSubTask}>
-                <input
-                  value={subTaskTitle}
-                  onChange={(event) => setSubTaskTitle(event.target.value)}
-                  placeholder={task.parentId ? "V0 不支持子任务继续拆分" : "新增子任务"}
-                  disabled={Boolean(task.parentId)}
-                />
+              {!isSubTaskCreateOpen ? (
                 <button
-                  type="submit"
-                  disabled={Boolean(task.parentId) || createSubTaskMutation.isPending}
+                  className="primary-inline-button"
+                  type="button"
+                  disabled={readOnly || Boolean(task.parentId)}
+                  onClick={() => setIsSubTaskCreateOpen(true)}
                 >
-                  添加
+                  {task.parentId ? "V0 不支持继续拆分" : "创建子任务"}
                 </button>
-              </form>
+              ) : (
+                <form className="subtask-create-form" onSubmit={handleCreateSubTask}>
+                  <input
+                    value={subTaskTitle}
+                    onChange={(event) => setSubTaskTitle(event.target.value)}
+                    placeholder="新增子任务"
+                    disabled={readOnly || Boolean(task.parentId)}
+                  />
+                  <select
+                    aria-label="子任务状态"
+                    value={subTaskListId || task.taskListId}
+                    onChange={(event) => setSubTaskListId(event.target.value)}
+                    disabled={readOnly || Boolean(task.parentId)}
+                  >
+                    {lists.map((list) => (
+                      <option key={list.id} value={list.id}>
+                        {list.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="assignee-dropdown" ref={subTaskAssigneeDropdownRef}>
+                    <button
+                      className="assignee-dropdown-trigger"
+                      type="button"
+                      aria-expanded={isSubTaskAssigneeOpen}
+                      disabled={readOnly || Boolean(task.parentId)}
+                      onClick={() => setIsSubTaskAssigneeOpen((current) => !current)}
+                    >
+                      <span>{subTaskAssigneeSummary}</span>
+                      <span aria-hidden="true">⌄</span>
+                    </button>
+                    {isSubTaskAssigneeOpen ? (
+                      <div className="checkbox-list assignee-dropdown-menu">
+                        {(membersQuery.data ?? []).map((member) => (
+                          <label className="checkbox-row" key={member.user.id}>
+                            <input
+                              type="checkbox"
+                              checked={subTaskAssigneeIds.includes(member.user.id)}
+                              disabled={readOnly || Boolean(task.parentId)}
+                              onChange={(event) =>
+                                toggleSubTaskAssignee(member.user.id, event.target.checked)
+                              }
+                            />
+                            <span>{member.user.name}</span>
+                          </label>
+                        ))}
+                        {(membersQuery.data ?? []).length === 0 ? (
+                          <span className="muted">暂无可选成员</span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                  <input
+                    aria-label="子任务开始日期"
+                    type="date"
+                    value={subTaskStartDate}
+                    max={subTaskDueDate || undefined}
+                    onClick={(event) => openDateInputPicker(event.currentTarget)}
+                    onChange={(event) => setSubTaskStartDate(event.target.value)}
+                    disabled={readOnly || Boolean(task.parentId)}
+                  />
+                  <input
+                    aria-label="子任务截止日期"
+                    type="date"
+                    value={subTaskDueDate}
+                    min={subTaskStartDate || undefined}
+                    onClick={(event) => openDateInputPicker(event.currentTarget)}
+                    onChange={(event) => setSubTaskDueDate(event.target.value)}
+                    disabled={readOnly || Boolean(task.parentId)}
+                  />
+                  <button
+                    type="submit"
+                    disabled={readOnly || Boolean(task.parentId) || createSubTaskMutation.isPending}
+                  >
+                    添加
+                  </button>
+                  <button className="secondary-inline-button" type="button" onClick={handleCancelCreateSubTask}>
+                    取消
+                  </button>
+                </form>
+              )}
+              {subTaskDateError ? (
+                <span className="form-error inline-error">{subTaskDateError}</span>
+              ) : null}
               <div className="list">
                 {task.subTasks.map((subTask) => (
                   <div className="list-row" key={subTask.id}>
-                    <strong>{subTask.title}</strong>
-                    <span>{subTask.priority}</span>
+                    <button
+                      className="row-main"
+                      type="button"
+                      onClick={() => setActiveTaskId(subTask.id)}
+                    >
+                      <strong>{subTask.title}</strong>
+                      <span>
+                        状态：
+                        {lists.find((list) => list.id === subTask.taskListId)?.name ?? "未知"}
+                      </span>
+                      <span>
+                        开始：
+                        {subTask.startDate
+                          ? new Date(subTask.startDate).toLocaleDateString()
+                          : "未设置"}
+                      </span>
+                      <span>
+                        负责人：
+                        {subTask.assignees && subTask.assignees.length > 0
+                          ? subTask.assignees.map(formatAssigneeName).join(", ")
+                          : "未分配"}
+                      </span>
+                    </button>
+                    <span className={getPriorityClassName(subTask.priority)}>
+                      {getPriorityLabel(subTask.priority)}
+                    </span>
                   </div>
                 ))}
                 {task.subTasks.length === 0 ? <span className="muted">暂无子任务</span> : null}
@@ -384,22 +837,35 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
 
             <section className="detail-section">
               <h3>评论</h3>
-              <MutationError error={createCommentMutation.error} />
+              <MutationError error={createCommentMutation.error ?? deleteCommentMutation.error} />
               <form className="comment-form" onSubmit={handleCreateComment}>
                 <textarea
                   value={comment}
                   onChange={(event) => setComment(event.target.value)}
                   placeholder="写一条评论"
                   rows={3}
+                  disabled={readOnly}
                 />
-                <button type="submit" disabled={createCommentMutation.isPending}>
+                <button type="submit" disabled={readOnly || createCommentMutation.isPending}>
                   发送
                 </button>
               </form>
               <div className="comment-list">
                 {task.comments.map((item) => (
                   <article className="comment" key={item.id}>
-                    <strong>{item.author.name}</strong>
+                    <div className="comment-header">
+                      <strong>{item.author.name}</strong>
+                      {item.author.id === user?.id ? (
+                        <button
+                          className="mini-button"
+                          type="button"
+                          disabled={readOnly || deleteCommentMutation.isPending}
+                          onClick={() => handleDeleteComment(item.id)}
+                        >
+                          删除
+                        </button>
+                      ) : null}
+                    </div>
                     <p>{item.content}</p>
                   </article>
                 ))}
@@ -408,7 +874,7 @@ export function TaskDetailPanel({ projectId, taskId, onClose }: TaskDetailPanelP
             </section>
           </div>
         ) : null}
-      </aside>
+      </section>
     </div>
   );
 }

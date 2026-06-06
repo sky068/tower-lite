@@ -32,7 +32,7 @@
 - 看板视图
 - 任务列表创建、重命名、排序、删除
 - 任务创建、编辑、删除、拖拽移动
-- 任务字段：标题、描述、负责人、优先级、开始日期、截止日期、标签
+- 任务字段：标题、描述、多位负责人、优先级、开始日期、截止日期、标签
 - 任务详情内创建、编辑、完成一层子任务
 - 子任务数据结构使用 `parentId` 预留未来多层能力，但 V0 接口限制最大深度为 1
 - 任务评论
@@ -137,13 +137,19 @@
 
 - 每个项目创建时默认生成三列：待处理、进行中、已完成。
 - 列支持重命名和排序。
+- 默认列表（待处理、进行中、已完成）不允许改名、排序或删除；自定义列表允许改名、排序和删除。
 - 最后一个列表不允许删除。
 - 删除列表时，如果列表内有任务，接口必须要求目标迁移列表。
 
 ### 4.4 任务
 
 - 任务必须属于一个任务列表，任务列表必须属于一个项目。
-- 任务负责人必须是项目成员。
+- 任务和子任务均支持多位负责人，负责人必须是项目成员。
+- 任务和子任务均必须支持状态选择，V0 状态由所在列表表达，默认状态为待处理、进行中、已完成。
+- 任务和子任务负责人必须可编辑，支持新增指派和取消指派。
+- 被指定为任一负责人后，该用户登录后必须能在“我的任务”中看到对应任务或子任务。
+- 成员从项目或团队移除后，历史任务负责人关系必须保留，不得从任务中自动清理；任务详情和看板中应显示为 `姓名(已移除)`。
+- 已移除负责人不再收到任务完成或到期提醒，也不能再通过“我的任务”访问无权限项目。
 - 子任务和父任务必须属于同一个项目。
 - 子任务数据模型使用 `parentId` 邻接表结构，预留未来多层子任务能力。
 - V0 产品和 API 仅支持一层子任务，即普通任务可以创建子任务，子任务不能再创建子任务。
@@ -257,7 +263,7 @@ model User {
   projectMembers ProjectMember[]
   createdProjects Project[] @relation("ProjectCreator")
   invitationsSent Invitation[] @relation("InvitationInviter")
-  assignedTasks  Task[] @relation("TaskAssignee")
+  taskAssignments TaskAssignee[]
   createdTasks   Task[] @relation("TaskCreator")
   comments       Comment[]
   notifications  Notification[] @relation("NotificationRecipient")
@@ -434,7 +440,6 @@ model Task {
   dueDate     DateTime?
   taskListId  String
   projectId   String
-  assigneeId  String?
   creatorId   String
   parentId    String?
   completedAt DateTime?
@@ -444,10 +449,10 @@ model Task {
 
   taskList    TaskList  @relation(fields: [taskListId], references: [id])
   project     Project   @relation(fields: [projectId], references: [id])
-  assignee    User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
   creator     User      @relation("TaskCreator", fields: [creatorId], references: [id])
   parent      Task?     @relation("SubTasks", fields: [parentId], references: [id])
   subTasks    Task[]    @relation("SubTasks")
+  assignees   TaskAssignee[]
   tags        TaskTag[]
   comments    Comment[]
   dependencies TaskDependency[] @relation("DependentTask")
@@ -455,7 +460,6 @@ model Task {
 
   @@index([projectId])
   @@index([taskListId, sortKey])
-  @@index([assigneeId, dueDate])
   @@index([parentId])
 }
 
@@ -464,6 +468,22 @@ enum Priority {
   MEDIUM
   HIGH
   URGENT
+}
+```
+
+### TaskAssignee
+
+```prisma
+model TaskAssignee {
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  task      Task @relation(fields: [taskId], references: [id])
+  user      User @relation(fields: [userId], references: [id])
+
+  @@id([taskId, userId])
+  @@index([userId])
 }
 ```
 
@@ -759,7 +779,7 @@ Authorization: Bearer <access_token>
   "taskListId": "list_id",
   "title": "完成登录页",
   "description": "包含邮箱登录和错误提示",
-  "assigneeId": "user_id",
+  "assigneeIds": ["user_id_1", "user_id_2"],
   "priority": "HIGH",
   "startDate": "2026-06-08T00:00:00.000Z",
   "dueDate": "2026-06-12T23:59:59.000Z",
@@ -814,7 +834,7 @@ Authorization: Bearer <access_token>
         "startDate": "2026-06-08",
         "endDate": "2026-06-12",
         "progress": 0,
-        "assigneeId": "user_id",
+        "assigneeIds": ["user_id_1", "user_id_2"],
         "tagIds": ["tag_id"]
       }
     ],
@@ -1071,7 +1091,7 @@ V0 目标：
 实现建议：
 
 - 项目列表、看板任务按项目维度查询。
-- 我的任务按 `assigneeId + dueDate` 建索引。
+- 我的任务通过 `TaskAssignee.userId` 查询，再按任务 `dueDate` 排序；`TaskAssignee.userId` 必须建索引。
 - 通知按 `recipientId + isRead + createdAt` 建索引。
 - 看板默认只加载未删除任务。
 
@@ -1108,7 +1128,7 @@ V0 完成标准：
 - 看板拖拽后刷新页面顺序不丢失。
 - 用户可以在任务下发表评论。
 - 被分配任务和被 @ 时可以收到站内通知。
-- 我的任务能展示当前用户负责的未完成任务。
+- 我的任务能展示当前用户作为任一负责人参与的未完成任务和子任务。
 - 无权限用户无法访问或修改项目数据。
 - 所有核心接口有集成测试覆盖。
 

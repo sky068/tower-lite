@@ -24,7 +24,7 @@ model User {
   projectMembers      ProjectMember[]
   createdProjects     Project[]      @relation("ProjectCreator")
   invitationsSent     Invitation[]   @relation("InvitationInviter")
-  assignedTasks       Task[]         @relation("TaskAssignee")
+  taskAssignments     TaskAssignee[]
   createdTasks        Task[]         @relation("TaskCreator")
   comments            Comment[]
   refreshTokens       RefreshToken[]
@@ -187,7 +187,6 @@ model Task {
   dueDate      DateTime?
   taskListId   String
   projectId    String
-  assigneeId   String?
   creatorId    String
   parentId     String?
   completedAt  DateTime?
@@ -197,10 +196,10 @@ model Task {
 
   taskList     TaskList         @relation(fields: [taskListId], references: [id])
   project      Project          @relation(fields: [projectId], references: [id])
-  assignee     User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
   creator      User             @relation("TaskCreator", fields: [creatorId], references: [id])
   parent       Task?            @relation("SubTasks", fields: [parentId], references: [id])
   subTasks     Task[]           @relation("SubTasks")
+  assignees    TaskAssignee[]
   tags         TaskTag[]
   comments     Comment[]
   dependencies TaskDependency[] @relation("DependentTask")
@@ -208,8 +207,19 @@ model Task {
 
   @@index([projectId])
   @@index([taskListId, sortKey])
-  @@index([assigneeId, dueDate])
   @@index([parentId])
+}
+
+model TaskAssignee {
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  task      Task     @relation(fields: [taskId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@id([taskId, userId])
+  @@index([userId])
 }
 
 enum Priority {

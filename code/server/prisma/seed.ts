@@ -10,6 +10,7 @@ const prisma = new PrismaClient();
 
 const demoIds = {
   user: "00000000-0000-4000-8000-000000000001",
+  teammate: "00000000-0000-4000-8000-000000000008",
   team: "00000000-0000-4000-8000-000000000002",
   project: "00000000-0000-4000-8000-000000000003",
   todoList: "00000000-0000-4000-8000-000000000004",
@@ -59,6 +60,32 @@ async function main() {
     }
   });
 
+  const existingTeammate = await prisma.user.findUnique({
+    where: {
+      email: "teammate@tower.local"
+    }
+  });
+
+  const teammate = existingTeammate
+    ? await prisma.user.update({
+        where: {
+          id: existingTeammate.id
+        },
+        data: {
+          name: "Teammate User",
+          passwordHash,
+          deletedAt: null
+        }
+      })
+    : await prisma.user.create({
+        data: {
+          id: demoIds.teammate,
+          email: "teammate@tower.local",
+          name: "Teammate User",
+          passwordHash
+        }
+      });
+
   const team = await prisma.team.upsert({
     where: {
       id: demoIds.team
@@ -93,6 +120,23 @@ async function main() {
       userId: user.id,
       teamId: team.id,
       role: TeamRole.OWNER
+    }
+  });
+
+  await prisma.teamMember.upsert({
+    where: {
+      userId_teamId: {
+        userId: teammate.id,
+        teamId: team.id
+      }
+    },
+    update: {
+      role: TeamRole.MEMBER
+    },
+    create: {
+      userId: teammate.id,
+      teamId: team.id,
+      role: TeamRole.MEMBER
     }
   });
 
@@ -163,6 +207,23 @@ async function main() {
     }
   });
 
+  await prisma.projectMember.upsert({
+    where: {
+      projectId_userId: {
+        projectId: project.id,
+        userId: teammate.id
+      }
+    },
+    update: {
+      role: ProjectRole.EDITOR
+    },
+    create: {
+      projectId: project.id,
+      userId: teammate.id,
+      role: ProjectRole.EDITOR
+    }
+  });
+
   const taskLists = [
     { id: demoIds.todoList, name: "待处理", type: TaskListType.TODO, sortKey: "1000" },
     { id: demoIds.doingList, name: "进行中", type: TaskListType.IN_PROGRESS, sortKey: "2000" },
@@ -189,7 +250,7 @@ async function main() {
     });
   }
 
-  await prisma.task.upsert({
+  const task = await prisma.task.upsert({
     where: {
       id: demoIds.task
     },
@@ -200,7 +261,6 @@ async function main() {
       projectId: project.id,
       taskListId: demoIds.todoList,
       creatorId: user.id,
-      assigneeId: user.id,
       sortKey: new Prisma.Decimal(1000),
       deletedAt: null
     },
@@ -212,13 +272,25 @@ async function main() {
       projectId: project.id,
       taskListId: demoIds.todoList,
       creatorId: user.id,
-      assigneeId: user.id,
       sortKey: new Prisma.Decimal(1000)
     }
   });
 
+  await prisma.$executeRaw`
+    INSERT INTO "TaskAssignee" ("taskId", "userId")
+    VALUES (${task.id}, ${user.id})
+    ON CONFLICT DO NOTHING
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO "TaskAssignee" ("taskId", "userId")
+    VALUES (${task.id}, ${teammate.id})
+    ON CONFLICT DO NOTHING
+  `;
+
   console.log("Seed completed");
   console.log("Login: demo@tower.local / password123");
+  console.log("Login: teammate@tower.local / password123");
 }
 
 main()

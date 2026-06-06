@@ -3,11 +3,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi } from "../../lib/api";
+import { useAuthStore } from "../../stores/authStore";
 
 export function ProjectSettingsPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const user = useAuthStore((state) => state.user);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [memberUserId, setMemberUserId] = useState("");
@@ -35,6 +37,15 @@ export function ProjectSettingsPage() {
     const projectMemberIds = new Set((membersQuery.data ?? []).map((member) => member.user.id));
     return (teamMembersQuery.data ?? []).filter((member) => !projectMemberIds.has(member.user.id));
   }, [membersQuery.data, teamMembersQuery.data]);
+  const currentProjectMember = (membersQuery.data ?? []).find((member) => member.user.id === user?.id);
+  const currentTeamMember = (teamMembersQuery.data ?? []).find((member) => member.user.id === user?.id);
+  const isTeamAdmin = currentTeamMember?.role === "OWNER" || currentTeamMember?.role === "ADMIN";
+  const canEditProject =
+    isTeamAdmin ||
+    currentProjectMember?.role === "OWNER" ||
+    currentProjectMember?.role === "EDITOR";
+  const canManageProject = isTeamAdmin || currentProjectMember?.role === "OWNER";
+  const isArchived = projectQuery.data?.status === "ARCHIVED";
 
   const updateProjectMutation = useMutation({
     mutationFn: () => projectApi.update(projectId!, { name, description }),
@@ -86,13 +97,15 @@ export function ProjectSettingsPage() {
 
   function handleUpdateProject(event: FormEvent) {
     event.preventDefault();
-    updateProjectMutation.mutate();
+    if (canEditProject) {
+      updateProjectMutation.mutate();
+    }
   }
 
   function handleAddMember(event: FormEvent) {
     event.preventDefault();
 
-    if (!memberUserId) {
+    if (!memberUserId || !canManageProject) {
       return;
     }
 
@@ -105,23 +118,31 @@ export function ProjectSettingsPage() {
         <h1>项目设置</h1>
         <p>管理项目基础信息、成员和生命周期。</p>
       </div>
+      {isArchived ? <section className="notice-panel">这个项目已归档，任务协作已进入只读状态。</section> : null}
       <section className="panel">
         <h2>基础信息</h2>
         <form className="settings-form" onSubmit={handleUpdateProject}>
           <label>
             项目名称
-            <input value={name} onChange={(event) => setName(event.target.value)} required />
+            <input
+              value={name}
+              disabled={!canEditProject}
+              onChange={(event) => setName(event.target.value)}
+              required
+            />
           </label>
           <label>
             描述
             <textarea
               value={description}
+              disabled={!canEditProject}
               onChange={(event) => setDescription(event.target.value)}
               rows={3}
             />
           </label>
-          <button type="submit" disabled={updateProjectMutation.isPending}>保存</button>
+          <button type="submit" disabled={!canEditProject || updateProjectMutation.isPending}>保存</button>
         </form>
+        {!canEditProject ? <span className="muted">你当前是只读成员，不能修改项目基础信息。</span> : null}
         <MutationError error={updateProjectMutation.error} />
       </section>
       <section className="panel">
@@ -131,7 +152,7 @@ export function ProjectSettingsPage() {
             value={memberUserId}
             onChange={(event) => setMemberUserId(event.target.value)}
             required
-            disabled={availableTeamMembers.length === 0}
+            disabled={!canManageProject || availableTeamMembers.length === 0}
           >
             <option value="">选择团队成员</option>
             {availableTeamMembers.map((member) => (
@@ -142,6 +163,7 @@ export function ProjectSettingsPage() {
           </select>
           <select
             value={memberRole}
+            disabled={!canManageProject}
             onChange={(event) => setMemberRole(event.target.value as typeof memberRole)}
           >
             <option value="OWNER">OWNER</option>
@@ -150,11 +172,12 @@ export function ProjectSettingsPage() {
           </select>
           <button
             type="submit"
-            disabled={addMemberMutation.isPending || availableTeamMembers.length === 0}
+            disabled={!canManageProject || addMemberMutation.isPending || availableTeamMembers.length === 0}
           >
             添加
           </button>
         </form>
+        {!canManageProject ? <span className="muted">只有项目 OWNER 或团队 OWNER / ADMIN 可以管理项目成员。</span> : null}
         {availableTeamMembers.length === 0 ? (
           <span className="muted">所有团队成员都已经在项目里。</span>
         ) : null}
@@ -172,6 +195,7 @@ export function ProjectSettingsPage() {
               </div>
               <select
                 value={member.role}
+                disabled={!canManageProject || updateRoleMutation.isPending}
                 onChange={(event) =>
                   updateRoleMutation.mutate({
                     userId: member.user.id,
@@ -186,7 +210,12 @@ export function ProjectSettingsPage() {
               <button
                 className="danger-button"
                 type="button"
-                onClick={() => removeMemberMutation.mutate(member.user.id)}
+                disabled={!canManageProject || removeMemberMutation.isPending}
+                onClick={() => {
+                  if (window.confirm(`确认移除 ${member.user.name}？任务中的历史负责人会保留为“已移除”。`)) {
+                    removeMemberMutation.mutate(member.user.id);
+                  }
+                }}
               >
                 移除
               </button>
@@ -200,6 +229,7 @@ export function ProjectSettingsPage() {
         <div className="segmented-actions">
           <button
             type="button"
+            disabled={!canManageProject || archiveProjectMutation.isPending || isArchived}
             onClick={() => {
               if (window.confirm("确认归档这个项目？")) {
                 archiveProjectMutation.mutate();
@@ -210,6 +240,7 @@ export function ProjectSettingsPage() {
           </button>
           <button
             type="button"
+            disabled={!canManageProject || deleteProjectMutation.isPending}
             onClick={() => {
               if (window.confirm("确认删除这个项目？")) {
                 deleteProjectMutation.mutate();

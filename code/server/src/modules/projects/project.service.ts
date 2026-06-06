@@ -1,4 +1,4 @@
-import { Prisma, ProjectRole, TaskListType } from "@prisma/client";
+import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskListType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { requireTeamAdmin, requireTeamMember } from "../teams/team.policy.js";
@@ -38,6 +38,41 @@ function toProjectSummary(project: {
     createdAt: project.createdAt,
     updatedAt: project.updatedAt
   };
+}
+
+async function createProjectJoinedNotification(input: {
+  actorId: string;
+  recipientId: string;
+  projectId: string;
+  projectName: string;
+}) {
+  if (input.actorId === input.recipientId) {
+    return;
+  }
+
+  await prisma.notification.upsert({
+    where: {
+      dedupeKey: `project_joined:${input.projectId}:${input.recipientId}`
+    },
+    update: {},
+    create: {
+      type: NotificationType.PROJECT_JOINED,
+      title: "你被加入了项目",
+      content: input.projectName,
+      link: `/projects/${input.projectId}/board`,
+      recipientId: input.recipientId,
+      actorId: input.actorId,
+      projectId: input.projectId,
+      dedupeKey: `project_joined:${input.projectId}:${input.recipientId}`,
+      deliveries: {
+        create: {
+          channel: DeliveryChannel.IN_APP,
+          status: "SENT",
+          sentAt: new Date()
+        }
+      }
+    }
+  });
 }
 
 export async function createProject(userId: string, teamId: string, input: CreateProjectInput) {
@@ -207,6 +242,13 @@ export async function addProjectMember(
     include: {
       user: true
     }
+  });
+
+  await createProjectJoinedNotification({
+    actorId: userId,
+    recipientId: input.userId,
+    projectId,
+    projectName: project.name
   });
 
   return {

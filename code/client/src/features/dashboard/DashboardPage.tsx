@@ -3,12 +3,15 @@ import { FormEvent, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi, userApi } from "../../lib/api";
+import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
 
 export function DashboardPage() {
   const queryClient = useQueryClient();
   const [teamName, setTeamName] = useState("");
   const [projectName, setProjectName] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [taskSearch, setTaskSearch] = useState("");
+  const [taskStatusFilter, setTaskStatusFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
 
   const teamsQuery = useQuery({
     queryKey: ["teams"],
@@ -38,6 +41,25 @@ export function DashboardPage() {
     () => teams.find((team) => team.id === activeTeamId) ?? null,
     [activeTeamId, teams]
   );
+  const canCreateProject = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
+
+  const filteredMyTasks = useMemo(() => {
+    const keyword = taskSearch.trim().toLowerCase();
+
+    return (myTasksQuery.data ?? []).filter((task) => {
+      const matchesStatus =
+        taskStatusFilter === "ALL" ||
+        (taskStatusFilter === "OPEN" && !task.completedAt) ||
+        (taskStatusFilter === "DONE" && Boolean(task.completedAt));
+      const matchesKeyword =
+        !keyword ||
+        task.title.toLowerCase().includes(keyword) ||
+        task.project.name.toLowerCase().includes(keyword) ||
+        task.taskList.name.toLowerCase().includes(keyword);
+
+      return matchesStatus && matchesKeyword;
+    });
+  }, [myTasksQuery.data, taskSearch, taskStatusFilter]);
 
   const createTeamMutation = useMutation({
     mutationFn: teamApi.create,
@@ -77,8 +99,14 @@ export function DashboardPage() {
 
   function handleCreateProject(event: FormEvent) {
     event.preventDefault();
-    if (activeTeamId) {
+    if (activeTeamId && canCreateProject) {
       createProjectMutation.mutate(projectName);
+    }
+  }
+
+  function handleNotificationLinkClick(notification: { id: string; isRead: boolean }) {
+    if (!notification.isRead) {
+      markNotificationReadMutation.mutate(notification.id);
     }
   }
 
@@ -130,13 +158,16 @@ export function DashboardPage() {
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
               placeholder="新项目名称"
-              disabled={!activeTeamId}
+              disabled={!activeTeamId || !canCreateProject}
               required
             />
-            <button type="submit" disabled={!activeTeamId || createProjectMutation.isPending}>
+            <button type="submit" disabled={!activeTeamId || !canCreateProject || createProjectMutation.isPending}>
               创建
             </button>
           </form>
+          {activeTeamId && !canCreateProject ? (
+            <span className="muted">只有团队 OWNER / ADMIN 可以创建项目。</span>
+          ) : null}
           <MutationError error={createProjectMutation.error} />
           <div className="list">
             {projectsQuery.isLoading ? <span className="muted">项目加载中...</span> : null}
@@ -160,17 +191,43 @@ export function DashboardPage() {
 
       <div className="dashboard-grid">
         <section className="panel">
-          <h2>我的任务</h2>
+          <div className="panel-title-row">
+            <h2>我的任务</h2>
+            <select
+              className="compact-select"
+              value={taskStatusFilter}
+              onChange={(event) => setTaskStatusFilter(event.target.value as typeof taskStatusFilter)}
+            >
+              <option value="OPEN">未完成</option>
+              <option value="DONE">已完成</option>
+              <option value="ALL">全部</option>
+            </select>
+          </div>
+          <input
+            className="filter-input"
+            value={taskSearch}
+            onChange={(event) => setTaskSearch(event.target.value)}
+            placeholder="搜索任务、项目或列表"
+          />
           <div className="list">
             {myTasksQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
-            {(myTasksQuery.data ?? []).map((task) => (
+            {filteredMyTasks.map((task) => (
               <Link className="list-row" key={task.id} to={`/tasks/${task.id}`}>
-                <strong>{task.title}</strong>
-                <span>{task.project.name} / {task.taskList.name}</span>
+                <div className="row-main">
+                  <strong>{task.title}</strong>
+                  <span>
+                    {task.parentId ? "子任务 / " : ""}
+                    {task.project.name} / {task.taskList.name}
+                  </span>
+                </div>
+                <span className={getPriorityClassName(task.priority)}>
+                  {getPriorityLabel(task.priority)}
+                </span>
+                <span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "无截止"}</span>
               </Link>
             ))}
-            {!myTasksQuery.isLoading && (myTasksQuery.data ?? []).length === 0 ? (
-              <span className="muted">暂无分配给你的任务</span>
+            {!myTasksQuery.isLoading && filteredMyTasks.length === 0 ? (
+              <span className="muted">没有匹配的任务</span>
             ) : null}
           </div>
         </section>
@@ -192,7 +249,11 @@ export function DashboardPage() {
             {(notificationsQuery.data ?? []).map((notification) => (
               <div className={notification.isRead ? "list-row" : "list-row unread"} key={notification.id}>
                 {notification.link ? (
-                  <Link className="row-main" to={notification.link}>
+                  <Link
+                    className="row-main"
+                    to={notification.link}
+                    onClick={() => handleNotificationLinkClick(notification)}
+                  >
                     <strong>{notification.title}</strong>
                     <span>{notification.content}</span>
                   </Link>

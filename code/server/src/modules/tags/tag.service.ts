@@ -1,6 +1,6 @@
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
-import { requireProjectAccess, requireProjectEditor } from "../projects/project.policy.js";
+import { requireActiveProjectEditor, requireProjectAccess } from "../projects/project.policy.js";
 import type { CreateTagInput, UpdateTagInput } from "./tag.schema.js";
 
 function toTag(tag: { id: string; name: string; color: string; projectId: string }) {
@@ -28,7 +28,8 @@ export async function listTags(userId: string, projectId: string) {
 }
 
 export async function createTag(userId: string, projectId: string, input: CreateTagInput) {
-  await requireProjectEditor(userId, projectId);
+  await requireActiveProjectEditor(userId, projectId);
+  await assertTagNameAvailable(projectId, input.name);
 
   const tag = await prisma.tag.create({
     data: {
@@ -47,8 +48,11 @@ export async function updateTag(
   tagId: string,
   input: UpdateTagInput
 ) {
-  await requireProjectEditor(userId, projectId);
+  await requireActiveProjectEditor(userId, projectId);
   await assertTagInProject(tagId, projectId);
+  if (input.name) {
+    await assertTagNameAvailable(projectId, input.name, tagId);
+  }
 
   const tag = await prisma.tag.update({
     where: {
@@ -61,13 +65,21 @@ export async function updateTag(
 }
 
 export async function deleteTag(userId: string, projectId: string, tagId: string) {
-  await requireProjectEditor(userId, projectId);
+  await requireActiveProjectEditor(userId, projectId);
   await assertTagInProject(tagId, projectId);
 
-  await prisma.tag.delete({
-    where: {
-      id: tagId
-    }
+  await prisma.$transaction(async (tx) => {
+    await tx.taskTag.deleteMany({
+      where: {
+        tagId
+      }
+    });
+
+    await tx.tag.delete({
+      where: {
+        id: tagId
+      }
+    });
   });
 
   return { ok: true };
@@ -85,7 +97,7 @@ export async function addTagToTask(userId: string, taskId: string, tagId: string
     throw new AppError("RESOURCE_NOT_FOUND", "Task not found", 404);
   }
 
-  await requireProjectEditor(userId, task.projectId);
+  await requireActiveProjectEditor(userId, task.projectId);
   await assertTagInProject(tagId, task.projectId);
 
   await prisma.taskTag.upsert({
@@ -117,7 +129,7 @@ export async function removeTagFromTask(userId: string, taskId: string, tagId: s
     throw new AppError("RESOURCE_NOT_FOUND", "Task not found", 404);
   }
 
-  await requireProjectEditor(userId, task.projectId);
+  await requireActiveProjectEditor(userId, task.projectId);
 
   await prisma.taskTag.deleteMany({
     where: {
@@ -142,4 +154,22 @@ async function assertTagInProject(tagId: string, projectId: string) {
   }
 
   return tag;
+}
+
+async function assertTagNameAvailable(projectId: string, name: string, exceptTagId?: string) {
+  const existingTag = await prisma.tag.findFirst({
+    where: {
+      projectId,
+      name,
+      id: exceptTagId
+        ? {
+            not: exceptTagId
+          }
+        : undefined
+    }
+  });
+
+  if (existingTag) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Tag name already exists in this project", 422);
+  }
 }

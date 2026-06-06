@@ -23,11 +23,37 @@ export async function getCurrentUser(userId: string) {
 }
 
 export async function listMyTasks(userId: string) {
+  const assignedRows = await prisma.$queryRaw<Array<{ taskId: string }>>`
+    SELECT DISTINCT ta."taskId"
+    FROM "TaskAssignee" ta
+    JOIN "Task" task ON task."id" = ta."taskId"
+    JOIN "Project" project ON project."id" = task."projectId"
+    JOIN "TeamMember" team_member
+      ON team_member."teamId" = project."teamId"
+      AND team_member."userId" = ${userId}
+    LEFT JOIN "ProjectMember" project_member
+      ON project_member."projectId" = project."id"
+      AND project_member."userId" = ${userId}
+    WHERE ta."userId" = ${userId}
+      AND task."deletedAt" IS NULL
+      AND project."deletedAt" IS NULL
+      AND (
+        team_member."role" IN ('OWNER', 'ADMIN')
+        OR project_member."id" IS NOT NULL
+      )
+  `;
+  const assignedTaskIds = assignedRows.map((row) => row.taskId);
+
   const tasks = await prisma.task.findMany({
     where: {
-      assigneeId: userId,
       deletedAt: null,
-      parentId: null
+      OR: [
+        {
+          id: {
+            in: assignedTaskIds
+          }
+        }
+      ]
     },
     include: {
       project: true,
@@ -49,6 +75,7 @@ export async function listMyTasks(userId: string) {
     priority: task.priority,
     dueDate: task.dueDate,
     completedAt: task.completedAt,
+    parentId: task.parentId,
     project: {
       id: task.project.id,
       name: task.project.name

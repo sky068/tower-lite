@@ -1,4 +1,4 @@
-import { ProjectRole, TeamRole } from "@prisma/client";
+import { ProjectRole, ProjectStatus, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 
@@ -60,6 +60,18 @@ export async function requireProjectEditor(userId: string, projectId: string) {
     throw new AppError("FORBIDDEN", "Project edit permission is required", 403);
   }
 
+  return access;
+}
+
+export function assertProjectActive(project: { status: ProjectStatus }) {
+  if (project.status !== ProjectStatus.ACTIVE) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Archived project cannot be modified", 422);
+  }
+}
+
+export async function requireActiveProjectEditor(userId: string, projectId: string) {
+  const access = await requireProjectEditor(userId, projectId);
+  assertProjectActive(access.project);
   return access;
 }
 

@@ -1,12 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { teamApi } from "../../lib/api";
+import { useAuthStore } from "../../stores/authStore";
 
 export function TeamSettingsPage() {
   const { teamId } = useParams();
   const queryClient = useQueryClient();
+  const user = useAuthStore((state) => state.user);
+  const [teamName, setTeamName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"OWNER" | "ADMIN" | "MEMBER">("MEMBER");
 
@@ -15,6 +18,13 @@ export function TeamSettingsPage() {
     queryFn: () => teamApi.members(teamId!),
     enabled: Boolean(teamId)
   });
+  const teamsQuery = useQuery({
+    queryKey: ["teams"],
+    queryFn: teamApi.list
+  });
+  const currentMember = (membersQuery.data ?? []).find((member) => member.user.id === user?.id);
+  const canManageTeam = currentMember?.role === "OWNER" || currentMember?.role === "ADMIN";
+  const team = (teamsQuery.data ?? []).find((item) => item.id === teamId);
 
   const addMemberMutation = useMutation({
     mutationFn: () => teamApi.addMember(teamId!, { email, role }),
@@ -22,6 +32,12 @@ export function TeamSettingsPage() {
       setEmail("");
       setRole("MEMBER");
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
+    }
+  });
+  const updateTeamMutation = useMutation({
+    mutationFn: () => teamApi.update(teamId!, { name: teamName.trim() }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["teams"] });
     }
   });
 
@@ -42,8 +58,24 @@ export function TeamSettingsPage() {
 
   function handleAddMember(event: FormEvent) {
     event.preventDefault();
-    addMemberMutation.mutate();
+    if (canManageTeam) {
+      addMemberMutation.mutate();
+    }
   }
+
+  function handleUpdateTeam(event: FormEvent) {
+    event.preventDefault();
+
+    if (teamName.trim() && canManageTeam) {
+      updateTeamMutation.mutate();
+    }
+  }
+
+  useEffect(() => {
+    if (team) {
+      setTeamName(team.name);
+    }
+  }, [team]);
 
   return (
     <div className="page">
@@ -52,6 +84,25 @@ export function TeamSettingsPage() {
         <p>添加已有账号到团队，并管理团队角色。</p>
       </div>
       <section className="panel">
+        <h2>基础信息</h2>
+        <form className="settings-form" onSubmit={handleUpdateTeam}>
+          <label>
+            团队名称
+            <input
+              value={teamName}
+              disabled={!canManageTeam}
+              onChange={(event) => setTeamName(event.target.value)}
+              required
+            />
+          </label>
+          <button type="submit" disabled={!canManageTeam || updateTeamMutation.isPending}>
+            保存
+          </button>
+        </form>
+        {!canManageTeam ? <span className="muted">只有团队 OWNER / ADMIN 可以修改团队信息。</span> : null}
+        <MutationError error={updateTeamMutation.error} />
+      </section>
+      <section className="panel">
         <h2>添加成员</h2>
         <form className="settings-form inline" onSubmit={handleAddMember}>
           <input
@@ -59,15 +110,21 @@ export function TeamSettingsPage() {
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="成员邮箱"
+            disabled={!canManageTeam}
             required
           />
-          <select value={role} onChange={(event) => setRole(event.target.value as typeof role)}>
+          <select
+            value={role}
+            disabled={!canManageTeam}
+            onChange={(event) => setRole(event.target.value as typeof role)}
+          >
             <option value="MEMBER">MEMBER</option>
             <option value="ADMIN">ADMIN</option>
             <option value="OWNER">OWNER</option>
           </select>
-          <button type="submit" disabled={addMemberMutation.isPending}>添加</button>
+          <button type="submit" disabled={!canManageTeam || addMemberMutation.isPending}>添加</button>
         </form>
+        {!canManageTeam ? <span className="muted">只有团队 OWNER / ADMIN 可以管理成员。</span> : null}
         <MutationError error={addMemberMutation.error} />
       </section>
       <section className="panel">
@@ -82,6 +139,7 @@ export function TeamSettingsPage() {
               </div>
               <select
                 value={member.role}
+                disabled={!canManageTeam || updateRoleMutation.isPending}
                 onChange={(event) =>
                   updateRoleMutation.mutate({
                     userId: member.user.id,
@@ -96,7 +154,12 @@ export function TeamSettingsPage() {
               <button
                 className="danger-button"
                 type="button"
-                onClick={() => removeMemberMutation.mutate(member.user.id)}
+                disabled={!canManageTeam || removeMemberMutation.isPending}
+                onClick={() => {
+                  if (window.confirm(`确认移除 ${member.user.name}？`)) {
+                    removeMemberMutation.mutate(member.user.id);
+                  }
+                }}
               >
                 移除
               </button>
