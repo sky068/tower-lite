@@ -1,0 +1,340 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                  String         @id @default(uuid())
+  email               String         @unique
+  passwordHash        String?
+  name                String
+  avatarUrl           String?
+  feishuOpenId        String?        @unique
+  feishuUnionId       String?        @unique
+  emailVerifiedAt     DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  deletedAt           DateTime?
+
+  teamMembers         TeamMember[]
+  projectMembers      ProjectMember[]
+  createdProjects     Project[]      @relation("ProjectCreator")
+  invitationsSent     Invitation[]   @relation("InvitationInviter")
+  assignedTasks       Task[]         @relation("TaskAssignee")
+  createdTasks        Task[]         @relation("TaskCreator")
+  comments            Comment[]
+  refreshTokens       RefreshToken[]
+  notifications       Notification[] @relation("NotificationRecipient")
+  notificationActions Notification[] @relation("NotificationActor")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Team {
+  id        String       @id @default(uuid())
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+
+  members   TeamMember[]
+  projects  Project[]
+  invites   Invitation[]
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  role      TeamRole
+  userId    String
+  teamId    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+  team      Team     @relation(fields: [teamId], references: [id])
+
+  @@unique([userId, teamId])
+  @@index([teamId, role])
+}
+
+enum TeamRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Project {
+  id          String          @id @default(uuid())
+  name        String
+  description String?
+  color       String?
+  icon        String?
+  status      ProjectStatus   @default(ACTIVE)
+  teamId      String
+  createdById String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+
+  team        Team            @relation(fields: [teamId], references: [id])
+  createdBy   User            @relation("ProjectCreator", fields: [createdById], references: [id])
+  members     ProjectMember[]
+  taskLists   TaskList[]
+  tags        Tag[]
+  tasks       Task[]
+  invites     Invitation[]
+
+  @@index([teamId, status])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model ProjectMember {
+  id        String      @id @default(uuid())
+  role      ProjectRole
+  projectId String
+  userId    String
+  createdAt DateTime    @default(now())
+
+  project   Project     @relation(fields: [projectId], references: [id])
+  user      User        @relation(fields: [userId], references: [id])
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+enum ProjectRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model Invitation {
+  id          String           @id @default(uuid())
+  email       String
+  token       String           @unique
+  status      InvitationStatus @default(PENDING)
+  teamRole    TeamRole?
+  projectRole ProjectRole?
+  teamId      String
+  projectId   String?
+  inviterId   String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime         @default(now())
+
+  team        Team             @relation(fields: [teamId], references: [id])
+  project     Project?         @relation(fields: [projectId], references: [id])
+  inviter     User             @relation("InvitationInviter", fields: [inviterId], references: [id])
+
+  @@index([email, status])
+  @@index([teamId, status])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model TaskList {
+  id        String       @id @default(uuid())
+  name      String
+  type      TaskListType @default(CUSTOM)
+  sortKey   Decimal      @db.Decimal(18, 6)
+  projectId String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  project   Project      @relation(fields: [projectId], references: [id])
+  tasks     Task[]
+
+  @@index([projectId, sortKey])
+}
+
+enum TaskListType {
+  TODO
+  IN_PROGRESS
+  DONE
+  CUSTOM
+}
+
+model Task {
+  id           String           @id @default(uuid())
+  title        String
+  description  String?
+  priority     Priority         @default(MEDIUM)
+  sortKey      Decimal          @db.Decimal(18, 6)
+  startDate    DateTime?
+  dueDate      DateTime?
+  taskListId   String
+  projectId    String
+  assigneeId   String?
+  creatorId    String
+  parentId     String?
+  completedAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  deletedAt    DateTime?
+
+  taskList     TaskList         @relation(fields: [taskListId], references: [id])
+  project      Project          @relation(fields: [projectId], references: [id])
+  assignee     User?            @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creator      User             @relation("TaskCreator", fields: [creatorId], references: [id])
+  parent       Task?            @relation("SubTasks", fields: [parentId], references: [id])
+  subTasks     Task[]           @relation("SubTasks")
+  tags         TaskTag[]
+  comments     Comment[]
+  dependencies TaskDependency[] @relation("DependentTask")
+  dependents   TaskDependency[] @relation("PrerequisiteTask")
+
+  @@index([projectId])
+  @@index([taskListId, sortKey])
+  @@index([assigneeId, dueDate])
+  @@index([parentId])
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model TaskDependency {
+  id              String         @id @default(uuid())
+  type            DependencyType @default(FINISH_TO_START)
+  dependentTaskId String
+  prerequisiteId  String
+  lagDays         Int            @default(0)
+  createdAt       DateTime       @default(now())
+
+  dependentTask   Task           @relation("DependentTask", fields: [dependentTaskId], references: [id])
+  prerequisite    Task           @relation("PrerequisiteTask", fields: [prerequisiteId], references: [id])
+
+  @@unique([dependentTaskId, prerequisiteId])
+}
+
+enum DependencyType {
+  FINISH_TO_START
+  START_TO_START
+  FINISH_TO_FINISH
+  START_TO_FINISH
+}
+
+model Tag {
+  id        String    @id @default(uuid())
+  name      String
+  color     String
+  projectId String
+
+  project   Project   @relation(fields: [projectId], references: [id])
+  tasks     TaskTag[]
+
+  @@unique([projectId, name])
+}
+
+model TaskTag {
+  taskId String
+  tagId  String
+
+  task   Task   @relation(fields: [taskId], references: [id])
+  tag    Tag    @relation(fields: [tagId], references: [id])
+
+  @@id([taskId, tagId])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  taskId    String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  task      Task     @relation(fields: [taskId], references: [id])
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@index([taskId, createdAt])
+}
+
+model Notification {
+  id          String                 @id @default(uuid())
+  type        NotificationType
+  title       String
+  content     String
+  link        String?
+  payload     Json?
+  isRead      Boolean                @default(false)
+  readAt      DateTime?
+  dedupeKey   String?                @unique
+  recipientId String
+  actorId     String?
+  teamId      String?
+  projectId   String?
+  taskId      String?
+  createdAt   DateTime               @default(now())
+
+  recipient   User                   @relation("NotificationRecipient", fields: [recipientId], references: [id])
+  actor       User?                  @relation("NotificationActor", fields: [actorId], references: [id])
+  deliveries  NotificationDelivery[]
+
+  @@index([recipientId, isRead, createdAt])
+  @@index([taskId])
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_DUE_SOON
+  COMMENT_MENTION
+  TASK_COMPLETED
+  PROJECT_JOINED
+}
+
+model NotificationDelivery {
+  id             String         @id @default(uuid())
+  notificationId String
+  channel        DeliveryChannel
+  status         DeliveryStatus @default(PENDING)
+  attemptCount   Int            @default(0)
+  lastError      String?
+  sentAt         DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  notification   Notification   @relation(fields: [notificationId], references: [id])
+
+  @@index([status, channel])
+  @@index([notificationId, channel])
+}
+
+enum DeliveryChannel {
+  IN_APP
+  FEISHU
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}

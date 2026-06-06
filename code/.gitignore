@@ -1,0 +1,11 @@
+node_modules
+.npm-cache
+dist
+dist-prisma
+.env
+.env.local
+.DS_Store
+*.log
+coverage
+client/.vite
+server/prisma/dev.db

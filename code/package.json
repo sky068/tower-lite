@@ -1,0 +1,31 @@
+{
+  "name": "tower-lite",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "client",
+    "server",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace server",
+    "dev:server": "npm run dev --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:reset": "docker compose down -v && docker compose up -d",
+    "build": "npm run build --workspaces",
+    "doctor": "node scripts/doctor.mjs",
+    "test": "npm run test --workspace server",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "npm run lint --workspaces",
+    "check:v0": "node scripts/check-v0.mjs",
+    "prisma:generate": "npm run prisma:generate --workspace server",
+    "prisma:migrate": "npm run prisma:migrate --workspace server",
+    "prisma:seed": "npm run prisma:seed --workspace server"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}

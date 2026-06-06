@@ -1,0 +1,104 @@
+@baseUrl = http://localhost:4000/api/v1
+@accessToken = paste_access_token_here
+@refreshToken = paste_refresh_token_here
+@teamId = paste_team_id_here
+@projectId = paste_project_id_here
+@listId = paste_list_id_here
+@taskId = paste_task_id_here
+
+### Health
+GET {{baseUrl}}/health
+
+### Register
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "name": "Demo User",
+  "email": "demo@tower.local",
+  "password": "password123"
+}
+
+### Login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "demo@tower.local",
+  "password": "password123"
+}
+
+### Refresh token
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}
+
+### Me
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{accessToken}}
+
+### Create team
+POST {{baseUrl}}/teams
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Demo Team"
+}
+
+### List teams
+GET {{baseUrl}}/teams
+Authorization: Bearer {{accessToken}}
+
+### Create project
+POST {{baseUrl}}/teams/{{teamId}}/projects
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Demo Project",
+  "description": "V0 manual test"
+}
+
+### List projects
+GET {{baseUrl}}/teams/{{teamId}}/projects
+Authorization: Bearer {{accessToken}}
+
+### List board
+GET {{baseUrl}}/projects/{{projectId}}/lists
+Authorization: Bearer {{accessToken}}
+
+### Create task
+POST {{baseUrl}}/projects/{{projectId}}/tasks
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "taskListId": "{{listId}}",
+  "title": "Manual test task",
+  "priority": "HIGH"
+}
+
+### Get task
+GET {{baseUrl}}/tasks/{{taskId}}
+Authorization: Bearer {{accessToken}}
+
+### Add comment
+POST {{baseUrl}}/tasks/{{taskId}}/comments
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "content": "Looks good"
+}
+
+### My tasks
+GET {{baseUrl}}/users/me/tasks
+Authorization: Bearer {{accessToken}}
+
+### Notifications
+GET {{baseUrl}}/users/me/notifications
+Authorization: Bearer {{accessToken}}
