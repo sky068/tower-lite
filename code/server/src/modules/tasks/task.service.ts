@@ -1,12 +1,16 @@
 import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskListType } from "@prisma/client";
+import { logger } from "../../config/logger.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import {
   assertProjectActive,
   requireActiveProjectEditor,
-  requireProjectAccess
+  requireProjectAccess,
+  requireProjectManager
 } from "../projects/project.policy.js";
+import { publishProjectEvent, publishToUser } from "../realtime/realtime.service.js";
 import {
+  assertCustomTaskListName,
   assertTaskListEditable,
   assertTaskListDeletable,
   assertTaskDeletable,
@@ -94,7 +98,8 @@ function toTask(task: {
       task.assignees?.map(({ user }) => ({
         id: user.id,
         name: user.name,
-        avatarUrl: user.avatarUrl
+        avatarUrl: user.avatarUrl,
+        isRemoved: user.isRemoved
       })) ?? [],
     tags: task.tags?.map(({ tag }) => tag) ?? [],
     subTaskCount: task._count?.subTasks ?? 0
@@ -212,35 +217,49 @@ async function createNotification(input: {
   title: string;
   content: string;
   dedupeKey: string;
+  skipActor?: boolean;
 }) {
-  if (input.recipientId === input.actorId) {
+  if (input.skipActor && input.recipientId === input.actorId) {
     return;
   }
 
-  await prisma.notification.upsert({
-    where: {
-      dedupeKey: input.dedupeKey
-    },
-    update: {},
-    create: {
-      type: input.type,
-      title: input.title,
-      content: input.content,
-      link: `/tasks/${input.taskId}`,
-      recipientId: input.recipientId,
-      actorId: input.actorId,
-      projectId: input.projectId,
-      taskId: input.taskId,
-      dedupeKey: input.dedupeKey,
-      deliveries: {
-        create: {
-          channel: DeliveryChannel.IN_APP,
-          status: "SENT",
-          sentAt: new Date()
+  try {
+    await prisma.notification.upsert({
+      where: {
+        dedupeKey: input.dedupeKey
+      },
+      update: {},
+      create: {
+        type: input.type,
+        title: input.title,
+        content: input.content,
+        link: `/tasks/${input.taskId}`,
+        recipientId: input.recipientId,
+        actorId: input.actorId,
+        projectId: input.projectId,
+        taskId: input.taskId,
+        dedupeKey: input.dedupeKey,
+        deliveries: {
+          create: {
+            channel: DeliveryChannel.IN_APP,
+            status: "SENT",
+            sentAt: new Date()
+          }
         }
       }
-    }
-  });
+    });
+    publishToUser(input.recipientId, { type: "notification.changed" });
+  } catch (error) {
+    logger.error(
+      {
+        err: error,
+        type: input.type,
+        recipientId: input.recipientId,
+        taskId: input.taskId
+      },
+      "Failed to create task notification"
+    );
+  }
 }
 
 type TaskAssigneeUser = {
@@ -350,6 +369,45 @@ async function filterActiveProjectRecipients(projectId: string, userIds: string[
   return uniqueUserIds.filter((userId) => activeUserIds.has(userId));
 }
 
+async function getActiveTaskAssigneeIds(taskId: string) {
+  const assigneeMap = await getTaskAssigneeMap([taskId]);
+  return assigneeMap.get(taskId)
+    ?.filter((assignee) => !assignee.isRemoved)
+    .map((assignee) => assignee.userId) ?? [];
+}
+
+async function createTaskAssignedNotifications(input: {
+  actorId: string;
+  projectId: string;
+  taskId: string;
+  taskTitle: string;
+  assigneeIds: string[];
+  dedupeSuffix?: string;
+}) {
+  const recipientIds = await filterActiveProjectRecipients(input.projectId, input.assigneeIds);
+
+  await Promise.all(
+    recipientIds.map((recipientId) =>
+      createNotification({
+        type: NotificationType.TASK_ASSIGNED,
+        recipientId,
+        actorId: input.actorId,
+        projectId: input.projectId,
+        taskId: input.taskId,
+        title: "你被分配了一个任务",
+        content: input.taskTitle,
+        dedupeKey: [
+          "task_assigned",
+          input.taskId,
+          recipientId,
+          input.dedupeSuffix
+        ].filter(Boolean).join(":"),
+        skipActor: true
+      })
+    )
+  );
+}
+
 export async function listProjectTaskLists(userId: string, projectId: string) {
   await requireProjectAccess(userId, projectId);
 
@@ -401,7 +459,8 @@ export async function listProjectTaskLists(userId: string, projectId: string) {
 }
 
 export async function createTaskList(userId: string, projectId: string, input: CreateTaskListInput) {
-  await requireActiveProjectEditor(userId, projectId);
+  await requireProjectManager(userId, projectId);
+  assertCustomTaskListName(input.name);
 
   const lastList = await prisma.taskList.findFirst({
     where: {
@@ -420,6 +479,8 @@ export async function createTaskList(userId: string, projectId: string, input: C
     }
   });
 
+  await publishProjectEvent(projectId, { type: "task.changed", projectId });
+
   return toTaskList(taskList);
 }
 
@@ -429,9 +490,10 @@ export async function updateTaskList(
   taskListId: string,
   input: UpdateTaskListInput
 ) {
-  await requireActiveProjectEditor(userId, projectId);
+  await requireProjectManager(userId, projectId);
   const taskList = await assertTaskListInProject(taskListId, projectId);
   assertTaskListEditable(taskList);
+  assertCustomTaskListName(input.name);
 
   const updatedTaskList = await prisma.taskList.update({
     where: {
@@ -442,6 +504,8 @@ export async function updateTaskList(
     }
   });
 
+  await publishProjectEvent(projectId, { type: "task.changed", projectId });
+
   return toTaskList(updatedTaskList);
 }
 
@@ -451,7 +515,7 @@ export async function deleteTaskList(
   taskListId: string,
   input: DeleteTaskListInput
 ) {
-  await requireActiveProjectEditor(userId, projectId);
+  await requireProjectManager(userId, projectId);
   const taskList = await assertTaskListInProject(taskListId, projectId);
   assertTaskListDeletable(taskList);
 
@@ -510,6 +574,8 @@ export async function deleteTaskList(
     });
   });
 
+  await publishProjectEvent(projectId, { type: "task.changed", projectId });
+
   return { ok: true };
 }
 
@@ -518,7 +584,7 @@ export async function reorderTaskLists(
   projectId: string,
   input: ReorderTaskListsInput
 ) {
-  await requireActiveProjectEditor(userId, projectId);
+  await requireProjectManager(userId, projectId);
 
   const taskLists = await prisma.taskList.findMany({
     where: {
@@ -549,6 +615,8 @@ export async function reorderTaskLists(
       })
     )
   );
+
+  await publishProjectEvent(projectId, { type: "task.changed", projectId });
 
   return { ok: true };
 }
@@ -585,20 +653,15 @@ export async function createTask(userId: string, projectId: string, input: Creat
 
   await replaceTaskAssignees(prisma, task.id, assigneeIds);
 
-  await Promise.all(
-    assigneeIds.map((assigneeId) =>
-      createNotification({
-        type: NotificationType.TASK_ASSIGNED,
-        recipientId: assigneeId,
-        actorId: userId,
-        projectId,
-        taskId: task.id,
-        title: "你有一个新任务",
-        content: task.title,
-        dedupeKey: `task_assigned:${task.id}:${assigneeId}`
-      })
-    )
-  );
+  await createTaskAssignedNotifications({
+    actorId: userId,
+    projectId,
+    taskId: task.id,
+    taskTitle: task.title,
+    assigneeIds
+  });
+
+  await publishProjectEvent(projectId, { type: "task.changed", projectId, taskId: task.id });
 
   const assigneeMap = await getTaskAssigneeMap([task.id]);
   return toTask(attachAssignees(task, assigneeMap));
@@ -669,6 +732,9 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
     where: {
       id: taskId,
       deletedAt: null
+    },
+    include: {
+      taskList: true
     }
   });
 
@@ -726,20 +792,16 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
 
   const addedAssigneeIds = assigneeIds?.filter((assigneeId) => !previousAssigneeIds.has(assigneeId)) ?? [];
 
-  await Promise.all(
-    addedAssigneeIds.map((assigneeId) =>
-      createNotification({
-        type: NotificationType.TASK_ASSIGNED,
-        recipientId: assigneeId,
-        actorId: userId,
-        projectId: task.projectId,
-        taskId,
-        title: "你被分配了一个任务",
-        content: updatedTask.title,
-        dedupeKey: `task_assigned:${taskId}:${assigneeId}:${updatedTask.updatedAt.toISOString()}`
-      })
-    )
-  );
+  await createTaskAssignedNotifications({
+    actorId: userId,
+    projectId: task.projectId,
+    taskId,
+    taskTitle: updatedTask.title,
+    assigneeIds: addedAssigneeIds,
+    dedupeSuffix: updatedTask.updatedAt.toISOString()
+  });
+
+  await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
 
   const assigneeMap = await getTaskAssigneeMap([updatedTask.id]);
   return toTask(attachAssignees(updatedTask, assigneeMap));
@@ -750,6 +812,9 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
     where: {
       id: taskId,
       deletedAt: null
+    },
+    include: {
+      taskList: true
     }
   });
 
@@ -759,6 +824,7 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
 
   await requireActiveProjectEditor(userId, task.projectId);
   const targetList = await assertTaskListInProject(input.targetTaskListId, task.projectId);
+  const hasStatusChanged = task.taskListId !== input.targetTaskListId;
 
   const updatedTask = await prisma.task.update({
     where: {
@@ -774,30 +840,37 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
     }
   });
 
-  if (targetList.type === TaskListType.DONE && !task.completedAt) {
-    const assigneeMap = await getTaskAssigneeMap([taskId]);
-    const recipientIds = await filterActiveProjectRecipients(task.projectId, [
-        ...(assigneeMap.get(taskId)
-          ?.filter((assignee) => !assignee.isRemoved)
-          .map((assignee) => assignee.userId) ?? []),
-        task.creatorId
-      ].filter(Boolean) as string[]);
+  if (hasStatusChanged) {
+    try {
+      const recipientIds = await filterActiveProjectRecipients(
+        task.projectId,
+        await getActiveTaskAssigneeIds(taskId)
+      );
 
-    await Promise.all(
-      recipientIds.map((recipientId) =>
-        createNotification({
-          type: NotificationType.TASK_COMPLETED,
-          recipientId,
-          actorId: userId,
-          projectId: task.projectId,
-          taskId,
-          title: "任务已完成",
-          content: updatedTask.title,
-          dedupeKey: `task_completed:${taskId}:${recipientId}:${updatedTask.completedAt?.toISOString() ?? "done"}`
-        })
-      )
-    );
+      await Promise.all(
+        recipientIds.map((recipientId) =>
+          createNotification({
+            type: NotificationType.TASK_STATUS_CHANGED,
+            recipientId,
+            actorId: userId,
+            projectId: task.projectId,
+            taskId,
+            title: "任务状态已变更",
+            content: `${updatedTask.title}: ${task.taskList.name} -> ${targetList.name}`,
+            dedupeKey: `task_status_changed:${taskId}:${recipientId}:${task.taskListId}:${input.targetTaskListId}:${updatedTask.updatedAt.toISOString()}`,
+            skipActor: true
+          })
+        )
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, taskId, projectId: task.projectId },
+        "Failed to create task status change notifications"
+      );
+    }
   }
+
+  await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
 
   const assigneeMap = await getTaskAssigneeMap([updatedTask.id]);
   return toTask(attachAssignees(updatedTask, assigneeMap));
@@ -838,6 +911,8 @@ export async function deleteTask(userId: string, taskId: string) {
     }
   });
 
+  await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
+
   return { ok: true };
 }
 
@@ -866,12 +941,25 @@ export async function createComment(userId: string, taskId: string, input: Creat
     }
   });
 
-  await createMentionNotifications({
+  const mentionedUserIds = await createMentionNotifications({
     actorId: userId,
     projectId: task.projectId,
     taskId,
+    commentId: comment.id,
     content: input.content
   });
+  await createTaskCommentNotifications({
+    actorId: userId,
+    projectId: task.projectId,
+    taskId,
+    taskTitle: task.title,
+    commentId: comment.id,
+    creatorId: task.creatorId,
+    content: input.content,
+    excludeUserIds: mentionedUserIds
+  });
+
+  await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
 
   return {
     id: comment.id,
@@ -924,6 +1012,12 @@ export async function deleteComment(userId: string, taskId: string, commentId: s
     }
   });
 
+  await publishProjectEvent(comment.task.projectId, {
+    type: "task.changed",
+    projectId: comment.task.projectId,
+    taskId
+  });
+
   return { ok: true };
 }
 
@@ -931,6 +1025,7 @@ async function createMentionNotifications(input: {
   actorId: string;
   projectId: string;
   taskId: string;
+  commentId: string;
   content: string;
 }) {
   const members = await prisma.projectMember.findMany({
@@ -958,9 +1053,47 @@ async function createMentionNotifications(input: {
         taskId: input.taskId,
         title: "评论中提到了你",
         content: input.content.slice(0, 120),
-        dedupeKey: `comment_mention:${input.taskId}:${member.userId}:${Date.now()}`
+        dedupeKey: `comment_mention:${input.taskId}:${input.commentId}:${member.userId}`,
+        skipActor: true
       })
     )
+  );
+
+  return mentionedMembers.map((member) => member.userId);
+}
+
+async function createTaskCommentNotifications(input: {
+  actorId: string;
+  projectId: string;
+  taskId: string;
+  taskTitle: string;
+  commentId: string;
+  creatorId: string;
+  content: string;
+  excludeUserIds: string[];
+}) {
+  const assigneeIds = await getActiveTaskAssigneeIds(input.taskId);
+  const recipientIds = await filterActiveProjectRecipients(input.projectId, [
+    input.creatorId,
+    ...assigneeIds
+  ]);
+  const excludedUserIds = new Set(input.excludeUserIds);
+
+  await Promise.all(
+    recipientIds
+      .filter((recipientId) => recipientId !== input.actorId && !excludedUserIds.has(recipientId))
+      .map((recipientId) =>
+        createNotification({
+          type: NotificationType.TASK_COMMENTED,
+          recipientId,
+          actorId: input.actorId,
+          projectId: input.projectId,
+          taskId: input.taskId,
+          title: "任务有新评论",
+          content: `${input.taskTitle}: ${input.content.slice(0, 120)}`,
+          dedupeKey: `task_commented:${input.taskId}:${input.commentId}:${recipientId}`
+        })
+      )
   );
 }
 

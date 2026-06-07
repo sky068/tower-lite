@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useRef, useState, type DragEvent } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
-import { boardApi, projectApi } from "../../lib/api";
+import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
+import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { useAuthStore } from "../../stores/authStore";
 import type { TaskList } from "../../types/api";
 import { TaskDetailPanel } from "./TaskDetailPanel";
+
+const reservedTaskListNames = new Set(["待处理", "进行中", "已完成"]);
 
 function formatDate(value: string | null) {
   return value ? new Date(value).toLocaleDateString() : null;
@@ -24,6 +27,7 @@ export function ProjectBoardPage() {
   const listDropCommittedRef = useRef(false);
   const [listDraftNames, setListDraftNames] = useState<Record<string, string>>({});
   const [listName, setListName] = useState("");
+  const [listNameError, setListNameError] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [draggingListId, setDraggingListId] = useState<string | null>(null);
@@ -33,7 +37,7 @@ export function ProjectBoardPage() {
   const [taskSearch, setTaskSearch] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("ALL");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
-  const [completionFilter, setCompletionFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
+  const [completionFilter, setCompletionFilter] = useState<"OPEN" | "DONE" | "ALL">("ALL");
   const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDescription, setNewTaskDescription] = useState("");
@@ -61,7 +65,17 @@ export function ProjectBoardPage() {
     enabled: Boolean(projectId)
   });
 
+  const teamMembersQuery = useQuery({
+    queryKey: ["team-members", projectQuery.data?.teamId],
+    queryFn: () => teamApi.members(projectQuery.data!.teamId),
+    enabled: Boolean(projectQuery.data?.teamId)
+  });
+
   const lists = listsQuery.data ?? [];
+  const projectPermissions = useMemo(
+    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data),
+    [membersQuery.data, teamMembersQuery.data, user?.id]
+  );
   const canUseOrderedLists =
     orderedListIds.length === lists.length &&
     orderedListIds.every((listId) => lists.some((list) => list.id === listId));
@@ -70,7 +84,11 @@ export function ProjectBoardPage() {
         .map((listId) => lists.find((list) => list.id === listId))
         .filter((list): list is TaskList => Boolean(list))
     : lists;
+  const totalTaskCount = lists.reduce((sum, list) => sum + list.tasks.length, 0);
+  const visibleTaskCount = displayedLists.reduce((sum, list) => sum + getFilteredTasks(list.id).length, 0);
   const isArchived = projectQuery.data?.status === "ARCHIVED";
+  const canEditProjectBoard = projectPermissions.canEditProject && !isArchived;
+  const canManageTaskLists = projectPermissions.canManageProject && !isArchived;
   const defaultTaskListId = lists.find((list) => list.type === "TODO")?.id ?? lists[0]?.id ?? "";
 
   const createTaskMutation = useMutation({
@@ -110,6 +128,7 @@ export function ProjectBoardPage() {
     mutationFn: (name: string) => boardApi.createList(projectId!, { name }),
     onSuccess: () => {
       setListName("");
+      setListNameError("");
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
     }
   });
@@ -130,6 +149,7 @@ export function ProjectBoardPage() {
     mutationFn: (input: { listId: string; name: string }) =>
       boardApi.updateList(projectId!, input.listId, { name: input.name }),
     onSuccess: () => {
+      setListNameError("");
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
     }
   });
@@ -177,7 +197,7 @@ export function ProjectBoardPage() {
 
     setNewTaskDateError("");
 
-    if (!title || !newTaskListId || !projectId || isArchived) {
+    if (!title || !newTaskListId || !projectId || !canEditProjectBoard) {
       return;
     }
 
@@ -193,6 +213,10 @@ export function ProjectBoardPage() {
   }
 
   function openCreateTaskModal(taskListId = defaultTaskListId) {
+    if (!canEditProjectBoard) {
+      return;
+    }
+
     setNewTaskListId(taskListId);
     setNewTaskAssigneeIds(user?.id ? [user.id] : []);
     setNewTaskDateError("");
@@ -235,13 +259,19 @@ export function ProjectBoardPage() {
     event.preventDefault();
     const name = listName.trim();
 
-    if (name && projectId && !isArchived) {
+    if (reservedTaskListNames.has(name)) {
+      setListNameError("自定义列表不能命名为待处理、进行中或已完成。");
+      return;
+    }
+
+    if (name && projectId && canManageTaskLists) {
+      setListNameError("");
       createListMutation.mutate(name);
     }
   }
 
   function handleDropTask(taskListId: string) {
-    if (!draggingTaskId || draggingListId || isArchived) {
+    if (!draggingTaskId || draggingListId || !canEditProjectBoard) {
       return;
     }
 
@@ -266,7 +296,7 @@ export function ProjectBoardPage() {
   }
 
   function handleDragOverList(event: DragEvent<HTMLElement>, targetList: TaskList) {
-    if (!draggingListId || targetList.type !== "CUSTOM" || isArchived) {
+    if (!draggingListId || targetList.type !== "CUSTOM" || !canManageTaskLists) {
       return;
     }
 
@@ -341,7 +371,7 @@ export function ProjectBoardPage() {
   }
 
   function handleStartListDrag(event: DragEvent<HTMLElement>, listId: string) {
-    if (isArchived) {
+    if (!canManageTaskLists) {
       return;
     }
 
@@ -371,13 +401,19 @@ export function ProjectBoardPage() {
     event.preventDefault();
     const name = listDraftNames[listId]?.trim();
 
-    if (name && !isArchived) {
+    if (name && reservedTaskListNames.has(name)) {
+      setListNameError("自定义列表不能命名为待处理、进行中或已完成。");
+      return;
+    }
+
+    if (name && canManageTaskLists) {
+      setListNameError("");
       updateListMutation.mutate({ listId, name });
     }
   }
 
   function handleDeleteList(listId: string) {
-    if (isArchived) {
+    if (!canManageTaskLists) {
       return;
     }
 
@@ -402,7 +438,7 @@ export function ProjectBoardPage() {
   function handleConfirmDeleteList(event: FormEvent) {
     event.preventDefault();
 
-    if (!pendingDeleteListId || !deleteTargetListId || isArchived) {
+    if (!pendingDeleteListId || !deleteTargetListId || !canManageTaskLists) {
       return;
     }
 
@@ -417,7 +453,7 @@ export function ProjectBoardPage() {
       <div className="page-heading">
         <h1>项目看板</h1>
         <p>V0 看板支持任务创建、任务详情、移动任务和一层子任务。</p>
-        {projectId ? (
+        {projectId && projectPermissions.canManageProject ? (
           <Link className="text-link inline" to={`/projects/${projectId}/settings`}>
             项目设置
           </Link>
@@ -428,25 +464,38 @@ export function ProjectBoardPage() {
           这个项目已归档，当前看板为只读状态。
         </section>
       ) : null}
-      <form className="board-toolbar" onSubmit={handleCreateList}>
-        <input
-          value={listName}
-          onChange={(event) => setListName(event.target.value)}
-          placeholder="新列表名称"
-          disabled={isArchived}
-        />
-        <button type="submit" disabled={isArchived || createListMutation.isPending}>
-          添加列表
-        </button>
-        <button
-          className="secondary-button"
-          type="button"
-          disabled={isArchived || lists.length === 0}
-          onClick={() => openCreateTaskModal()}
-        >
-          新建任务
-        </button>
-      </form>
+      {!isArchived && !projectPermissions.canEditProject ? (
+        <section className="notice-panel">
+          你当前是只读成员，可以查看任务但不能修改看板。
+        </section>
+      ) : null}
+      {canEditProjectBoard ? (
+        <form className="board-toolbar" onSubmit={handleCreateList}>
+          {canManageTaskLists ? (
+            <>
+              <input
+                value={listName}
+                onChange={(event) => setListName(event.target.value)}
+                placeholder="新列表名称"
+              />
+              <button type="submit" disabled={createListMutation.isPending}>
+                添加列表
+              </button>
+            </>
+          ) : null}
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={lists.length === 0}
+            onClick={() => openCreateTaskModal()}
+          >
+            新建任务
+          </button>
+          {canManageTaskLists && listNameError ? (
+            <span className="form-error inline-error">{listNameError}</span>
+          ) : null}
+        </form>
+      ) : null}
       <section className="board-filters">
         <input
           value={taskSearch}
@@ -474,9 +523,9 @@ export function ProjectBoardPage() {
           value={completionFilter}
           onChange={(event) => setCompletionFilter(event.target.value as typeof completionFilter)}
         >
+          <option value="ALL">全部完成状态</option>
           <option value="OPEN">未完成</option>
           <option value="DONE">已完成</option>
-          <option value="ALL">全部状态</option>
         </select>
       </section>
       <MutationError
@@ -488,6 +537,11 @@ export function ProjectBoardPage() {
           reorderListsMutation.error
         }
       />
+      {!listsQuery.isLoading && totalTaskCount > 0 && visibleTaskCount === 0 ? (
+        <section className="notice-panel">
+          当前筛选条件隐藏了所有任务，可以切换为“全部完成状态”或清空搜索条件查看。
+        </section>
+      ) : null}
       {pendingDeleteListId ? (
         <section className="panel inline-panel">
           <div>
@@ -531,9 +585,16 @@ export function ProjectBoardPage() {
           <section
             className={column.id === draggingListId ? "board-column dragging-list" : "board-column"}
             key={column.id}
-            onDragOver={(event) =>
-              draggingListId ? handleDragOverList(event, column) : event.preventDefault()
-            }
+            onDragOver={(event) => {
+              if (draggingListId) {
+                handleDragOverList(event, column);
+                return;
+              }
+
+              if (canEditProjectBoard) {
+                event.preventDefault();
+              }
+            }}
             onDrop={() => {
               if (draggingListId) {
                 return;
@@ -551,7 +612,7 @@ export function ProjectBoardPage() {
               <form className="column-title-form" onSubmit={(event) => handleRenameList(event, column.id)}>
                 <span
                   className="list-drag-handle"
-                  draggable={!isArchived}
+                  draggable={canManageTaskLists}
                   title="拖拽排序"
                   onDragStart={(event) => handleStartListDrag(event, column.id)}
                   onDragEnd={handleEndListDrag}
@@ -560,7 +621,7 @@ export function ProjectBoardPage() {
                 </span>
                 <input
                   value={listDraftNames[column.id] ?? column.name}
-                  disabled={isArchived}
+                  disabled={!canManageTaskLists}
                   onChange={(event) =>
                     setListDraftNames((current) => ({
                       ...current,
@@ -568,11 +629,11 @@ export function ProjectBoardPage() {
                     }))
                   }
                 />
-                <button type="submit" disabled={isArchived || updateListMutation.isPending}>保存</button>
+                <button type="submit" disabled={!canManageTaskLists || updateListMutation.isPending}>保存</button>
                 <button
                   className="danger-inline"
                   type="button"
-                  disabled={isArchived || deleteListMutation.isPending}
+                  disabled={!canManageTaskLists || deleteListMutation.isPending}
                   onClick={() => handleDeleteList(column.id)}
                 >
                   删除
@@ -589,9 +650,9 @@ export function ProjectBoardPage() {
                 className={task.completedAt ? "task-card task-card-button completed" : "task-card task-card-button"}
                 key={task.id}
                 type="button"
-                draggable={!isArchived}
+                draggable={canEditProjectBoard}
                 onDragStart={() => {
-                  if (!isArchived) {
+                  if (canEditProjectBoard) {
                     setDraggingTaskId(task.id);
                   }
                 }}
@@ -734,7 +795,14 @@ export function ProjectBoardPage() {
         <TaskDetailPanel
           projectId={projectId!}
           taskId={selectedTaskId}
-          readOnly={isArchived}
+          readOnly={!canEditProjectBoard}
+          onTaskMoved={(targetTaskListId) => {
+            const targetList = lists.find((list) => list.id === targetTaskListId);
+
+            if (targetList?.type === "DONE") {
+              setCompletionFilter("ALL");
+            }
+          }}
           onClose={() => setSelectedTaskId(null)}
         />
       ) : null}

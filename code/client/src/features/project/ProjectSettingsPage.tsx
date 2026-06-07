@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi } from "../../lib/api";
+import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 
 export function ProjectSettingsPage() {
@@ -37,14 +38,11 @@ export function ProjectSettingsPage() {
     const projectMemberIds = new Set((membersQuery.data ?? []).map((member) => member.user.id));
     return (teamMembersQuery.data ?? []).filter((member) => !projectMemberIds.has(member.user.id));
   }, [membersQuery.data, teamMembersQuery.data]);
-  const currentProjectMember = (membersQuery.data ?? []).find((member) => member.user.id === user?.id);
-  const currentTeamMember = (teamMembersQuery.data ?? []).find((member) => member.user.id === user?.id);
-  const isTeamAdmin = currentTeamMember?.role === "OWNER" || currentTeamMember?.role === "ADMIN";
-  const canEditProject =
-    isTeamAdmin ||
-    currentProjectMember?.role === "OWNER" ||
-    currentProjectMember?.role === "EDITOR";
-  const canManageProject = isTeamAdmin || currentProjectMember?.role === "OWNER";
+  const { canManageProject } = getProjectPermissions(
+    user?.id,
+    membersQuery.data,
+    teamMembersQuery.data
+  );
   const isArchived = projectQuery.data?.status === "ARCHIVED";
 
   const updateProjectMutation = useMutation({
@@ -97,7 +95,7 @@ export function ProjectSettingsPage() {
 
   function handleUpdateProject(event: FormEvent) {
     event.preventDefault();
-    if (canEditProject) {
+    if (canManageProject) {
       updateProjectMutation.mutate();
     }
   }
@@ -126,7 +124,7 @@ export function ProjectSettingsPage() {
             项目名称
             <input
               value={name}
-              disabled={!canEditProject}
+              disabled={!canManageProject}
               onChange={(event) => setName(event.target.value)}
               required
             />
@@ -135,14 +133,14 @@ export function ProjectSettingsPage() {
             描述
             <textarea
               value={description}
-              disabled={!canEditProject}
+              disabled={!canManageProject}
               onChange={(event) => setDescription(event.target.value)}
               rows={3}
             />
           </label>
-          <button type="submit" disabled={!canEditProject || updateProjectMutation.isPending}>保存</button>
+          <button type="submit" disabled={!canManageProject || updateProjectMutation.isPending}>保存</button>
         </form>
-        {!canEditProject ? <span className="muted">你当前是只读成员，不能修改项目基础信息。</span> : null}
+        {!canManageProject ? <span className="muted">只有项目 OWNER 或团队 OWNER / ADMIN 可以修改项目基础信息。</span> : null}
         <MutationError error={updateProjectMutation.error} />
       </section>
       <section className="panel">

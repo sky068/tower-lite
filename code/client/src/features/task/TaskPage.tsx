@@ -1,11 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { boardApi, projectApi } from "../../lib/api";
+import { boardApi, projectApi, teamApi } from "../../lib/api";
+import { getProjectPermissions } from "../../lib/permissions";
+import { useAuthStore } from "../../stores/authStore";
 import { TaskDetailPanel } from "../board/TaskDetailPanel";
 
 export function TaskPage() {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
   const taskQuery = useQuery({
     queryKey: ["task", taskId],
     queryFn: () => boardApi.getTask(taskId!),
@@ -19,6 +22,22 @@ export function TaskPage() {
     enabled: Boolean(task?.projectId)
   });
   const isArchived = projectQuery.data?.status === "ARCHIVED";
+  const projectMembersQuery = useQuery({
+    queryKey: ["project-members", task?.projectId],
+    queryFn: () => projectApi.members(task!.projectId),
+    enabled: Boolean(task?.projectId)
+  });
+  const teamMembersQuery = useQuery({
+    queryKey: ["team-members", projectQuery.data?.teamId],
+    queryFn: () => teamApi.members(projectQuery.data!.teamId),
+    enabled: Boolean(projectQuery.data?.teamId)
+  });
+  const { canEditProject } = getProjectPermissions(
+    user?.id,
+    projectMembersQuery.data,
+    teamMembersQuery.data
+  );
+  const isReadOnly = isArchived || !canEditProject;
 
   return (
     <div className="page">
@@ -36,12 +55,18 @@ export function TaskPage() {
           这个项目已归档，当前任务为只读状态。
         </section>
       ) : null}
+      {!isArchived && !canEditProject ? (
+        <section className="notice-panel">
+          你当前是只读成员，可以查看任务但不能修改。
+        </section>
+      ) : null}
       {taskQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
       {task ? (
         <TaskDetailPanel
           projectId={task.projectId}
           taskId={task.id}
-          readOnly={isArchived}
+          readOnly={isReadOnly}
+          closeOnSave={false}
           onClose={() => navigate(`/projects/${task.projectId}/board`)}
         />
       ) : null}

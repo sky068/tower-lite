@@ -1,13 +1,14 @@
-import { TeamRole } from "@prisma/client";
+import { ProjectRole, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
+import { publishTeamEvent, publishToUsers } from "../realtime/realtime.service.js";
 import type {
   AddTeamMemberInput,
   CreateTeamInput,
   UpdateTeamInput,
   UpdateTeamMemberRoleInput
 } from "./team.schema.js";
-import { requireTeamAdmin, requireTeamMember } from "./team.policy.js";
+import { requireTeamMember, requireTeamOwner } from "./team.policy.js";
 
 function toTeamSummary(team: { id: string; name: string; createdAt: Date; updatedAt: Date }) {
   return {
@@ -30,6 +31,8 @@ export async function createTeam(userId: string, input: CreateTeamInput) {
       }
     }
   });
+
+  await publishTeamEvent(team.id, { type: "team.changed", teamId: team.id });
 
   return toTeamSummary(team);
 }
@@ -70,7 +73,7 @@ export async function getTeam(userId: string, teamId: string) {
 }
 
 export async function updateTeam(userId: string, teamId: string, input: UpdateTeamInput) {
-  await requireTeamAdmin(userId, teamId);
+  await requireTeamOwner(userId, teamId);
 
   const team = await prisma.team.update({
     where: {
@@ -79,7 +82,50 @@ export async function updateTeam(userId: string, teamId: string, input: UpdateTe
     data: input
   });
 
+  await publishTeamEvent(teamId, { type: "team.changed", teamId });
+
   return toTeamSummary(team);
+}
+
+export async function deleteTeam(userId: string, teamId: string) {
+  await requireTeamOwner(userId, teamId);
+
+  const projectCount = await prisma.project.count({
+    where: {
+      teamId,
+      deletedAt: null
+    }
+  });
+
+  if (projectCount > 0) {
+    throw new AppError(
+      "BUSINESS_RULE_VIOLATION",
+      "Team with projects cannot be deleted",
+      422
+    );
+  }
+
+  const members = await prisma.teamMember.findMany({
+    where: {
+      teamId
+    },
+    select: {
+      userId: true
+    }
+  });
+
+  await prisma.team.update({
+    where: {
+      id: teamId
+    },
+    data: {
+      deletedAt: new Date()
+    }
+  });
+
+  publishToUsers(members.map((member) => member.userId), { type: "team.changed", teamId });
+
+  return { ok: true };
 }
 
 export async function listTeamMembers(userId: string, teamId: string) {
@@ -110,7 +156,7 @@ export async function listTeamMembers(userId: string, teamId: string) {
 }
 
 export async function addTeamMember(userId: string, teamId: string, input: AddTeamMemberInput) {
-  await requireTeamAdmin(userId, teamId);
+  await requireTeamOwner(userId, teamId);
 
   const targetUser = await prisma.user.findUnique({
     where: {
@@ -142,6 +188,8 @@ export async function addTeamMember(userId: string, teamId: string, input: AddTe
     }
   });
 
+  await publishTeamEvent(teamId, { type: "team.changed", teamId });
+
   return {
     id: member.id,
     role: member.role,
@@ -160,7 +208,7 @@ export async function updateTeamMemberRole(
   targetUserId: string,
   input: UpdateTeamMemberRoleInput
 ) {
-  await requireTeamAdmin(userId, teamId);
+  await requireTeamOwner(userId, teamId);
   const member = await getExistingTeamMember(teamId, targetUserId);
 
   if (member.role === TeamRole.OWNER && input.role !== TeamRole.OWNER) {
@@ -179,6 +227,8 @@ export async function updateTeamMemberRole(
     }
   });
 
+  await publishTeamEvent(teamId, { type: "team.changed", teamId });
+
   return {
     id: updatedMember.id,
     role: updatedMember.role,
@@ -192,12 +242,14 @@ export async function updateTeamMemberRole(
 }
 
 export async function removeTeamMember(userId: string, teamId: string, targetUserId: string) {
-  await requireTeamAdmin(userId, teamId);
+  await requireTeamOwner(userId, teamId);
   const member = await getExistingTeamMember(teamId, targetUserId);
 
   if (member.role === TeamRole.OWNER) {
     await assertTeamKeepsOwner(teamId);
   }
+
+  await assertTeamMemberRemovalKeepsProjectOwners(teamId, targetUserId);
 
   await prisma.$transaction(async (tx) => {
     await tx.projectMember.deleteMany({
@@ -214,6 +266,8 @@ export async function removeTeamMember(userId: string, teamId: string, targetUse
       }
     });
   });
+
+  await publishTeamEvent(teamId, { type: "team.changed", teamId });
 
   return { ok: true };
 }
@@ -245,5 +299,38 @@ async function assertTeamKeepsOwner(teamId: string) {
 
   if (ownerCount <= 1) {
     throw new AppError("BUSINESS_RULE_VIOLATION", "Team must keep at least one owner", 422);
+  }
+}
+
+async function assertTeamMemberRemovalKeepsProjectOwners(teamId: string, userId: string) {
+  const projectsWithoutOtherOwner = await prisma.project.findMany({
+    where: {
+      teamId,
+      deletedAt: null,
+      members: {
+        some: {
+          userId,
+          role: ProjectRole.OWNER
+        },
+        none: {
+          userId: {
+            not: userId
+          },
+          role: ProjectRole.OWNER
+        }
+      }
+    },
+    select: {
+      name: true
+    },
+    take: 1
+  });
+
+  if (projectsWithoutOtherOwner.length > 0) {
+    throw new AppError(
+      "BUSINESS_RULE_VIOLATION",
+      `Project "${projectsWithoutOtherOwner[0].name}" must keep at least one owner`,
+      422
+    );
   }
 }

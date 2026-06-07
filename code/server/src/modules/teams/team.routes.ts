@@ -6,6 +6,7 @@ import { sendData } from "../../utils/api-response.js";
 import {
   addTeamMember,
   createTeam,
+  deleteTeam,
   getTeam,
   listMyTeams,
   listTeamMembers,
@@ -49,6 +50,15 @@ teamRoutes.patch(
   validate("body", updateTeamSchema),
   asyncHandler(async (req, res) => {
     const data = await updateTeam(getCurrentUserId(req), req.params.teamId, req.body);
+    return sendData(req, res, data);
+  })
+);
+
+teamRoutes.delete(
+  "/teams/:teamId",
+  validate("params", teamIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await deleteTeam(getCurrentUserId(req), req.params.teamId);
     return sendData(req, res, data);
   })
 );

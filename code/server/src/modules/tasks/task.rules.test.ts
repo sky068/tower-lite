@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { TaskListType } from "@prisma/client";
 import { AppError } from "../../middleware/error-handler.js";
 import {
+  assertCustomTaskListName,
   assertTaskListDeletable,
   assertTaskListEditable,
   assertTaskDeletable,
@@ -66,6 +67,22 @@ describe("task rules", () => {
     for (const type of [TaskListType.TODO, TaskListType.IN_PROGRESS, TaskListType.DONE]) {
       assert.throws(
         () => assertTaskListEditable({ type }),
+        (error) =>
+          error instanceof AppError &&
+          error.code === "BUSINESS_RULE_VIOLATION" &&
+          error.status === 422
+      );
+    }
+  });
+
+  it("allows custom task list names that do not duplicate default lists", () => {
+    assert.doesNotThrow(() => assertCustomTaskListName("评审中"));
+  });
+
+  it("rejects custom task list names that duplicate default lists", () => {
+    for (const name of ["待处理", "进行中", "已完成", "  已完成  "]) {
+      assert.throws(
+        () => assertCustomTaskListName(name),
         (error) =>
           error instanceof AppError &&
           error.code === "BUSINESS_RULE_VIOLATION" &&

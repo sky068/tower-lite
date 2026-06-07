@@ -3,11 +3,12 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 
 export async function requireTeamMember(userId: string, teamId: string) {
-  const member = await prisma.teamMember.findUnique({
+  const member = await prisma.teamMember.findFirst({
     where: {
-      userId_teamId: {
-        userId,
-        teamId
+      userId,
+      teamId,
+      team: {
+        deletedAt: null
       }
     }
   });
@@ -24,6 +25,16 @@ export async function requireTeamAdmin(userId: string, teamId: string) {
 
   if (member.role !== TeamRole.OWNER && member.role !== TeamRole.ADMIN) {
     throw new AppError("FORBIDDEN", "Team admin permission is required", 403);
+  }
+
+  return member;
+}
+
+export async function requireTeamOwner(userId: string, teamId: string) {
+  const member = await requireTeamMember(userId, teamId);
+
+  if (member.role !== TeamRole.OWNER) {
+    throw new AppError("FORBIDDEN", "Team owner permission is required", 403);
   }
 
   return member;

@@ -41,7 +41,8 @@ export function DashboardPage() {
     () => teams.find((team) => team.id === activeTeamId) ?? null,
     [activeTeamId, teams]
   );
-  const canCreateProject = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
+  const canCreateProject = activeTeam?.role === "OWNER";
+  const canManageActiveTeamProjects = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
 
   const filteredMyTasks = useMemo(() => {
     const keyword = taskSearch.trim().toLowerCase();
@@ -140,9 +141,11 @@ export function DashboardPage() {
                   <strong>{team.name}</strong>
                   <span>{team.role}</span>
                 </button>
-                <Link className="mini-link" to={`/teams/${team.id}/settings`}>
-                  设置
-                </Link>
+                {team.role === "OWNER" ? (
+                  <Link className="mini-link" to={`/teams/${team.id}/settings`}>
+                    设置
+                  </Link>
+                ) : null}
               </div>
             ))}
             {!teamsQuery.isLoading && teams.length === 0 ? (
@@ -153,20 +156,19 @@ export function DashboardPage() {
 
         <section className="panel">
           <h2>{activeTeam ? `${activeTeam.name} 的项目` : "项目"}</h2>
-          <form className="compact-form" onSubmit={handleCreateProject}>
-            <input
-              value={projectName}
-              onChange={(event) => setProjectName(event.target.value)}
-              placeholder="新项目名称"
-              disabled={!activeTeamId || !canCreateProject}
-              required
-            />
-            <button type="submit" disabled={!activeTeamId || !canCreateProject || createProjectMutation.isPending}>
-              创建
-            </button>
-          </form>
-          {activeTeamId && !canCreateProject ? (
-            <span className="muted">只有团队 OWNER / ADMIN 可以创建项目。</span>
+          {canCreateProject ? (
+            <form className="compact-form" onSubmit={handleCreateProject}>
+              <input
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+                placeholder="新项目名称"
+                disabled={!activeTeamId}
+                required
+              />
+              <button type="submit" disabled={!activeTeamId || createProjectMutation.isPending}>
+                创建
+              </button>
+            </form>
           ) : null}
           <MutationError error={createProjectMutation.error} />
           <div className="list">
@@ -177,9 +179,16 @@ export function DashboardPage() {
                   <strong>{project.name}</strong>
                   <span>{project.status}</span>
                 </Link>
-                <Link className="mini-link" to={`/projects/${project.id}/settings`}>
-                  设置
-                </Link>
+                <div className="row-actions">
+                  <Link className="mini-link" to={`/projects/${project.id}/board`}>
+                    看板
+                  </Link>
+                  {canManageActiveTeamProjects || project.role === "OWNER" ? (
+                    <Link className="mini-link" to={`/projects/${project.id}/settings`}>
+                      设置
+                    </Link>
+                  ) : null}
+                </div>
               </div>
             ))}
             {activeTeamId && !projectsQuery.isLoading && (projectsQuery.data ?? []).length === 0 ? (
@@ -190,7 +199,7 @@ export function DashboardPage() {
       </div>
 
       <div className="dashboard-grid">
-        <section className="panel">
+        <section className="panel dashboard-scroll-panel">
           <div className="panel-title-row">
             <h2>我的任务</h2>
             <select
@@ -209,7 +218,7 @@ export function DashboardPage() {
             onChange={(event) => setTaskSearch(event.target.value)}
             placeholder="搜索任务、项目或列表"
           />
-          <div className="list">
+          <div className="list dashboard-scroll-list">
             {myTasksQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
             {filteredMyTasks.map((task) => (
               <Link className="list-row" key={task.id} to={`/tasks/${task.id}`}>
@@ -232,7 +241,7 @@ export function DashboardPage() {
           </div>
         </section>
 
-        <section className="panel">
+        <section className="panel dashboard-scroll-panel">
           <div className="panel-title-row">
             <h2>通知</h2>
             <button
@@ -244,7 +253,7 @@ export function DashboardPage() {
               全部已读
             </button>
           </div>
-          <div className="list">
+          <div className="list dashboard-scroll-list">
             {notificationsQuery.isLoading ? <span className="muted">通知加载中...</span> : null}
             {(notificationsQuery.data ?? []).map((notification) => (
               <div className={notification.isRead ? "list-row" : "list-row unread"} key={notification.id}>

@@ -10,6 +10,8 @@ type TaskDetailPanelProps = {
   projectId: string;
   taskId: string;
   readOnly?: boolean;
+  closeOnSave?: boolean;
+  onTaskMoved?: (targetTaskListId: string) => void;
   onClose: () => void;
 };
 
@@ -17,7 +19,14 @@ function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
   return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
 }
 
-export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }: TaskDetailPanelProps) {
+export function TaskDetailPanel({
+  projectId,
+  taskId,
+  readOnly = false,
+  closeOnSave = true,
+  onTaskMoved,
+  onClose
+}: TaskDetailPanelProps) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const subTaskAssigneeDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -35,9 +44,11 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
   const [description, setDescription] = useState("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [priority, setPriority] = useState<"LOW" | "MEDIUM" | "HIGH" | "URGENT">("MEDIUM");
+  const [taskListId, setTaskListId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [dateError, setDateError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
   const [tagName, setTagName] = useState("");
   const [tagColor, setTagColor] = useState("#2563eb");
   const [tagDrafts, setTagDrafts] = useState<Record<string, { name: string; color: string }>>({});
@@ -94,7 +105,7 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
 
   const task = taskQuery.data;
   const lists = listsQuery.data ?? [];
-  const tags = tagsQuery.data ?? [];
+  const tags = useMemo(() => tagsQuery.data ?? [], [tagsQuery.data]);
   const memberUserIds = useMemo(
     () => new Set((membersQuery.data ?? []).map((member) => member.user.id)),
     [membersQuery.data]
@@ -110,7 +121,6 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
     () => lists.find((list) => list.id === task?.taskListId) ?? null,
     [lists, task?.taskListId]
   );
-  const doneList = useMemo(() => lists.find((list) => list.type === "DONE") ?? null, [lists]);
   const subTaskAssigneeSummary = useMemo(() => {
     const members = membersQuery.data ?? [];
     const selectedNames = members
@@ -136,6 +146,7 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
           : []
       );
       setPriority(task.priority);
+      setTaskListId(task.taskListId);
       setStartDate(task.startDate ? task.startDate.slice(0, 10) : "");
       setDueDate(task.dueDate ? task.dueDate.slice(0, 10) : "");
       setSubTaskListId(task.taskListId);
@@ -143,16 +154,24 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
   }, [task]);
 
   useEffect(() => {
+    if (!tagsQuery.data) {
+      return;
+    }
+
     setTagDrafts((current) => {
       const next: Record<string, { name: string; color: string }> = {};
+      let hasChanged = false;
 
       for (const tag of tags) {
         next[tag.id] = current[tag.id] ?? { name: tag.name, color: tag.color };
+        hasChanged ||= !current[tag.id];
       }
 
-      return next;
+      hasChanged ||= Object.keys(current).length !== tags.length;
+
+      return hasChanged ? next : current;
     });
-  }, [tags]);
+  }, [tags, tagsQuery.data]);
 
   const createCommentMutation = useMutation({
     mutationFn: (content: string) => boardApi.createComment(activeTaskId, { content }),
@@ -208,10 +227,11 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
         startDate: startDate || null,
         dueDate: dueDate || null
       }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
-      void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
-      onClose();
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] }),
+        queryClient.invalidateQueries({ queryKey: ["board", projectId] })
+      ]);
     }
   });
 
@@ -222,17 +242,14 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
       const nextSortKey = lastSortKey ? String(Number(lastSortKey) + 1000) : "1000";
       return boardApi.moveTask(activeTaskId, { targetTaskListId, sortKey: nextSortKey });
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
-      void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+    onSuccess: async (_task, targetTaskListId) => {
+      onTaskMoved?.(targetTaskListId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] }),
+        queryClient.invalidateQueries({ queryKey: ["board", projectId] })
+      ]);
     }
   });
-
-  function moveToList(targetTaskListId: string) {
-    if (!readOnly) {
-      moveTaskMutation.mutate(targetTaskListId);
-    }
-  }
 
   const createTagMutation = useMutation({
     mutationFn: () => boardApi.createTag(projectId, { name: tagName.trim(), color: tagColor }),
@@ -344,7 +361,7 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
     }
   }
 
-  function handleUpdateTask(event: FormEvent) {
+  async function handleUpdateTask(event: FormEvent) {
     event.preventDefault();
 
     if (startDate && dueDate && startDate > dueDate) {
@@ -353,9 +370,24 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
     }
 
     setDateError("");
+    setSaveMessage("");
 
-    if (title.trim() && !readOnly) {
-      updateTaskMutation.mutate();
+    if (title.trim() && task && taskListId && !readOnly) {
+      try {
+        await updateTaskMutation.mutateAsync();
+
+        if (taskListId !== task.taskListId) {
+          await moveTaskMutation.mutateAsync(taskListId);
+        }
+
+        if (closeOnSave) {
+          onClose();
+        } else {
+          setSaveMessage("已保存");
+        }
+      } catch {
+        // MutationError renders the API failure above the form.
+      }
     }
   }
 
@@ -425,7 +457,7 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
           <div className="task-detail-body">
             <section className="detail-section">
               <h3>基础信息</h3>
-              <MutationError error={updateTaskMutation.error} />
+              <MutationError error={updateTaskMutation.error ?? moveTaskMutation.error} />
               <form className="detail-form" onSubmit={handleUpdateTask}>
                 <label>
                   标题
@@ -474,11 +506,11 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
                   </div>
                 </fieldset>
                 <label>
-                  状态
+                  <span className="status-field-label">状态</span>
                   <select
-                    value={task.taskListId}
+                    value={taskListId || task.taskListId}
                     disabled={readOnly || moveTaskMutation.isPending}
-                    onChange={(event) => moveToList(event.target.value)}
+                    onChange={(event) => setTaskListId(event.target.value)}
                   >
                     {lists.map((list) => (
                       <option key={list.id} value={list.id}>
@@ -524,8 +556,12 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
                   />
                 </label>
                 {dateError ? <span className="form-error inline-error">{dateError}</span> : null}
-                <button type="submit" disabled={readOnly || updateTaskMutation.isPending}>
-                  保存
+                {saveMessage ? <span className="form-success inline-error">{saveMessage}</span> : null}
+                <button
+                  type="submit"
+                  disabled={readOnly || updateTaskMutation.isPending || moveTaskMutation.isPending}
+                >
+                  {updateTaskMutation.isPending || moveTaskMutation.isPending ? "保存中..." : "保存"}
                 </button>
               </form>
               <div className="detail-grid">
@@ -548,38 +584,6 @@ export function TaskDetailPanel({ projectId, taskId, readOnly = false, onClose }
                     : "未分配"}
                 </strong>
               </div>
-            </section>
-
-            <section className="detail-section">
-              <h3>移动到</h3>
-              <MutationError error={moveTaskMutation.error} />
-              <div className="segmented-actions">
-                {lists.map((list) => (
-                  <button
-                    key={list.id}
-                    type="button"
-                    disabled={readOnly || list.id === task.taskListId || moveTaskMutation.isPending}
-                    onClick={() => moveToList(list.id)}
-                  >
-                    {list.name}
-                  </button>
-                ))}
-              </div>
-              {doneList && doneList.id !== task.taskListId ? (
-                <button
-                  className="primary-inline-button"
-                  type="button"
-                  disabled={readOnly || moveTaskMutation.isPending}
-                  onClick={() => moveToList(doneList.id)}
-                >
-                  标记为已完成
-                </button>
-              ) : null}
-              {task.completedAt ? (
-                <span className="muted">
-                  已完成于 {new Date(task.completedAt).toLocaleString()}
-                </span>
-              ) : null}
             </section>
 
             <section className="detail-section danger-zone">

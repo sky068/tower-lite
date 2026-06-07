@@ -41,6 +41,7 @@ export type Project = {
   icon: string | null;
   status: "ACTIVE" | "ARCHIVED";
   teamId: string;
+  role?: ProjectRole;
   createdAt: string;
   updatedAt: string;
 };

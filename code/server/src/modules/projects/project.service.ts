@@ -1,8 +1,9 @@
 import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskListType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
-import { requireTeamAdmin, requireTeamMember } from "../teams/team.policy.js";
-import { requireProjectAccess, requireProjectEditor, requireProjectManager } from "./project.policy.js";
+import { publishProjectEvent, publishTeamEvent, publishToUser } from "../realtime/realtime.service.js";
+import { requireTeamMember, requireTeamOwner } from "../teams/team.policy.js";
+import { requireProjectAccess, requireProjectManager } from "./project.policy.js";
 import type {
   AddProjectMemberInput,
   CreateProjectInput,
@@ -40,6 +41,19 @@ function toProjectSummary(project: {
   };
 }
 
+function toProjectSummaryWithRole(
+  project: Parameters<typeof toProjectSummary>[0] & {
+    members?: Array<{
+      role: ProjectRole;
+    }>;
+  }
+) {
+  return {
+    ...toProjectSummary(project),
+    role: project.members?.[0]?.role
+  };
+}
+
 async function createProjectJoinedNotification(input: {
   actorId: string;
   recipientId: string;
@@ -73,10 +87,11 @@ async function createProjectJoinedNotification(input: {
       }
     }
   });
+  publishToUser(input.recipientId, { type: "notification.changed" });
 }
 
 export async function createProject(userId: string, teamId: string, input: CreateProjectInput) {
-  await requireTeamAdmin(userId, teamId);
+  await requireTeamOwner(userId, teamId);
 
   const project = await prisma.project.create({
     data: {
@@ -97,6 +112,8 @@ export async function createProject(userId: string, teamId: string, input: Creat
       }
     }
   });
+
+  await publishTeamEvent(teamId, { type: "project.changed", teamId, projectId: project.id });
 
   return toProjectSummary(project);
 }
@@ -121,12 +138,20 @@ export async function listTeamProjects(userId: string, teamId: string) {
               }
             ]
     },
+    include: {
+      members: {
+        where: {
+          userId
+        },
+        take: 1
+      }
+    },
     orderBy: {
       createdAt: "asc"
     }
   });
 
-  return projects.map(toProjectSummary);
+  return projects.map(toProjectSummaryWithRole);
 }
 
 export async function getProject(userId: string, projectId: string) {
@@ -135,13 +160,19 @@ export async function getProject(userId: string, projectId: string) {
 }
 
 export async function updateProject(userId: string, projectId: string, input: UpdateProjectInput) {
-  await requireProjectEditor(userId, projectId);
+  await requireProjectManager(userId, projectId);
 
   const project = await prisma.project.update({
     where: {
       id: projectId
     },
     data: input
+  });
+
+  await publishProjectEvent(projectId, {
+    type: "project.changed",
+    projectId,
+    teamId: project.teamId
   });
 
   return toProjectSummary(project);
@@ -159,11 +190,17 @@ export async function archiveProject(userId: string, projectId: string) {
     }
   });
 
+  await publishProjectEvent(projectId, {
+    type: "project.changed",
+    projectId,
+    teamId: project.teamId
+  });
+
   return toProjectSummary(project);
 }
 
 export async function deleteProject(userId: string, projectId: string) {
-  await requireProjectManager(userId, projectId);
+  const { project } = await requireProjectManager(userId, projectId);
 
   await prisma.project.update({
     where: {
@@ -172,6 +209,12 @@ export async function deleteProject(userId: string, projectId: string) {
     data: {
       deletedAt: new Date()
     }
+  });
+
+  await publishTeamEvent(project.teamId, {
+    type: "project.changed",
+    projectId,
+    teamId: project.teamId
   });
 
   return { ok: true };
@@ -251,6 +294,12 @@ export async function addProjectMember(
     projectName: project.name
   });
 
+  await publishProjectEvent(projectId, {
+    type: "project.changed",
+    projectId,
+    teamId: project.teamId
+  });
+
   return {
     id: member.id,
     role: member.role,
@@ -284,6 +333,10 @@ export async function updateProjectMemberRole(
     throw new AppError("RESOURCE_NOT_FOUND", "Project member not found", 404);
   }
 
+  if (member.role === ProjectRole.OWNER && input.role !== ProjectRole.OWNER) {
+    await assertProjectKeepsOwner(projectId);
+  }
+
   const updatedMember = await prisma.projectMember.update({
     where: {
       id: member.id
@@ -295,6 +348,8 @@ export async function updateProjectMemberRole(
       user: true
     }
   });
+
+  await publishProjectEvent(projectId, { type: "project.changed", projectId });
 
   return {
     id: updatedMember.id,
@@ -311,13 +366,6 @@ export async function updateProjectMemberRole(
 export async function removeProjectMember(userId: string, projectId: string, targetUserId: string) {
   await requireProjectManager(userId, projectId);
 
-  const ownerCount = await prisma.projectMember.count({
-    where: {
-      projectId,
-      role: ProjectRole.OWNER
-    }
-  });
-
   const member = await prisma.projectMember.findUnique({
     where: {
       projectId_userId: {
@@ -331,8 +379,8 @@ export async function removeProjectMember(userId: string, projectId: string, tar
     throw new AppError("RESOURCE_NOT_FOUND", "Project member not found", 404);
   }
 
-  if (member.role === ProjectRole.OWNER && ownerCount <= 1) {
-    throw new AppError("BUSINESS_RULE_VIOLATION", "Project must keep at least one owner", 422);
+  if (member.role === ProjectRole.OWNER) {
+    await assertProjectKeepsOwner(projectId);
   }
 
   await prisma.projectMember.delete({
@@ -341,5 +389,20 @@ export async function removeProjectMember(userId: string, projectId: string, tar
     }
   });
 
+  await publishProjectEvent(projectId, { type: "project.changed", projectId });
+
   return { ok: true };
+}
+
+async function assertProjectKeepsOwner(projectId: string) {
+  const ownerCount = await prisma.projectMember.count({
+    where: {
+      projectId,
+      role: ProjectRole.OWNER
+    }
+  });
+
+  if (ownerCount <= 1) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Project must keep at least one owner", 422);
+  }
 }

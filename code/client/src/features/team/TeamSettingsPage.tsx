@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { teamApi } from "../../lib/api";
 import { useAuthStore } from "../../stores/authStore";
 
 export function TeamSettingsPage() {
   const { teamId } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const [teamName, setTeamName] = useState("");
@@ -23,7 +24,7 @@ export function TeamSettingsPage() {
     queryFn: teamApi.list
   });
   const currentMember = (membersQuery.data ?? []).find((member) => member.user.id === user?.id);
-  const canManageTeam = currentMember?.role === "OWNER" || currentMember?.role === "ADMIN";
+  const canManageTeam = currentMember?.role === "OWNER";
   const team = (teamsQuery.data ?? []).find((item) => item.id === teamId);
 
   const addMemberMutation = useMutation({
@@ -53,6 +54,14 @@ export function TeamSettingsPage() {
     mutationFn: (userId: string) => teamApi.removeMember(teamId!, userId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
+    }
+  });
+
+  const deleteTeamMutation = useMutation({
+    mutationFn: () => teamApi.remove(teamId!),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["teams"] });
+      navigate("/dashboard");
     }
   });
 
@@ -99,7 +108,7 @@ export function TeamSettingsPage() {
             保存
           </button>
         </form>
-        {!canManageTeam ? <span className="muted">只有团队 OWNER / ADMIN 可以修改团队信息。</span> : null}
+        {!canManageTeam ? <span className="muted">只有团队 OWNER 可以修改团队信息。</span> : null}
         <MutationError error={updateTeamMutation.error} />
       </section>
       <section className="panel">
@@ -124,7 +133,7 @@ export function TeamSettingsPage() {
           </select>
           <button type="submit" disabled={!canManageTeam || addMemberMutation.isPending}>添加</button>
         </form>
-        {!canManageTeam ? <span className="muted">只有团队 OWNER / ADMIN 可以管理成员。</span> : null}
+        {!canManageTeam ? <span className="muted">只有团队 OWNER 可以管理成员。</span> : null}
         <MutationError error={addMemberMutation.error} />
       </section>
       <section className="panel">
@@ -167,6 +176,24 @@ export function TeamSettingsPage() {
           ))}
         </div>
       </section>
+      {canManageTeam ? (
+        <section className="panel danger-zone">
+          <h2>危险操作</h2>
+          <MutationError error={deleteTeamMutation.error} />
+          <button
+            className="danger-button"
+            type="button"
+            disabled={deleteTeamMutation.isPending}
+            onClick={() => {
+              if (window.confirm(`确认删除团队「${team?.name ?? "当前团队"}」？此操作会将团队标记为已删除。`)) {
+                deleteTeamMutation.mutate();
+              }
+            }}
+          >
+            删除团队
+          </button>
+        </section>
+      ) : null}
     </div>
   );
 }

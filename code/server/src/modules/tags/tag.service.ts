@@ -1,6 +1,7 @@
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { requireActiveProjectEditor, requireProjectAccess } from "../projects/project.policy.js";
+import { publishProjectEvent } from "../realtime/realtime.service.js";
 import type { CreateTagInput, UpdateTagInput } from "./tag.schema.js";
 
 function toTag(tag: { id: string; name: string; color: string; projectId: string }) {
@@ -39,6 +40,8 @@ export async function createTag(userId: string, projectId: string, input: Create
     }
   });
 
+  await publishProjectEvent(projectId, { type: "tags.changed", projectId });
+
   return toTag(tag);
 }
 
@@ -61,6 +64,8 @@ export async function updateTag(
     data: input
   });
 
+  await publishProjectEvent(projectId, { type: "tags.changed", projectId });
+
   return toTag(tag);
 }
 
@@ -81,6 +86,8 @@ export async function deleteTag(userId: string, projectId: string, tagId: string
       }
     });
   });
+
+  await publishProjectEvent(projectId, { type: "tags.changed", projectId });
 
   return { ok: true };
 }
@@ -114,6 +121,8 @@ export async function addTagToTask(userId: string, taskId: string, tagId: string
     }
   });
 
+  await publishProjectEvent(task.projectId, { type: "tags.changed", projectId: task.projectId, taskId });
+
   return { ok: true };
 }
 
@@ -137,6 +146,8 @@ export async function removeTagFromTask(userId: string, taskId: string, tagId: s
       tagId
     }
   });
+
+  await publishProjectEvent(task.projectId, { type: "tags.changed", projectId: task.projectId, taskId });
 
   return { ok: true };
 }

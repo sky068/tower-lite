@@ -1,6 +1,7 @@
 import { DeliveryChannel, NotificationType } from "@prisma/client";
 import { logger } from "../config/logger.js";
 import { prisma } from "../lib/prisma.js";
+import { publishToUsers } from "../modules/realtime/realtime.service.js";
 
 const DUE_REMINDER_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -49,14 +50,16 @@ export async function runDueReminderScan() {
     }
   });
 
+  const notifiedUserIds = new Set<string>();
+
   await Promise.all(
     tasks.flatMap((task) => {
       const recipientIds = [
         ...new Set(assigneeMap.get(task.id) ?? [])
       ] as string[];
 
-      return recipientIds.map((recipientId) =>
-        prisma.notification.upsert({
+      return recipientIds.map(async (recipientId) => {
+        await prisma.notification.upsert({
           where: {
             dedupeKey: `task_due_soon:${task.id}:${recipientId}:${task.dueDate?.toISOString()}`
           },
@@ -78,10 +81,13 @@ export async function runDueReminderScan() {
               }
             }
           }
-        })
-      );
+        });
+        notifiedUserIds.add(recipientId);
+      });
     })
   );
+
+  publishToUsers([...notifiedUserIds], { type: "notification.changed" });
 
   if (tasks.length > 0) {
     logger.info({ count: tasks.length }, "Created due soon notifications");

@@ -76,7 +76,7 @@ input[type="date"]:not(:disabled) {
   padding: 14px 24px;
 }
 
-.topbar div {
+.topbar-title {
   display: flex;
   gap: 12px;
   align-items: baseline;
@@ -88,7 +88,7 @@ input[type="date"]:not(:disabled) {
   gap: 8px;
 }
 
-.topbar span,
+.topbar-title span,
 .page-heading p,
 .empty-state span,
 .task-card span {
@@ -96,6 +96,7 @@ input[type="date"]:not(:disabled) {
 }
 
 .icon-button {
+  position: relative;
   display: grid;
   width: 36px;
   height: 36px;
@@ -103,6 +104,99 @@ input[type="date"]:not(:disabled) {
   border: 1px solid #d9dee7;
   border-radius: 8px;
   background: #ffffff;
+}
+
+.notification-menu {
+  position: relative;
+}
+
+.notification-button {
+  color: #334155;
+}
+
+.notification-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 2px solid #ffffff;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.notification-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 420px;
+  overflow: hidden;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  z-index: 50;
+}
+
+.notification-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 12px;
+}
+
+.notification-list {
+  display: grid;
+  gap: 4px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.notification-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #334155;
+  padding: 10px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.notification-item:hover,
+.notification-item.unread {
+  background: #eff6ff;
+}
+
+.notification-item strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.notification-item span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.notification-footer {
+  border-top: 1px solid #e2e8f0;
+  color: #2563eb;
+  padding: 10px 12px;
+  text-align: center;
+  text-decoration: none;
 }
 
 .text-button {
@@ -318,6 +412,17 @@ input[type="date"]:not(:disabled) {
   gap: 8px;
 }
 
+.dashboard-scroll-panel {
+  min-height: 0;
+}
+
+.dashboard-scroll-list {
+  max-height: min(460px, 52vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
 .list-row {
   display: flex;
   align-items: center;
@@ -358,6 +463,12 @@ input[type="date"]:not(:disabled) {
   padding: 0;
   text-align: left;
   text-decoration: none;
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .mini-link {
@@ -855,6 +966,17 @@ select[multiple] {
   font-size: 14px;
 }
 
+.status-field-label {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 6px;
+  background: #fef3c7;
+  color: #92400e;
+  padding: 2px 8px;
+  font-weight: 700;
+}
+
 .detail-form input,
 .detail-form select,
 .detail-form textarea {
@@ -1072,6 +1194,15 @@ select[multiple] {
   border-radius: 8px;
   background: #fee2e2;
   color: #991b1b;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.form-success {
+  display: block;
+  border-radius: 8px;
+  background: #dcfce7;
+  color: #166534;
   padding: 10px 12px;
   font-size: 14px;
 }

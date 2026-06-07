@@ -14,8 +14,10 @@ export const taskCommentParamsSchema = z.object({
   commentId: z.string().uuid()
 });
 
+const taskListNameSchema = z.string().trim().min(1).max(80);
+
 export const createTaskListSchema = z.object({
-  name: z.string().min(1).max(80)
+  name: taskListNameSchema
 });
 
 export const taskListIdParamsSchema = z.object({
@@ -24,7 +26,7 @@ export const taskListIdParamsSchema = z.object({
 });
 
 export const updateTaskListSchema = z.object({
-  name: z.string().min(1).max(80)
+  name: taskListNameSchema
 });
 
 export const deleteTaskListSchema = z.object({
@@ -40,14 +42,24 @@ export const reorderTaskListsSchema = z.object({
   ).min(1)
 });
 
+const optionalDateSchema = z.preprocess(
+  (value) => (value === "" || value === null ? undefined : value),
+  z.coerce.date().optional()
+);
+
+const nullableDateSchema = z.preprocess(
+  (value) => (value === "" ? null : value),
+  z.coerce.date().nullable().optional()
+);
+
 export const createTaskSchema = z.object({
   taskListId: z.string().uuid(),
   title: z.string().min(1).max(200),
   description: z.string().max(5000).optional(),
   assigneeIds: z.array(z.string().uuid()).default([]),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
-  startDate: z.coerce.date().optional(),
-  dueDate: z.coerce.date().optional(),
+  startDate: optionalDateSchema,
+  dueDate: optionalDateSchema,
   tagIds: z.array(z.string().uuid()).default([]),
   parentId: z.string().uuid().optional()
 });
@@ -57,8 +69,8 @@ export const updateTaskSchema = z.object({
   description: z.string().max(5000).nullable().optional(),
   assigneeIds: z.array(z.string().uuid()).optional(),
   priority: z.nativeEnum(Priority).optional(),
-  startDate: z.coerce.date().nullable().optional(),
-  dueDate: z.coerce.date().nullable().optional(),
+  startDate: nullableDateSchema,
+  dueDate: nullableDateSchema,
   tagIds: z.array(z.string().uuid()).optional()
 });
 
