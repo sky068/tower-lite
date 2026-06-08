@@ -716,6 +716,9 @@ select[multiple] {
 }
 
 .board-column {
+  display: grid;
+  align-content: start;
+  gap: 9px;
   min-height: 360px;
   padding: 14px;
   transition:
@@ -729,7 +732,7 @@ select[multiple] {
 }
 
 .board-column h2 {
-  margin: 0 0 12px;
+  margin: 0;
   font-size: 15px;
 }
 
@@ -737,7 +740,6 @@ select[multiple] {
   display: grid;
   grid-template-columns: auto 1fr auto auto;
   gap: 6px;
-  margin-bottom: 12px;
 }
 
 .list-drag-handle {
@@ -788,7 +790,6 @@ select[multiple] {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
 }
 
 .column-title-static h2 {
