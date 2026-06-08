@@ -12,6 +12,7 @@ type TaskDetailPanelProps = {
   taskId: string;
   readOnly?: boolean;
   closeOnSave?: boolean;
+  restoreWindowScrollOnClose?: boolean;
   onTaskMoved?: (targetTaskListId: string) => void;
   onClose: () => void;
 };
@@ -25,6 +26,7 @@ export function TaskDetailPanel({
   taskId,
   readOnly = false,
   closeOnSave = true,
+  restoreWindowScrollOnClose = true,
   onTaskMoved,
   onClose
 }: TaskDetailPanelProps) {
@@ -62,12 +64,16 @@ export function TaskDetailPanel({
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
+    const previousScrollY = window.scrollY;
     document.body.style.overflow = "hidden";
 
     return () => {
       document.body.style.overflow = previousOverflow;
+      if (restoreWindowScrollOnClose) {
+        window.scrollTo({ top: previousScrollY });
+      }
     };
-  }, []);
+  }, [restoreWindowScrollOnClose]);
 
   useEffect(() => {
     setIsTaskAssigneeOpen(false);
@@ -126,6 +132,8 @@ export function TaskDetailPanel({
   const task = taskQuery.data;
   const lists = listsQuery.data ?? [];
   const tags = useMemo(() => tagsQuery.data ?? [], [tagsQuery.data]);
+  const isMaxSubTaskDepth = (task?.parentTrail.length ?? 0) >= 2;
+  const canCreateSubTask = Boolean(task && !readOnly && !isMaxSubTaskDepth);
   const memberUserIds = useMemo(
     () => new Set((membersQuery.data ?? []).map((member) => member.user.id)),
     [membersQuery.data]
@@ -351,7 +359,7 @@ export function TaskDetailPanel({
 
     setSubTaskDateError("");
 
-    if (title && task && !readOnly) {
+    if (title && task && canCreateSubTask) {
       createSubTaskMutation.mutate({
         title,
         assigneeIds: subTaskAssigneeIds,
@@ -468,14 +476,23 @@ export function TaskDetailPanel({
           <div>
             <span className="eyebrow">任务详情</span>
             <h2>{task?.title ?? "加载中..."}</h2>
-            {task?.parentId ? (
-              <button
-                className="mini-button inline-mini-button"
-                type="button"
-                onClick={() => setActiveTaskId(task.parentId!)}
-              >
-                返回父任务
-              </button>
+            {task?.parentTrail && task.parentTrail.length > 0 ? (
+              <div className="parent-trail" aria-label="父任务路径">
+                <span>父任务</span>
+                <div>
+                  {task.parentTrail.map((parentTask) => (
+                    <button
+                      className="parent-trail-button"
+                      key={parentTask.id}
+                      type="button"
+                      onClick={() => setActiveTaskId(parentTask.id)}
+                    >
+                      <span>{parentTask.title}</span>
+                      <span aria-hidden="true">&gt;</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : null}
           </div>
           <button className="text-button" type="button" onClick={onClose}>
@@ -770,10 +787,10 @@ export function TaskDetailPanel({
                 <button
                   className="primary-inline-button"
                   type="button"
-                  disabled={readOnly || Boolean(task.parentId)}
+                  disabled={!canCreateSubTask}
                   onClick={() => setIsSubTaskCreateOpen(true)}
                 >
-                  {task.parentId ? "V0 不支持继续拆分" : "创建子任务"}
+                  {isMaxSubTaskDepth ? "已达到最大拆分层级" : "创建子任务"}
                 </button>
               ) : (
                 <form className="subtask-create-form" onSubmit={handleCreateSubTask}>
@@ -781,13 +798,13 @@ export function TaskDetailPanel({
                     value={subTaskTitle}
                     onChange={(event) => setSubTaskTitle(event.target.value)}
                     placeholder="新增子任务"
-                    disabled={readOnly || Boolean(task.parentId)}
+                    disabled={!canCreateSubTask}
                   />
                   <select
                     aria-label="子任务状态"
                     value={subTaskListId || task.taskListId}
                     onChange={(event) => setSubTaskListId(event.target.value)}
-                    disabled={readOnly || Boolean(task.parentId)}
+                    disabled={!canCreateSubTask}
                   >
                     {lists.map((list) => (
                       <option key={list.id} value={list.id}>
@@ -800,7 +817,7 @@ export function TaskDetailPanel({
                       className="assignee-dropdown-trigger"
                       type="button"
                       aria-expanded={isSubTaskAssigneeOpen}
-                      disabled={readOnly || Boolean(task.parentId)}
+                      disabled={!canCreateSubTask}
                       onClick={() => setIsSubTaskAssigneeOpen((current) => !current)}
                     >
                       <span>{subTaskAssigneeSummary}</span>
@@ -813,7 +830,7 @@ export function TaskDetailPanel({
                             <input
                               type="checkbox"
                               checked={subTaskAssigneeIds.includes(member.user.id)}
-                              disabled={readOnly || Boolean(task.parentId)}
+                              disabled={!canCreateSubTask}
                               onChange={(event) =>
                                 toggleSubTaskAssignee(member.user.id, event.target.checked)
                               }
@@ -834,7 +851,7 @@ export function TaskDetailPanel({
                     max={subTaskDueDate || undefined}
                     onClick={(event) => openDateInputPicker(event.currentTarget)}
                     onChange={(event) => setSubTaskStartDate(event.target.value)}
-                    disabled={readOnly || Boolean(task.parentId)}
+                    disabled={!canCreateSubTask}
                   />
                   <input
                     aria-label="子任务截止日期"
@@ -843,11 +860,11 @@ export function TaskDetailPanel({
                     min={subTaskStartDate || undefined}
                     onClick={(event) => openDateInputPicker(event.currentTarget)}
                     onChange={(event) => setSubTaskDueDate(event.target.value)}
-                    disabled={readOnly || Boolean(task.parentId)}
+                    disabled={!canCreateSubTask}
                   />
                   <button
                     type="submit"
-                    disabled={readOnly || Boolean(task.parentId) || createSubTaskMutation.isPending}
+                    disabled={!canCreateSubTask || createSubTaskMutation.isPending}
                   >
                     添加
                   </button>

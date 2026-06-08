@@ -86,6 +86,10 @@ export type Comment = {
 };
 
 export type TaskDetail = Task & {
+  parentTrail: Array<{
+    id: string;
+    title: string;
+  }>;
   subTasks: Task[];
   comments: Comment[];
   tags: Tag[];

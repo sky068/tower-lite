@@ -1023,6 +1023,49 @@ select[multiple] {
   font-size: 20px;
 }
 
+.parent-trail {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 6px 8px;
+  margin-top: 8px;
+  color: #111827;
+  font-size: 13px;
+}
+
+.parent-trail > span {
+  font-weight: 700;
+}
+
+.parent-trail > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.parent-trail-button {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  color: #111827;
+  padding: 0;
+  text-align: left;
+}
+
+.parent-trail-button:hover {
+  color: #2563eb;
+}
+
+.parent-trail-button span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .eyebrow {
   color: #64748b;
   font-size: 12px;

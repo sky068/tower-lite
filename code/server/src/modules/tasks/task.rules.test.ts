@@ -7,7 +7,7 @@ import {
   assertTaskListDeletable,
   assertTaskListEditable,
   assertTaskDeletable,
-  assertV0SubTaskParent,
+  assertV01SubTaskParent,
   assertValidDateRange
 } from "./task.rules.js";
 
@@ -30,12 +30,16 @@ describe("task rules", () => {
   });
 
   it("allows creating a subtask under a root task", () => {
-    assert.doesNotThrow(() => assertV0SubTaskParent({ parentId: null }));
+    assert.doesNotThrow(() => assertV01SubTaskParent({ depth: 0 }));
   });
 
-  it("rejects creating a subtask under another subtask in V0", () => {
+  it("allows creating a second-level subtask in V0.1", () => {
+    assert.doesNotThrow(() => assertV01SubTaskParent({ depth: 1 }));
+  });
+
+  it("rejects creating a third-level subtask in V0.1", () => {
     assert.throws(
-      () => assertV0SubTaskParent({ parentId: "parent-task-id" }),
+      () => assertV01SubTaskParent({ depth: 2 }),
       (error) =>
         error instanceof AppError &&
         error.code === "BUSINESS_RULE_VIOLATION" &&

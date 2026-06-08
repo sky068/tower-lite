@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useLayoutEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi, userApi } from "../../lib/api";
@@ -7,9 +7,65 @@ import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
 import type { MyTask } from "../../types/api";
 
 type MyTaskTreeNode = {
+  key: string;
   task: MyTask;
   children: MyTask[];
 };
+
+const DASHBOARD_SCROLL_STATE_KEY = "tower.dashboard.scrollState";
+
+function saveDashboardScrollState() {
+  const scrollLists = Array.from(document.querySelectorAll<HTMLElement>(".dashboard-scroll-list"));
+
+  sessionStorage.setItem(
+    DASHBOARD_SCROLL_STATE_KEY,
+    JSON.stringify({
+      windowY: window.scrollY,
+      listTops: scrollLists.map((list) => list.scrollTop)
+    })
+  );
+}
+
+function restoreDashboardScrollState({ consume = true }: { consume?: boolean } = {}) {
+  const rawState = sessionStorage.getItem(DASHBOARD_SCROLL_STATE_KEY);
+
+  if (!rawState) {
+    return;
+  }
+
+  try {
+    const state = JSON.parse(rawState) as {
+      windowY?: number;
+      listTops?: number[];
+    };
+
+    const restore = () => {
+      if (typeof state.windowY === "number") {
+        window.scrollTo({ top: state.windowY });
+      }
+
+      const scrollLists = Array.from(document.querySelectorAll<HTMLElement>(".dashboard-scroll-list"));
+      scrollLists.forEach((list, index) => {
+        const scrollTop = state.listTops?.[index];
+
+        if (typeof scrollTop === "number") {
+          list.scrollTop = scrollTop;
+        }
+      });
+    };
+
+    restore();
+    requestAnimationFrame(restore);
+    window.setTimeout(restore, 100);
+
+    if (consume) {
+      sessionStorage.removeItem(DASHBOARD_SCROLL_STATE_KEY);
+    }
+  } catch {
+    sessionStorage.removeItem(DASHBOARD_SCROLL_STATE_KEY);
+    // Ignore corrupted session state and keep the default browser position.
+  }
+}
 
 function MyTaskLink({
   task,
@@ -34,6 +90,7 @@ function MyTaskLink({
       className={className}
       to={`/tasks/${task.id}`}
       state={{ returnTo }}
+      onClick={saveDashboardScrollState}
     >
       <div className="row-main">
         <strong>{task.title}</strong>
@@ -51,7 +108,13 @@ function MyTaskLink({
   );
 }
 
-export function DashboardPage() {
+export function DashboardPage({
+  restoreScrollOnMount = true,
+  consumeRestoredScroll = true
+}: {
+  restoreScrollOnMount?: boolean;
+  consumeRestoredScroll?: boolean;
+}) {
   const queryClient = useQueryClient();
   const location = useLocation();
   const [teamName, setTeamName] = useState("");
@@ -91,7 +154,13 @@ export function DashboardPage() {
   const canCreateProject = activeTeam?.role === "OWNER";
   const canManageActiveTeamProjects = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
 
-  const filteredMyTasks = useMemo(() => {
+  useLayoutEffect(() => {
+    if (restoreScrollOnMount) {
+      restoreDashboardScrollState({ consume: consumeRestoredScroll });
+    }
+  }, [consumeRestoredScroll, restoreScrollOnMount]);
+
+  const myTaskDisplay = useMemo(() => {
     const keyword = taskSearch.trim().toLowerCase();
     const tasks = myTasksQuery.data ?? [];
     const visibleAssignedTaskIds = new Set<string>();
@@ -122,40 +191,42 @@ export function DashboardPage() {
         .filter((parentId) => !visibleAssignedTaskIds.has(parentId))
     );
 
-    return tasks.filter(
-      (task) => visibleAssignedTaskIds.has(task.id) || visibleContextParentIds.has(task.id)
-    );
+    return {
+      tasks: tasks.filter(
+        (task) => visibleAssignedTaskIds.has(task.id) || visibleContextParentIds.has(task.id)
+      ),
+      visibleAssignedTasks
+    };
   }, [myTasksQuery.data, taskSearch, taskStatusFilter]);
 
   const myTaskTree = useMemo(() => {
-    const taskMap = new Map(filteredMyTasks.map((task) => [task.id, task]));
-    const childrenByParentId = new Map<string, MyTask[]>();
-
-    for (const task of filteredMyTasks) {
-      if (!task.parentId) {
-        continue;
-      }
-
-      const children = childrenByParentId.get(task.parentId) ?? [];
-      children.push(task);
-      childrenByParentId.set(task.parentId, children);
-    }
+    const taskMap = new Map(myTaskDisplay.tasks.map((task) => [task.id, task]));
 
     const nodes: MyTaskTreeNode[] = [];
 
-    for (const task of filteredMyTasks) {
-      if (task.parentId && taskMap.has(task.parentId) && task.isAssignedToMe) {
-        continue;
+    for (const task of myTaskDisplay.visibleAssignedTasks) {
+      if (task.parentId) {
+        const parentTask = taskMap.get(task.parentId);
+
+        if (parentTask) {
+          nodes.push({
+            key: `${parentTask.id}:${task.id}`,
+            task: parentTask,
+            children: [task]
+          });
+          continue;
+        }
       }
 
       nodes.push({
+        key: task.id,
         task,
-        children: childrenByParentId.get(task.id) ?? []
+        children: []
       });
     }
 
     return nodes;
-  }, [filteredMyTasks]);
+  }, [myTaskDisplay]);
 
   const createTeamMutation = useMutation({
     mutationFn: teamApi.create,
@@ -316,7 +387,7 @@ export function DashboardPage() {
           <div className="list dashboard-scroll-list">
             {myTasksQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
             {myTaskTree.map((node) => (
-              <div className="task-tree-node" key={node.task.id}>
+              <div className="task-tree-node" key={node.key}>
                 <MyTaskLink
                   task={node.task}
                   depth={0}
@@ -366,7 +437,10 @@ export function DashboardPage() {
                     className="row-main"
                     to={notification.link}
                     state={{ returnTo: location.pathname }}
-                    onClick={() => handleNotificationLinkClick(notification)}
+                    onClick={() => {
+                      saveDashboardScrollState();
+                      handleNotificationLinkClick(notification);
+                    }}
                   >
                     <strong>{notification.title}</strong>
                     <span>{notification.content}</span>

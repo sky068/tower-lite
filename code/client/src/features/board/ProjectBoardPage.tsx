@@ -452,7 +452,7 @@ export function ProjectBoardPage() {
     <div className="page">
       <div className="page-heading">
         <h1>项目看板</h1>
-        <p>V0 看板支持任务创建、任务详情、移动任务和一层子任务。</p>
+        <p>V0.1 看板支持任务创建、任务详情、移动任务和两级子任务。</p>
         {projectId && projectPermissions.canManageProject ? (
           <Link className="text-link inline" to={`/projects/${projectId}/settings`}>
             项目设置

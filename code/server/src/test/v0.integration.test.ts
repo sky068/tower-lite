@@ -548,13 +548,24 @@ describe("V0 HTTP integration", () => {
     })).data;
     assert.equal(subTask.parentId, task.id);
 
+    const secondLevelSubTask = (await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: editor.token,
+      expectedStatus: 201,
+      body: {
+        taskListId: todoList.id,
+        parentId: subTask.id,
+        title: "Second level subtask is allowed in V0.1"
+      }
+    })).data;
+    assert.equal(secondLevelSubTask.parentId, subTask.id);
+
     await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
       token: editor.token,
       expectedStatus: 422,
       body: {
         taskListId: todoList.id,
-        parentId: subTask.id,
-        title: "Nested subtask is not allowed in V0"
+        parentId: secondLevelSubTask.id,
+        title: "Third level subtask is not allowed in V0.1"
       }
     });
 

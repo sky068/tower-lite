@@ -46,21 +46,22 @@ export function TaskPage() {
     !location.state.returnTo.startsWith("/tasks/")
       ? location.state.returnTo
       : null;
-  const fallbackPath = task ? `/projects/${task.projectId}/board` : "/dashboard";
+  const fallbackPath = "/dashboard";
   const closePath = returnTo ?? fallbackPath;
-  const returnLabel = returnTo === "/dashboard" ? "返回工作台" : returnTo ? "返回上一页" : "返回项目看板";
+  const returnLabel = returnTo === "/dashboard" || !returnTo ? "返回工作台" : "返回上一页";
   const shouldRenderDashboardBehindModal = returnTo === "/dashboard";
 
   if (shouldRenderDashboardBehindModal) {
     return (
       <>
-        <DashboardPage />
+        <DashboardPage consumeRestoredScroll={false} />
         {task ? (
           <TaskDetailPanel
             projectId={task.projectId}
             taskId={task.id}
             readOnly={isReadOnly}
             closeOnSave={false}
+            restoreWindowScrollOnClose={false}
             onClose={() => navigate(closePath)}
           />
         ) : null}
@@ -96,6 +97,7 @@ export function TaskPage() {
           taskId={task.id}
           readOnly={isReadOnly}
           closeOnSave={false}
+          restoreWindowScrollOnClose={false}
           onClose={() => navigate(closePath)}
         />
       ) : null}

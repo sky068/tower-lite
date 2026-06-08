@@ -9,11 +9,11 @@ export function assertValidDateRange(startDate?: Date | null, dueDate?: Date | n
   }
 }
 
-export function assertV0SubTaskParent(parentTask: { parentId: string | null }) {
-  if (parentTask.parentId) {
+export function assertV01SubTaskParent(parentTask: { depth: number }) {
+  if (parentTask.depth >= 2) {
     throw new AppError(
       "BUSINESS_RULE_VIOLATION",
-      "V0 only supports one level of subtasks",
+      "V0.1 only supports two levels of subtasks",
       422
     );
   }

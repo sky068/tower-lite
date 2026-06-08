@@ -225,7 +225,7 @@ npm run test:integration
 npm run test:e2e
 ```
 
-当前 E2E 会覆盖：登录、项目看板、默认三列、新建任务弹窗、任务详情弹窗、子任务、评论、拖拽到已完成、我的任务、分配通知、WebSocket 评论通知，以及 EDITOR / VIEWER 的入口权限。
+当前 E2E 会覆盖：登录、项目看板、默认三列、新建任务弹窗、任务详情弹窗、两级子任务、评论、拖拽到已完成、我的任务、分配通知、WebSocket 评论通知，以及 EDITOR / VIEWER 的入口权限。
 
 V0 自动验收，串联后端集成测试和前端 E2E：
 

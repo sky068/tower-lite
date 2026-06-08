@@ -14,7 +14,7 @@ import {
   assertTaskListEditable,
   assertTaskListDeletable,
   assertTaskDeletable,
-  assertV0SubTaskParent,
+  assertV01SubTaskParent,
   assertValidDateRange
 } from "./task.rules.js";
 import type {
@@ -188,7 +188,7 @@ async function assertTagsInProject(tagIds: string[] | undefined, projectId: stri
   }
 }
 
-async function assertV0ParentTask(parentId: string | undefined, projectId: string) {
+async function assertV01ParentTask(parentId: string | undefined, projectId: string) {
   if (!parentId) {
     return;
   }
@@ -205,7 +205,42 @@ async function assertV0ParentTask(parentId: string | undefined, projectId: strin
     throw new AppError("BUSINESS_RULE_VIOLATION", "Parent task must belong to this project", 422);
   }
 
-  assertV0SubTaskParent(parentTask);
+  const parentTrail = await getTaskParentTrail(parentTask.parentId, projectId);
+  assertV01SubTaskParent({ depth: parentTrail.length });
+}
+
+async function getTaskParentTrail(parentId: string | null, projectId: string) {
+  const trail: Array<{ id: string; title: string }> = [];
+  let currentParentId = parentId;
+  let guard = 0;
+
+  while (currentParentId && guard < 20) {
+    const parentTask = await prisma.task.findFirst({
+      where: {
+        id: currentParentId,
+        projectId,
+        deletedAt: null
+      },
+      select: {
+        id: true,
+        title: true,
+        parentId: true
+      }
+    });
+
+    if (!parentTask) {
+      break;
+    }
+
+    trail.unshift({
+      id: parentTask.id,
+      title: parentTask.title
+    });
+    currentParentId = parentTask.parentId;
+    guard += 1;
+  }
+
+  return trail;
 }
 
 async function createNotification(input: {
@@ -628,7 +663,7 @@ export async function createTask(userId: string, projectId: string, input: Creat
   const taskList = await assertTaskListInProject(input.taskListId, projectId);
   await assertAssigneesAreProjectMembers(assigneeIds, projectId);
   await assertTagsInProject(input.tagIds, projectId);
-  await assertV0ParentTask(input.parentId, projectId);
+  await assertV01ParentTask(input.parentId, projectId);
 
   const task = await prisma.task.create({
     data: {
@@ -708,9 +743,11 @@ export async function getTask(userId: string, taskId: string) {
   await requireProjectAccess(userId, task.projectId);
 
   const assigneeMap = await getTaskAssigneeMap([task.id, ...task.subTasks.map((subTask) => subTask.id)]);
+  const parentTrail = await getTaskParentTrail(task.parentId, task.projectId);
 
   return {
     ...toTask(attachAssignees(task, assigneeMap)),
+    parentTrail,
     subTasks: task.subTasks.map((subTask) => toTask(attachAssignees(subTask, assigneeMap))),
     tags: task.tags.map(({ tag }) => tag),
     comments: task.comments.map((comment) => ({
