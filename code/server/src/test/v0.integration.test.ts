@@ -401,6 +401,7 @@ describe("V0 HTTP integration", () => {
     const owner = await registerUser("Owner");
     const editor = await registerUser("Editor");
     const viewer = await registerUser("Viewer");
+    const directAddedMember = await registerUser("DirectAddedMember");
     const invitedTeamMember = await registerUser("InvitedTeamMember");
     const invitedProjectMember = await registerUser("InvitedProjectMember");
     const concurrentProjectInvitee = await registerUser("ConcurrentProjectInvitee");
@@ -431,6 +432,22 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 201,
       body: {
         email: viewer.email,
+        role: "MEMBER"
+      }
+    });
+    await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 404,
+      body: {
+        email: `missing-user@${emailDomain}`,
+        role: "MEMBER"
+      }
+    });
+    await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: ` ${directAddedMember.email.toUpperCase()} `,
         role: "MEMBER"
       }
     });

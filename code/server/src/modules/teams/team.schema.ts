@@ -1,6 +1,8 @@
 import { TeamRole } from "@prisma/client";
 import { z } from "zod";
 
+const emailSchema = z.string().trim().email().transform((email) => email.toLowerCase());
+
 export const createTeamSchema = z.object({
   name: z.string().min(1).max(80)
 });
@@ -17,7 +19,7 @@ export const teamMemberParamsSchema = z.object({
 export const updateTeamSchema = createTeamSchema.partial();
 
 export const addTeamMemberSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
   role: z.nativeEnum(TeamRole).default(TeamRole.MEMBER)
 });
 

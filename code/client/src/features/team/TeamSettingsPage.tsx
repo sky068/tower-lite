@@ -179,7 +179,7 @@ export function TeamSettingsPage() {
       </section>
       <section className="panel">
         <h2>邀请记录</h2>
-        <div className="list">
+        <div className="list settings-scroll-list">
           {(invitationsQuery.data ?? []).map((invitation) => (
             <div className="member-row" key={invitation.id}>
               <div>
@@ -241,7 +241,7 @@ export function TeamSettingsPage() {
       <section className="panel">
         <h2>成员</h2>
         <MutationError error={updateRoleMutation.error ?? removeMemberMutation.error} />
-        <div className="list">
+        <div className="list settings-scroll-list">
           {(membersQuery.data ?? []).map((member) => (
             <div className="member-row" key={member.user.id}>
               <div>

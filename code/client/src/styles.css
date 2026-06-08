@@ -453,6 +453,13 @@ input[type="date"]:not(:disabled) {
   padding-right: 4px;
 }
 
+.settings-scroll-list {
+  max-height: min(420px, 50vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
 .task-tree-node {
   display: grid;
   gap: 6px;
