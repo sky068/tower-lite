@@ -93,12 +93,10 @@ export function DashboardPage() {
 
   const filteredMyTasks = useMemo(() => {
     const keyword = taskSearch.trim().toLowerCase();
+    const tasks = myTasksQuery.data ?? [];
+    const visibleAssignedTaskIds = new Set<string>();
 
-    return (myTasksQuery.data ?? []).filter((task) => {
-      if (!task.isAssignedToMe) {
-        return true;
-      }
-
+    const visibleAssignedTasks = tasks.filter((task) => {
       const matchesStatus =
         taskStatusFilter === "ALL" ||
         (taskStatusFilter === "OPEN" && !task.completedAt) ||
@@ -106,11 +104,27 @@ export function DashboardPage() {
       const matchesKeyword =
         !keyword ||
         task.title.toLowerCase().includes(keyword) ||
+        task.parentTask?.title.toLowerCase().includes(keyword) ||
         task.project.name.toLowerCase().includes(keyword) ||
         task.taskList.name.toLowerCase().includes(keyword);
 
-      return matchesStatus && matchesKeyword;
+      return task.isAssignedToMe && matchesStatus && matchesKeyword;
     });
+
+    for (const task of visibleAssignedTasks) {
+      visibleAssignedTaskIds.add(task.id);
+    }
+
+    const visibleContextParentIds = new Set(
+      visibleAssignedTasks
+        .map((task) => task.parentId)
+        .filter((parentId): parentId is string => Boolean(parentId))
+        .filter((parentId) => !visibleAssignedTaskIds.has(parentId))
+    );
+
+    return tasks.filter(
+      (task) => visibleAssignedTaskIds.has(task.id) || visibleContextParentIds.has(task.id)
+    );
   }, [myTasksQuery.data, taskSearch, taskStatusFilter]);
 
   const myTaskTree = useMemo(() => {
