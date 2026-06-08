@@ -153,6 +153,7 @@ export function AppShell() {
                           className={notification.isRead ? "notification-item" : "notification-item unread"}
                           key={notification.id}
                           to={notification.link}
+                          state={{ returnTo: location.pathname }}
                           onClick={() => handleOpenNotification(notification)}
                         >
                           <strong>{notification.title}</strong>

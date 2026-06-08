@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi, userApi } from "../../lib/api";
 import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
 
 export function DashboardPage() {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const [teamName, setTeamName] = useState("");
   const [projectName, setProjectName] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -221,7 +222,12 @@ export function DashboardPage() {
           <div className="list dashboard-scroll-list">
             {myTasksQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
             {filteredMyTasks.map((task) => (
-              <Link className="list-row" key={task.id} to={`/tasks/${task.id}`}>
+              <Link
+                className="list-row"
+                key={task.id}
+                to={`/tasks/${task.id}`}
+                state={{ returnTo: location.pathname }}
+              >
                 <div className="row-main">
                   <strong>{task.title}</strong>
                   <span>
@@ -261,6 +267,7 @@ export function DashboardPage() {
                   <Link
                     className="row-main"
                     to={notification.link}
+                    state={{ returnTo: location.pathname }}
                     onClick={() => handleNotificationLinkClick(notification)}
                   >
                     <strong>{notification.title}</strong>

@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 import { TaskDetailPanel } from "../board/TaskDetailPanel";
+import { DashboardPage } from "../dashboard/DashboardPage";
 
 export function TaskPage() {
   const { taskId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const taskQuery = useQuery({
     queryKey: ["task", taskId],
@@ -38,6 +40,33 @@ export function TaskPage() {
     teamMembersQuery.data
   );
   const isReadOnly = isArchived || !canEditProject;
+  const returnTo =
+    typeof location.state?.returnTo === "string" &&
+    location.state.returnTo.startsWith("/") &&
+    !location.state.returnTo.startsWith("/tasks/")
+      ? location.state.returnTo
+      : null;
+  const fallbackPath = task ? `/projects/${task.projectId}/board` : "/dashboard";
+  const closePath = returnTo ?? fallbackPath;
+  const returnLabel = returnTo === "/dashboard" ? "返回工作台" : returnTo ? "返回上一页" : "返回项目看板";
+  const shouldRenderDashboardBehindModal = returnTo === "/dashboard";
+
+  if (shouldRenderDashboardBehindModal) {
+    return (
+      <>
+        <DashboardPage />
+        {task ? (
+          <TaskDetailPanel
+            projectId={task.projectId}
+            taskId={task.id}
+            readOnly={isReadOnly}
+            closeOnSave={false}
+            onClose={() => navigate(closePath)}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <div className="page">
@@ -45,8 +74,8 @@ export function TaskPage() {
         <h1>任务</h1>
         <p>{task?.title ?? "正在加载任务详情"}</p>
         {task ? (
-          <Link className="text-link inline" to={`/projects/${task.projectId}/board`}>
-            返回项目看板
+          <Link className="text-link inline" to={closePath}>
+            {returnLabel}
           </Link>
         ) : null}
       </div>
@@ -67,7 +96,7 @@ export function TaskPage() {
           taskId={task.id}
           readOnly={isReadOnly}
           closeOnSave={false}
-          onClose={() => navigate(`/projects/${task.projectId}/board`)}
+          onClose={() => navigate(closePath)}
         />
       ) : null}
     </div>

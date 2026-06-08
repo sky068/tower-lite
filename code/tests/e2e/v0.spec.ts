@@ -284,7 +284,12 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
     myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(subTaskTitle)}\\b`) })
   ).toBeVisible();
   await myTasksPanel.locator("select").selectOption("ALL");
-  await expect(myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(taskTitle)}\\b`) })).toBeVisible();
+  const myTaskLink = myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(taskTitle)}\\b`) });
+  await expect(myTaskLink).toBeVisible();
+  await myTaskLink.click();
+  await expect(editorPage.getByLabel("任务详情")).toBeVisible();
+  await editorPage.getByRole("button", { name: "关闭" }).click();
+  await expect(editorPage.getByRole("heading", { name: "工作台" })).toBeVisible();
   await expect(editorPage.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(taskTitle)}`) })).toBeVisible();
   await expect(editorPage.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(subTaskTitle)}`) })).toBeVisible();
 
