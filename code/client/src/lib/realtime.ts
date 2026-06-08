@@ -26,22 +26,31 @@ type RealtimeEvent =
       taskId?: string;
     };
 
+export type RealtimeStatus = "idle" | "connecting" | "connected" | "reconnecting";
+
 export function useRealtimeEvents() {
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((state) => state.accessToken);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [status, setStatus] = useState<RealtimeStatus>("idle");
 
   useEffect(() => {
     if (!accessToken) {
+      setStatus("idle");
       return;
     }
 
     let isDisposed = false;
+    setStatus("connecting");
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(
       `${protocol}//${window.location.host}/api/v1/events?token=${encodeURIComponent(accessToken)}`
     );
     let reconnectTimer: number | null = null;
+
+    socket.onopen = () => {
+      setStatus("connected");
+    };
 
     socket.onmessage = (message) => {
       let event: RealtimeEvent;
@@ -111,6 +120,7 @@ export function useRealtimeEvents() {
         return;
       }
 
+      setStatus("reconnecting");
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
       reconnectTimer = window.setTimeout(() => {
         setReconnectAttempt((current) => current + 1);
@@ -131,4 +141,6 @@ export function useRealtimeEvents() {
       socket.close();
     };
   }, [accessToken, queryClient, reconnectAttempt]);
+
+  return status;
 }

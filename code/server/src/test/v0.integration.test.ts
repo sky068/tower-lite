@@ -32,6 +32,7 @@ type TeamResponse = {
 type ProjectResponse = {
   id: string;
   name: string;
+  status?: string;
 };
 
 type MemberResponse = {
@@ -82,6 +83,23 @@ type NotificationResponse = {
   title: string;
   content: string;
   isRead: boolean;
+};
+
+type NotificationReadResponse = {
+  id: string;
+  isRead: boolean;
+  readAt: string | null;
+};
+
+type TagResponse = {
+  id: string;
+  name: string;
+  color: string;
+  projectId: string;
+};
+
+type TaskDetailResponse = TaskResponse & {
+  tags: TagResponse[];
 };
 
 type TestUser = {
@@ -413,6 +431,11 @@ describe("V0 HTTP integration", () => {
       }
     })).data;
 
+    await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${team.id}`, {
+      token: owner.token,
+      expectedStatus: 422
+    });
+
     await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
       token: owner.token,
       expectedStatus: 201,
@@ -535,6 +558,46 @@ describe("V0 HTTP integration", () => {
       }
     });
 
+    const tag = (await request<TagResponse>("POST", `/api/v1/projects/${project.id}/tags`, {
+      token: editor.token,
+      expectedStatus: 201,
+      body: {
+        name: "Integration Tag",
+        color: "#16a34a"
+      }
+    })).data;
+    assert.equal(tag.projectId, project.id);
+
+    const projectTags = (await request<TagResponse[]>("GET", `/api/v1/projects/${project.id}/tags`, {
+      token: viewer.token
+    })).data;
+    assert.ok(projectTags.some((item) => item.id === tag.id));
+
+    await request<{ ok: boolean }>("POST", `/api/v1/tasks/${task.id}/tags/${tag.id}`, {
+      token: editor.token
+    });
+
+    const taskWithTag = (await request<TaskDetailResponse>("GET", `/api/v1/tasks/${task.id}`, {
+      token: viewer.token
+    })).data;
+    assert.ok(taskWithTag.tags.some((item) => item.id === tag.id));
+
+    const updatedTag = (await request<TagResponse>("PATCH", `/api/v1/projects/${project.id}/tags/${tag.id}`, {
+      token: editor.token,
+      body: {
+        name: "Integration Tag Updated",
+        color: "#dc2626"
+      }
+    })).data;
+    assert.equal(updatedTag.name, "Integration Tag Updated");
+
+    await request<{ ok: boolean }>("DELETE", `/api/v1/tasks/${task.id}/tags/${tag.id}`, {
+      token: editor.token
+    });
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${project.id}/tags/${tag.id}`, {
+      token: editor.token
+    });
+
     const movedTask = (await request<TaskResponse>("PATCH", `/api/v1/tasks/${task.id}/move`, {
       token: owner.token,
       body: {
@@ -556,6 +619,29 @@ describe("V0 HTTP integration", () => {
         (notification) => notification.type === "TASK_STATUS_CHANGED"
       )
     );
+    const unreadNotification = editorNotificationsAfterMove.find((notification) => !notification.isRead);
+    assert.ok(unreadNotification);
+
+    const readNotification = (await request<NotificationReadResponse>(
+      "PATCH",
+      `/api/v1/users/me/notifications/${unreadNotification.id}/read`,
+      {
+        token: editor.token
+      }
+    )).data;
+    assert.equal(readNotification.isRead, true);
+
+    await request<{ ok: boolean }>("PATCH", "/api/v1/users/me/notifications/read-all", {
+      token: editor.token
+    });
+    const editorNotificationsAfterReadAll = (await request<NotificationResponse[]>(
+      "GET",
+      "/api/v1/users/me/notifications",
+      {
+        token: editor.token
+      }
+    )).data;
+    assert.equal(editorNotificationsAfterReadAll.every((notification) => notification.isRead), true);
 
     await request<{ id: string }>("POST", `/api/v1/tasks/${task.id}/comments`, {
       token: editor.token,
@@ -577,5 +663,28 @@ describe("V0 HTTP integration", () => {
         (notification) => notification.type === "TASK_COMMENTED"
       )
     );
+
+    const archivedProject = (await request<ProjectResponse>("PATCH", `/api/v1/projects/${project.id}/archive`, {
+      token: owner.token
+    })).data;
+    assert.equal(archivedProject.status, "ARCHIVED");
+
+    await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        taskListId: todoList.id,
+        title: "Archived projects reject writes"
+      }
+    });
+
+    await request<TagResponse>("POST", `/api/v1/projects/${project.id}/tags`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        name: "Archived Tag",
+        color: "#2563eb"
+      }
+    });
   });
 });

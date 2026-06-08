@@ -11,13 +11,20 @@ const navItems = [
   { to: "/dashboard", label: "工作台", icon: ListChecks }
 ];
 
+const realtimeStatusLabels = {
+  idle: "实时连接未启动",
+  connecting: "实时连接中",
+  connected: "实时连接正常",
+  reconnecting: "实时连接重连中"
+};
+
 export function AppShell() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const { user, refreshToken, clearSession } = useAuthStore();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
-  useRealtimeEvents();
+  const realtimeStatus = useRealtimeEvents();
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
@@ -109,6 +116,11 @@ export function AppShell() {
             <span>{user ? `${user.name}，V0 开发中` : "V0 开发中"}</span>
           </div>
           <div className="topbar-actions">
+            <span
+              className={`realtime-status ${realtimeStatus}`}
+              aria-label={realtimeStatusLabels[realtimeStatus]}
+              title={realtimeStatusLabels[realtimeStatus]}
+            />
             <div className="notification-menu" ref={notificationsRef}>
               <button
                 className="icon-button notification-button"

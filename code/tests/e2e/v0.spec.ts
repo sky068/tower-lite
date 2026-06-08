@@ -1,4 +1,4 @@
-import { expect, request, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, request, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
 
 type ApiEnvelope<T> = {
   data: T;
@@ -22,6 +22,18 @@ type TeamResponse = {
 type ProjectResponse = {
   id: string;
   name: string;
+};
+
+type TaskResponse = {
+  id: string;
+  title: string;
+};
+
+type TaskListResponse = {
+  id: string;
+  name: string;
+  type: "TODO" | "IN_PROGRESS" | "DONE" | "CUSTOM";
+  tasks: TaskResponse[];
 };
 
 type UserFixture = {
@@ -95,6 +107,21 @@ async function login(page: Page, user: UserFixture) {
   await page.getByLabel("密码").fill(password);
   await page.getByRole("button", { name: "登录" }).click();
   await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
+}
+
+function boardColumn(page: Page, name: string) {
+  return page.locator(".board-column").filter({
+    has: page.getByRole("heading", { name })
+  });
+}
+
+async function findTaskIdByTitle(title: string) {
+  const lists = (await apiRequest<TaskListResponse[]>("GET", `/projects/${projectId}/lists`, {
+    token: owner.token
+  })).data;
+  const task = lists.flatMap((list) => list.tasks).find((item) => item.title === title);
+  expect(task, `task ${title} should exist`).toBeTruthy();
+  return task!.id;
 }
 
 async function logout(page: Page) {
@@ -191,10 +218,15 @@ test.afterAll(async () => {
   await api.dispose();
 });
 
-test("V0 browser workflow covers project board, task creation, permissions, my tasks, and notifications", async ({
+test("V0 browser workflow covers project board, task detail, subtasks, drag, permissions, and realtime notifications", async ({
+  browser,
   page
+}: {
+  browser: Browser;
+  page: Page;
 }) => {
   const taskTitle = `E2E Task ${runId}`;
+  const subTaskTitle = `E2E Subtask ${runId}`;
 
   await login(page, owner);
   await expect(page.getByText(`E2E Project ${runId}`)).toBeVisible();
@@ -215,19 +247,60 @@ test("V0 browser workflow covers project board, task creation, permissions, my t
   await modal.getByRole("button", { name: "创建" }).click();
 
   await expect(modal).toBeHidden();
-  await expect(page.getByRole("button", { name: new RegExp(taskTitle) })).toBeVisible();
+  const taskCard = page.getByRole("button", { name: new RegExp(taskTitle) });
+  await expect(taskCard).toBeVisible();
 
-  await logout(page);
-  await login(page, editor);
-  const myTasksPanel = page.locator("section").filter({
-    has: page.getByRole("heading", { name: "我的任务" })
+  const taskId = await findTaskIdByTitle(taskTitle);
+
+  await taskCard.click();
+  const detail = page.getByLabel("任务详情");
+  await expect(detail).toBeVisible();
+  await expect(detail.getByRole("heading", { name: taskTitle })).toBeVisible();
+  await detail.getByRole("button", { name: "创建子任务" }).click();
+  await detail.getByPlaceholder("新增子任务").fill(subTaskTitle);
+  await detail.getByRole("button", { name: "选择负责人" }).click();
+  await detail.locator(".assignee-dropdown-menu").getByLabel("E2E Editor").check();
+  await detail.getByRole("button", { name: "添加" }).click();
+  await expect(detail.getByText(subTaskTitle)).toBeVisible();
+
+  await detail.getByPlaceholder("写一条评论").fill("Owner comment from E2E");
+  await detail.getByRole("button", { name: "发送" }).click();
+  await expect(detail.getByText("Owner comment from E2E")).toBeVisible();
+  await detail.getByRole("button", { name: "关闭" }).click();
+  await expect(detail).toBeHidden();
+
+  const doneColumn = boardColumn(page, "已完成");
+  await page.getByRole("button", { name: new RegExp(taskTitle) }).dragTo(doneColumn);
+  await expect(doneColumn.getByRole("button", { name: new RegExp(taskTitle) })).toBeVisible();
+
+  const editorContext = await browser.newContext();
+  const editorPage = await editorContext.newPage();
+
+  await login(editorPage, editor);
+  const myTasksPanel = editorPage.locator("section").filter({
+    has: editorPage.getByRole("heading", { name: "我的任务" })
   });
+  await expect(
+    myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(subTaskTitle)}\\b`) })
+  ).toBeVisible();
+  await myTasksPanel.locator("select").selectOption("ALL");
   await expect(myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(taskTitle)}\\b`) })).toBeVisible();
-  await expect(page.getByText("你被分配了一个任务")).toBeVisible();
+  await expect(editorPage.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(taskTitle)}`) })).toBeVisible();
+  await expect(editorPage.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(subTaskTitle)}`) })).toBeVisible();
 
-  await page.goto(`/projects/${projectId}/board`);
-  await expect(page.getByRole("button", { name: "新建任务" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "添加列表" })).toHaveCount(0);
+  await apiRequest("POST", `/tasks/${taskId}/comments`, {
+    token: owner.token,
+    expectedStatus: 201,
+    data: {
+      content: "Realtime comment notification from owner"
+    }
+  });
+  await expect(editorPage.getByText("Realtime comment notification from owner")).toBeVisible();
+
+  await editorPage.goto(`/projects/${projectId}/board`);
+  await expect(editorPage.getByRole("button", { name: "新建任务" })).toBeVisible();
+  await expect(editorPage.getByRole("button", { name: "添加列表" })).toHaveCount(0);
+  await editorContext.close();
 
   await logout(page);
   await login(page, viewer);
