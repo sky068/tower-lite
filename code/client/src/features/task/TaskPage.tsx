@@ -1,15 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, type Location } from "react-router-dom";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 import { TaskDetailPanel } from "../board/TaskDetailPanel";
-import { DashboardPage } from "../dashboard/DashboardPage";
 
-export function TaskPage() {
+type TaskRouteState = {
+  backgroundLocation?: Location;
+  returnTo?: string;
+};
+
+function locationToPath(location: Location) {
+  return `${location.pathname}${location.search}${location.hash}`;
+}
+
+function getReturnTo(location: Location) {
+  const state = location.state as TaskRouteState | null;
+  return typeof state?.returnTo === "string" &&
+    state.returnTo.startsWith("/") &&
+    !state.returnTo.startsWith("/tasks/")
+    ? state.returnTo
+    : null;
+}
+
+function useTaskRouteData() {
   const { taskId } = useParams();
-  const navigate = useNavigate();
-  const location = useLocation();
   const user = useAuthStore((state) => state.user);
   const taskQuery = useQuery({
     queryKey: ["task", taskId],
@@ -40,34 +55,51 @@ export function TaskPage() {
     teamMembersQuery.data
   );
   const isReadOnly = isArchived || !canEditProject;
-  const returnTo =
-    typeof location.state?.returnTo === "string" &&
-    location.state.returnTo.startsWith("/") &&
-    !location.state.returnTo.startsWith("/tasks/")
-      ? location.state.returnTo
-      : null;
+
+  return {
+    task,
+    taskQuery,
+    isArchived,
+    isReadOnly,
+    canEditProject
+  };
+}
+
+export function TaskModalRoute() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const state = location.state as TaskRouteState | null;
+  const { task, isReadOnly } = useTaskRouteData();
+  const closePath = state?.backgroundLocation
+    ? locationToPath(state.backgroundLocation)
+    : getReturnTo(location) ?? "/dashboard";
+
+  return task ? (
+    <TaskDetailPanel
+      projectId={task.projectId}
+      taskId={task.id}
+      readOnly={isReadOnly}
+      closeOnSave={false}
+      restoreWindowScrollOnClose={false}
+      onOpenTask={(nextTaskId) =>
+        navigate(`/tasks/${nextTaskId}`, {
+          replace: true,
+          state
+        })
+      }
+      onClose={() => navigate(closePath, { replace: true })}
+    />
+  ) : null;
+}
+
+export function TaskPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { task, taskQuery, isArchived, isReadOnly, canEditProject } = useTaskRouteData();
+  const returnTo = getReturnTo(location);
   const fallbackPath = "/dashboard";
   const closePath = returnTo ?? fallbackPath;
   const returnLabel = returnTo === "/dashboard" || !returnTo ? "返回工作台" : "返回上一页";
-  const shouldRenderDashboardBehindModal = returnTo === "/dashboard";
-
-  if (shouldRenderDashboardBehindModal) {
-    return (
-      <>
-        <DashboardPage consumeRestoredScroll={false} />
-        {task ? (
-          <TaskDetailPanel
-            projectId={task.projectId}
-            taskId={task.id}
-            readOnly={isReadOnly}
-            closeOnSave={false}
-            restoreWindowScrollOnClose={false}
-            onClose={() => navigate(closePath)}
-          />
-        ) : null}
-      </>
-    );
-  }
 
   return (
     <div className="page">
@@ -98,6 +130,7 @@ export function TaskPage() {
           readOnly={isReadOnly}
           closeOnSave={false}
           restoreWindowScrollOnClose={false}
+          onOpenTask={(nextTaskId) => navigate(`/tasks/${nextTaskId}`, { replace: true })}
           onClose={() => navigate(closePath)}
         />
       ) : null}

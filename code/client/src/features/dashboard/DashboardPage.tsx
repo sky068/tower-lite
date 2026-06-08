@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useLayoutEffect, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi, userApi } from "../../lib/api";
+import { formatRelativeTime } from "../../lib/dateTime";
 import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
 import type { MyTask } from "../../types/api";
 
@@ -12,69 +13,16 @@ type MyTaskTreeNode = {
   children: MyTask[];
 };
 
-const DASHBOARD_SCROLL_STATE_KEY = "tower.dashboard.scrollState";
-
-function saveDashboardScrollState() {
-  const scrollLists = Array.from(document.querySelectorAll<HTMLElement>(".dashboard-scroll-list"));
-
-  sessionStorage.setItem(
-    DASHBOARD_SCROLL_STATE_KEY,
-    JSON.stringify({
-      windowY: window.scrollY,
-      listTops: scrollLists.map((list) => list.scrollTop)
-    })
-  );
-}
-
-function restoreDashboardScrollState({ consume = true }: { consume?: boolean } = {}) {
-  const rawState = sessionStorage.getItem(DASHBOARD_SCROLL_STATE_KEY);
-
-  if (!rawState) {
-    return;
-  }
-
-  try {
-    const state = JSON.parse(rawState) as {
-      windowY?: number;
-      listTops?: number[];
-    };
-
-    const restore = () => {
-      if (typeof state.windowY === "number") {
-        window.scrollTo({ top: state.windowY });
-      }
-
-      const scrollLists = Array.from(document.querySelectorAll<HTMLElement>(".dashboard-scroll-list"));
-      scrollLists.forEach((list, index) => {
-        const scrollTop = state.listTops?.[index];
-
-        if (typeof scrollTop === "number") {
-          list.scrollTop = scrollTop;
-        }
-      });
-    };
-
-    restore();
-    requestAnimationFrame(restore);
-    window.setTimeout(restore, 100);
-
-    if (consume) {
-      sessionStorage.removeItem(DASHBOARD_SCROLL_STATE_KEY);
-    }
-  } catch {
-    sessionStorage.removeItem(DASHBOARD_SCROLL_STATE_KEY);
-    // Ignore corrupted session state and keep the default browser position.
-  }
-}
-
 function MyTaskLink({
   task,
   depth,
+  backgroundLocation,
   returnTo,
   isContextOnly = false
 }: {
   task: MyTask;
   depth: 0 | 1;
+  backgroundLocation: ReturnType<typeof useLocation>;
   returnTo: string;
   isContextOnly?: boolean;
 }) {
@@ -89,8 +37,7 @@ function MyTaskLink({
     <Link
       className={className}
       to={`/tasks/${task.id}`}
-      state={{ returnTo }}
-      onClick={saveDashboardScrollState}
+      state={{ backgroundLocation, returnTo }}
     >
       <div className="row-main">
         <strong>{task.title}</strong>
@@ -108,13 +55,7 @@ function MyTaskLink({
   );
 }
 
-export function DashboardPage({
-  restoreScrollOnMount = true,
-  consumeRestoredScroll = true
-}: {
-  restoreScrollOnMount?: boolean;
-  consumeRestoredScroll?: boolean;
-}) {
+export function DashboardPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const [teamName, setTeamName] = useState("");
@@ -122,6 +63,7 @@ export function DashboardPage({
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [taskSearch, setTaskSearch] = useState("");
   const [taskStatusFilter, setTaskStatusFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
+  const [notificationFilter, setNotificationFilter] = useState<"UNREAD" | "ALL">("ALL");
 
   const teamsQuery = useQuery({
     queryKey: ["teams"],
@@ -153,12 +95,6 @@ export function DashboardPage({
   );
   const canCreateProject = activeTeam?.role === "OWNER";
   const canManageActiveTeamProjects = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
-
-  useLayoutEffect(() => {
-    if (restoreScrollOnMount) {
-      restoreDashboardScrollState({ consume: consumeRestoredScroll });
-    }
-  }, [consumeRestoredScroll, restoreScrollOnMount]);
 
   const myTaskDisplay = useMemo(() => {
     const keyword = taskSearch.trim().toLowerCase();
@@ -227,6 +163,13 @@ export function DashboardPage({
 
     return nodes;
   }, [myTaskDisplay]);
+  const filteredNotifications = useMemo(() => {
+    const notifications = notificationsQuery.data ?? [];
+
+    return notificationFilter === "UNREAD"
+      ? notifications.filter((notification) => !notification.isRead)
+      : notifications;
+  }, [notificationFilter, notificationsQuery.data]);
 
   const createTeamMutation = useMutation({
     mutationFn: teamApi.create,
@@ -391,6 +334,7 @@ export function DashboardPage({
                 <MyTaskLink
                   task={node.task}
                   depth={0}
+                  backgroundLocation={location}
                   returnTo={location.pathname}
                   isContextOnly={!node.task.isAssignedToMe}
                 />
@@ -403,6 +347,7 @@ export function DashboardPage({
                           key={child.id}
                           task={child}
                           depth={1}
+                          backgroundLocation={location}
                           returnTo={location.pathname}
                         />
                       ))}
@@ -419,36 +364,60 @@ export function DashboardPage({
         <section className="panel dashboard-scroll-panel">
           <div className="panel-title-row">
             <h2>通知</h2>
-            <button
-              className="subtle-button"
-              type="button"
-              onClick={() => markAllNotificationsReadMutation.mutate()}
-              disabled={markAllNotificationsReadMutation.isPending}
-            >
-              全部已读
-            </button>
+            <div className="panel-title-actions">
+              <select
+                className="compact-select"
+                value={notificationFilter}
+                onChange={(event) =>
+                  setNotificationFilter(event.target.value as typeof notificationFilter)
+                }
+              >
+                <option value="ALL">全部</option>
+                <option value="UNREAD">未读</option>
+              </select>
+              <button
+                className="subtle-button"
+                type="button"
+                onClick={() => markAllNotificationsReadMutation.mutate()}
+                disabled={markAllNotificationsReadMutation.isPending}
+              >
+                全部已读
+              </button>
+            </div>
           </div>
           <div className="list dashboard-scroll-list">
             {notificationsQuery.isLoading ? <span className="muted">通知加载中...</span> : null}
-            {(notificationsQuery.data ?? []).map((notification) => (
-              <div className={notification.isRead ? "list-row" : "list-row unread"} key={notification.id}>
+            {filteredNotifications.map((notification) => (
+              <div
+                className={
+                  notification.isRead
+                    ? "list-row dashboard-notification-row"
+                    : "list-row dashboard-notification-row unread"
+                }
+                key={notification.id}
+              >
                 {notification.link ? (
                   <Link
                     className="row-main"
                     to={notification.link}
-                    state={{ returnTo: location.pathname }}
+                    state={{ backgroundLocation: location, returnTo: location.pathname }}
                     onClick={() => {
-                      saveDashboardScrollState();
                       handleNotificationLinkClick(notification);
                     }}
                   >
                     <strong>{notification.title}</strong>
                     <span>{notification.content}</span>
+                    <time dateTime={notification.createdAt}>
+                      {formatRelativeTime(notification.createdAt)}
+                    </time>
                   </Link>
                 ) : (
                   <div className="row-main">
                     <strong>{notification.title}</strong>
                     <span>{notification.content}</span>
+                    <time dateTime={notification.createdAt}>
+                      {formatRelativeTime(notification.createdAt)}
+                    </time>
                   </div>
                 )}
                 <button
@@ -461,8 +430,10 @@ export function DashboardPage({
                 </button>
               </div>
             ))}
-            {!notificationsQuery.isLoading && (notificationsQuery.data ?? []).length === 0 ? (
-              <span className="muted">暂无通知</span>
+            {!notificationsQuery.isLoading && filteredNotifications.length === 0 ? (
+              <span className="muted">
+                {notificationFilter === "UNREAD" ? "暂无未读通知" : "暂无通知"}
+              </span>
             ) : null}
           </div>
         </section>

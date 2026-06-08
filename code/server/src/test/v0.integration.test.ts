@@ -91,6 +91,24 @@ type NotificationReadResponse = {
   readAt: string | null;
 };
 
+type InvitationResponse = {
+  id: string;
+  email: string;
+  token: string;
+  status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED";
+  teamRole: string | null;
+  projectRole: string | null;
+  teamId: string;
+  projectId: string | null;
+  acceptPath: string;
+};
+
+type AcceptInvitationResponse = {
+  ok: boolean;
+  teamId: string;
+  projectId: string | null;
+};
+
 type TagResponse = {
   id: string;
   name: string;
@@ -383,6 +401,9 @@ describe("V0 HTTP integration", () => {
     const owner = await registerUser("Owner");
     const editor = await registerUser("Editor");
     const viewer = await registerUser("Viewer");
+    const invitedTeamMember = await registerUser("InvitedTeamMember");
+    const invitedProjectMember = await registerUser("InvitedProjectMember");
+    const concurrentProjectInvitee = await registerUser("ConcurrentProjectInvitee");
 
     const team = (await request<TeamResponse>("POST", "/api/v1/teams", {
       token: owner.token,
@@ -431,10 +452,198 @@ describe("V0 HTTP integration", () => {
       }
     })).data;
 
+    const teamInvitation = (await request<InvitationResponse>(
+      "POST",
+      `/api/v1/teams/${team.id}/invitations`,
+      {
+        token: owner.token,
+        expectedStatus: 201,
+        body: {
+          email: invitedTeamMember.email,
+          role: "MEMBER"
+        }
+      }
+    )).data;
+    assert.equal(teamInvitation.status, "PENDING");
+    assert.equal(teamInvitation.projectId, null);
+    assert.ok(teamInvitation.acceptPath.includes(teamInvitation.token));
+
+    const teamInvitations = (await request<InvitationResponse[]>(
+      "GET",
+      `/api/v1/teams/${team.id}/invitations`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(teamInvitations.some((invitation) => invitation.id === teamInvitation.id));
+
+    const acceptedTeamInvitation = (await request<AcceptInvitationResponse>(
+      "POST",
+      "/api/v1/invitations/accept",
+      {
+        token: invitedTeamMember.token,
+        body: {
+          token: teamInvitation.acceptPath.split("token=")[1]
+        }
+      }
+    )).data;
+    assert.equal(acceptedTeamInvitation.teamId, team.id);
+    assert.equal(acceptedTeamInvitation.projectId, null);
+
+    const acceptedTeamInvitationAgain = (await request<AcceptInvitationResponse>(
+      "POST",
+      "/api/v1/invitations/accept",
+      {
+        token: invitedTeamMember.token,
+        body: {
+          token: teamInvitation.token
+        }
+      }
+    )).data;
+    assert.equal(acceptedTeamInvitationAgain.teamId, team.id);
+
+    await request<InvitationResponse>("PATCH", `/api/v1/invitations/${teamInvitation.id}/revoke`, {
+      token: owner.token,
+      expectedStatus: 422
+    });
+
+    const invitedTeamProjects = (await request<ProjectResponse[]>(
+      "GET",
+      `/api/v1/teams/${team.id}/projects`,
+      {
+        token: invitedTeamMember.token
+      }
+    )).data;
+    assert.equal(invitedTeamProjects.some((item) => item.id === project.id), false);
+
+    await request<TaskListResponse[]>("GET", `/api/v1/projects/${project.id}/lists`, {
+      token: invitedTeamMember.token,
+      expectedStatus: 403
+    });
+
+    const mismatchedInvitation = (await request<InvitationResponse>(
+      "POST",
+      `/api/v1/teams/${team.id}/invitations`,
+      {
+        token: owner.token,
+        expectedStatus: 201,
+        body: {
+          email: `not-${viewer.email}`,
+          role: "MEMBER"
+        }
+      }
+    )).data;
+    await request<AcceptInvitationResponse>("POST", "/api/v1/invitations/accept", {
+      token: viewer.token,
+      expectedStatus: 422,
+      body: {
+        token: mismatchedInvitation.token
+      }
+    });
+
+    const revokeInvitation = (await request<InvitationResponse>(
+      "POST",
+      `/api/v1/teams/${team.id}/invitations`,
+      {
+        token: owner.token,
+        expectedStatus: 201,
+        body: {
+          email: `revoked-${invitedTeamMember.email}`,
+          role: "MEMBER"
+        }
+      }
+    )).data;
+    const revokedInvitation = (await request<InvitationResponse>(
+      "PATCH",
+      `/api/v1/invitations/${revokeInvitation.id}/revoke`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.equal(revokedInvitation.status, "REVOKED");
+
     await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${team.id}`, {
       token: owner.token,
       expectedStatus: 422
     });
+
+    const projectInvitation = (await request<InvitationResponse>(
+      "POST",
+      `/api/v1/projects/${project.id}/invitations`,
+      {
+        token: owner.token,
+        expectedStatus: 201,
+        body: {
+          email: invitedProjectMember.email,
+          teamRole: "MEMBER",
+          projectRole: "EDITOR"
+        }
+      }
+    )).data;
+    assert.equal(projectInvitation.status, "PENDING");
+    assert.equal(projectInvitation.projectId, project.id);
+
+    const projectInvitations = (await request<InvitationResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/invitations`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(projectInvitations.some((invitation) => invitation.id === projectInvitation.id));
+
+    const acceptedProjectInvitation = (await request<AcceptInvitationResponse>(
+      "POST",
+      "/api/v1/invitations/accept",
+      {
+        token: invitedProjectMember.token,
+        body: {
+          token: projectInvitation.acceptPath.split("token=")[1]
+        }
+      }
+    )).data;
+    assert.equal(acceptedProjectInvitation.teamId, team.id);
+    assert.equal(acceptedProjectInvitation.projectId, project.id);
+
+    const concurrentProjectInvitation = (await request<InvitationResponse>(
+      "POST",
+      `/api/v1/projects/${project.id}/invitations`,
+      {
+        token: owner.token,
+        expectedStatus: 201,
+        body: {
+          email: concurrentProjectInvitee.email,
+          teamRole: "MEMBER",
+          projectRole: "VIEWER"
+        }
+      }
+    )).data;
+
+    const [firstConcurrentAccept, secondConcurrentAccept] = await Promise.all([
+      request<AcceptInvitationResponse>("POST", "/api/v1/invitations/accept", {
+        token: concurrentProjectInvitee.token,
+        body: {
+          token: concurrentProjectInvitation.token
+        }
+      }),
+      request<AcceptInvitationResponse>("POST", "/api/v1/invitations/accept", {
+        token: concurrentProjectInvitee.token,
+        body: {
+          token: concurrentProjectInvitation.token
+        }
+      })
+    ]);
+    assert.equal(firstConcurrentAccept.data.projectId, project.id);
+    assert.equal(secondConcurrentAccept.data.projectId, project.id);
+
+    const invitedProjectMembers = (await request<MemberResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/members`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(invitedProjectMembers.some((member) => member.user.id === invitedProjectMember.id));
 
     await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
       token: owner.token,

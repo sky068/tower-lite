@@ -200,11 +200,19 @@ input[type="date"]:not(:disabled) {
 .notification-item strong {
   color: #0f172a;
   font-size: 14px;
+  line-height: 1.35;
 }
 
 .notification-item span {
   color: #64748b;
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.notification-item time,
+.row-main time {
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .notification-footer {
@@ -345,6 +353,12 @@ input[type="date"]:not(:disabled) {
   gap: 12px;
 }
 
+.panel-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .compact-form {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -457,6 +471,16 @@ input[type="date"]:not(:disabled) {
   background: #f8fafc;
 }
 
+.task-tree-row .row-main strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.task-tree-row .row-main span {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .task-tree-row.context {
   border-style: dashed;
   background: #f8fafc;
@@ -500,6 +524,39 @@ input[type="date"]:not(:disabled) {
 .list-row.unread {
   border-color: #bfdbfe;
   background: #eff6ff;
+}
+
+.dashboard-notification-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  min-height: auto;
+}
+
+.dashboard-notification-row .row-main {
+  min-width: 0;
+  gap: 4px;
+}
+
+.dashboard-notification-row strong,
+.dashboard-notification-row span,
+.dashboard-notification-row time {
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.dashboard-notification-row strong {
+  font-size: 14px;
+}
+
+.dashboard-notification-row span {
+  font-size: 12px;
+}
+
+.dashboard-notification-row .mini-button {
+  align-self: start;
+  white-space: nowrap;
 }
 
 .list-row span,
@@ -1391,6 +1448,11 @@ select[multiple] {
   align-items: end;
 }
 
+.settings-form.invite-form {
+  grid-template-columns: minmax(180px, 1fr) minmax(130px, auto) minmax(130px, auto) auto;
+  align-items: end;
+}
+
 .settings-form label {
   display: grid;
   gap: 6px;
@@ -1435,11 +1497,51 @@ select[multiple] {
 
 .member-row span {
   color: #64748b;
+  overflow-wrap: anywhere;
 }
 
 .danger-button,
 .danger-zone .segmented-actions button:last-child {
   background: #dc2626;
+}
+
+.copy-field {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  color: #334155;
+  font-size: 14px;
+}
+
+.copy-field input {
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #475569;
+}
+
+.invite-accept-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.button-link {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 0 14px;
+  text-decoration: none;
+}
+
+.button-link.secondary {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
 }
 
 @media (max-width: 760px) {
@@ -1473,6 +1575,7 @@ select[multiple] {
   }
 
   .settings-form.inline,
+  .settings-form.invite-form,
   .inline-panel,
   .subtask-create-form,
   .member-row {

@@ -227,6 +227,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
 }) => {
   const taskTitle = `E2E Task ${runId}`;
   const subTaskTitle = `E2E Subtask ${runId}`;
+  const secondLevelSubTaskTitle = `E2E Nested Subtask ${runId}`;
 
   await login(page, owner);
   await expect(page.getByText(`E2E Project ${runId}`)).toBeVisible();
@@ -253,6 +254,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const taskId = await findTaskIdByTitle(taskTitle);
 
   await taskCard.click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${taskId}$`));
   const detail = page.getByLabel("任务详情");
   await expect(detail).toBeVisible();
   await expect(detail.getByRole("heading", { name: taskTitle })).toBeVisible();
@@ -263,11 +265,24 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await detail.getByRole("button", { name: "添加" }).click();
   await expect(detail.getByText(subTaskTitle)).toBeVisible();
 
+  await detail.getByRole("button", { name: new RegExp(subTaskTitle) }).click();
+  await expect(detail.getByRole("heading", { name: subTaskTitle })).toBeVisible();
+  await detail.getByRole("button", { name: "创建子任务" }).click();
+  await detail.getByPlaceholder("新增子任务").fill(secondLevelSubTaskTitle);
+  await detail.getByRole("button", { name: "选择负责人" }).click();
+  await detail.locator(".assignee-dropdown-menu").getByLabel("E2E Editor").check();
+  await detail.getByRole("button", { name: "添加" }).click();
+  await expect(detail.getByText(secondLevelSubTaskTitle)).toBeVisible();
+  await detail.getByRole("button", { name: new RegExp(secondLevelSubTaskTitle) }).click();
+  await expect(detail.getByRole("heading", { name: secondLevelSubTaskTitle })).toBeVisible();
+  await expect(detail.getByRole("button", { name: "已达到最大拆分层级" })).toBeDisabled();
+
   await detail.getByPlaceholder("写一条评论").fill("Owner comment from E2E");
   await detail.getByRole("button", { name: "发送" }).click();
   await expect(detail.getByText("Owner comment from E2E")).toBeVisible();
   await detail.getByRole("button", { name: "关闭" }).click();
   await expect(detail).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
 
   const doneColumn = boardColumn(page, "已完成");
   await page.getByRole("button", { name: new RegExp(taskTitle) }).dragTo(doneColumn);
@@ -277,18 +292,27 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const editorPage = await editorContext.newPage();
 
   await login(editorPage, editor);
-  const myTasksPanel = editorPage.locator("section").filter({
+  const myTasksPanel = editorPage.locator("section.panel").filter({
     has: editorPage.getByRole("heading", { name: "我的任务" })
+  }).first();
+  const assignedFirstLevelLinks = myTasksPanel.getByRole("link", {
+    name: new RegExp(`^${escapeRegExp(subTaskTitle)}\\b`)
   });
+  await expect(assignedFirstLevelLinks).toHaveCount(2);
+  await expect(assignedFirstLevelLinks.first()).toBeVisible();
   await expect(
-    myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(subTaskTitle)}\\b`) })
-  ).toBeVisible();
+    myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(secondLevelSubTaskTitle)}\\b`) })
+  ).toHaveCount(1);
   await myTasksPanel.locator("select").selectOption("ALL");
-  const myTaskLink = myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(taskTitle)}\\b`) });
+  const myTaskLink = myTasksPanel
+    .getByRole("link", { name: new RegExp(`^${escapeRegExp(taskTitle)}\\b`) })
+    .first();
   await expect(myTaskLink).toBeVisible();
   await myTaskLink.click();
+  await expect(editorPage).toHaveURL(new RegExp(`/tasks/${taskId}$`));
   await expect(editorPage.getByLabel("任务详情")).toBeVisible();
   await editorPage.getByRole("button", { name: "关闭" }).click();
+  await expect(editorPage).toHaveURL(/\/dashboard$/);
   await expect(editorPage.getByRole("heading", { name: "工作台" })).toBeVisible();
   await expect(editorPage.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(taskTitle)}`) })).toBeVisible();
   await expect(editorPage.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(subTaskTitle)}`) })).toBeVisible();
@@ -301,6 +325,11 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
     }
   });
   await expect(editorPage.getByText("Realtime comment notification from owner")).toBeVisible();
+
+  await editorPage.goto(`/tasks/${taskId}`);
+  await expect(editorPage.getByRole("link", { name: "返回工作台" })).toBeVisible();
+  await editorPage.getByRole("button", { name: "关闭" }).click();
+  await expect(editorPage).toHaveURL(/\/dashboard$/);
 
   await editorPage.goto(`/projects/${projectId}/board`);
   await expect(editorPage.getByRole("button", { name: "新建任务" })).toBeVisible();

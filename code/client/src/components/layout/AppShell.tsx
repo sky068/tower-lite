@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, ListChecks } from "lucide-react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authApi, userApi } from "../../lib/api";
+import { formatRelativeTime } from "../../lib/dateTime";
 import { useRealtimeEvents } from "../../lib/realtime";
 import { useAuthStore } from "../../stores/authStore";
 import type { Notification } from "../../types/api";
@@ -21,6 +22,7 @@ const realtimeStatusLabels = {
 export function AppShell() {
   const queryClient = useQueryClient();
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, refreshToken, clearSession } = useAuthStore();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
@@ -76,6 +78,7 @@ export function AppShell() {
   async function handleLogout() {
     const tokenToRevoke = refreshToken;
     clearSession();
+    navigate("/login", { replace: true });
 
     if (tokenToRevoke) {
       try {
@@ -153,11 +156,14 @@ export function AppShell() {
                           className={notification.isRead ? "notification-item" : "notification-item unread"}
                           key={notification.id}
                           to={notification.link}
-                          state={{ returnTo: location.pathname }}
+                          state={{ backgroundLocation: location, returnTo: location.pathname }}
                           onClick={() => handleOpenNotification(notification)}
                         >
                           <strong>{notification.title}</strong>
                           <span>{notification.content}</span>
+                          <time dateTime={notification.createdAt}>
+                            {formatRelativeTime(notification.createdAt)}
+                          </time>
                         </Link>
                       ) : (
                         <button
@@ -168,6 +174,9 @@ export function AppShell() {
                         >
                           <strong>{notification.title}</strong>
                           <span>{notification.content}</span>
+                          <time dateTime={notification.createdAt}>
+                            {formatRelativeTime(notification.createdAt)}
+                          </time>
                         </button>
                       )
                     )}

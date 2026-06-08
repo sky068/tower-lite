@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
@@ -8,7 +8,6 @@ import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { useAuthStore } from "../../stores/authStore";
 import type { TaskList } from "../../types/api";
-import { TaskDetailPanel } from "./TaskDetailPanel";
 
 const reservedTaskListNames = new Set(["待处理", "进行中", "已完成"]);
 
@@ -22,13 +21,14 @@ function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
 
 export function ProjectBoardPage() {
   const { projectId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const listDropCommittedRef = useRef(false);
   const [listDraftNames, setListDraftNames] = useState<Record<string, string>>({});
   const [listName, setListName] = useState("");
   const [listNameError, setListNameError] = useState("");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [draggingListId, setDraggingListId] = useState<string | null>(null);
   const [orderedListIds, setOrderedListIds] = useState<string[]>([]);
@@ -657,7 +657,14 @@ export function ProjectBoardPage() {
                   }
                 }}
                 onDragEnd={() => setDraggingTaskId(null)}
-                onClick={() => setSelectedTaskId(task.id)}
+                onClick={() =>
+                  navigate(`/tasks/${task.id}`, {
+                    state: {
+                      backgroundLocation: location,
+                      returnTo: location.pathname
+                    }
+                  })
+                }
               >
                 <div className="task-card-title">
                   <strong>{task.title}</strong>
@@ -790,21 +797,6 @@ export function ProjectBoardPage() {
             </form>
           </section>
         </div>
-      ) : null}
-      {selectedTaskId ? (
-        <TaskDetailPanel
-          projectId={projectId!}
-          taskId={selectedTaskId}
-          readOnly={!canEditProjectBoard}
-          onTaskMoved={(targetTaskListId) => {
-            const targetList = lists.find((list) => list.id === targetTaskListId);
-
-            if (targetList?.type === "DONE") {
-              setCompletionFilter("ALL");
-            }
-          }}
-          onClose={() => setSelectedTaskId(null)}
-        />
       ) : null}
     </div>
   );

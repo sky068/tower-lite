@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, type ReactNode } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { authApi } from "../../lib/api";
 import { useAuthStore } from "../../stores/authStore";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
+  const location = useLocation();
   const accessToken = useAuthStore((state) => state.accessToken);
   const setSession = useAuthStore((state) => state.setSession);
   const refreshToken = useAuthStore((state) => state.refreshToken);
@@ -34,7 +35,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   }, [clearSession, meQuery.isError]);
 
   if (!accessToken) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   if (meQuery.isLoading) {

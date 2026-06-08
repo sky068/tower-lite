@@ -6,6 +6,7 @@ import { errorHandler } from "./middleware/error-handler.js";
 import { requestId } from "./middleware/request-id.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
+import { invitationRoutes } from "./modules/invitations/invitation.routes.js";
 import { projectRoutes } from "./modules/projects/project.routes.js";
 import { taskRoutes } from "./modules/tasks/task.routes.js";
 import { tagRoutes } from "./modules/tags/tag.routes.js";
@@ -29,6 +30,7 @@ export function createApp() {
   app.use(API_PREFIX, healthRoutes);
   app.use(API_PREFIX, authRoutes);
   app.use(API_PREFIX, userRoutes);
+  app.use(API_PREFIX, invitationRoutes);
   app.use(API_PREFIX, teamRoutes);
   app.use(API_PREFIX, projectRoutes);
   app.use(API_PREFIX, taskRoutes);

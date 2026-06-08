@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
-import { projectApi, teamApi } from "../../lib/api";
+import { invitationApi, projectApi, teamApi } from "../../lib/api";
+import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 
@@ -15,6 +16,9 @@ export function ProjectSettingsPage() {
   const [description, setDescription] = useState("");
   const [memberUserId, setMemberUserId] = useState("");
   const [memberRole, setMemberRole] = useState<"OWNER" | "EDITOR" | "VIEWER">("EDITOR");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteTeamRole, setInviteTeamRole] = useState<"OWNER" | "ADMIN" | "MEMBER">("MEMBER");
+  const [inviteProjectRole, setInviteProjectRole] = useState<"OWNER" | "EDITOR" | "VIEWER">("EDITOR");
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -45,6 +49,12 @@ export function ProjectSettingsPage() {
   );
   const isArchived = projectQuery.data?.status === "ARCHIVED";
 
+  const invitationsQuery = useQuery({
+    queryKey: ["project-invitations", projectId],
+    queryFn: () => projectApi.invitations(projectId!),
+    enabled: Boolean(projectId) && canManageProject
+  });
+
   const updateProjectMutation = useMutation({
     mutationFn: () => projectApi.update(projectId!, { name, description }),
     onSuccess: () => {
@@ -68,6 +78,28 @@ export function ProjectSettingsPage() {
       setMemberUserId("");
       setMemberRole("EDITOR");
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+    }
+  });
+
+  const createInvitationMutation = useMutation({
+    mutationFn: () =>
+      projectApi.createInvitation(projectId!, {
+        email: inviteEmail,
+        teamRole: inviteTeamRole,
+        projectRole: inviteProjectRole
+      }),
+    onSuccess: () => {
+      setInviteEmail("");
+      setInviteTeamRole("MEMBER");
+      setInviteProjectRole("EDITOR");
+      void queryClient.invalidateQueries({ queryKey: ["project-invitations", projectId] });
+    }
+  });
+
+  const revokeInvitationMutation = useMutation({
+    mutationFn: invitationApi.revoke,
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project-invitations", projectId] });
     }
   });
 
@@ -110,6 +142,14 @@ export function ProjectSettingsPage() {
     addMemberMutation.mutate();
   }
 
+  function handleCreateInvitation(event: FormEvent) {
+    event.preventDefault();
+
+    if (canManageProject) {
+      createInvitationMutation.mutate();
+    }
+  }
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -144,7 +184,85 @@ export function ProjectSettingsPage() {
         <MutationError error={updateProjectMutation.error} />
       </section>
       <section className="panel">
-        <h2>添加项目成员</h2>
+        <h2>邀请项目成员</h2>
+        <form className="settings-form invite-form" onSubmit={handleCreateInvitation}>
+          <input
+            type="email"
+            value={inviteEmail}
+            onChange={(event) => setInviteEmail(event.target.value)}
+            placeholder="成员邮箱"
+            disabled={!canManageProject}
+            required
+          />
+          <select
+            value={inviteProjectRole}
+            disabled={!canManageProject}
+            onChange={(event) => setInviteProjectRole(event.target.value as typeof inviteProjectRole)}
+          >
+            <option value="OWNER">项目 OWNER</option>
+            <option value="EDITOR">项目 EDITOR</option>
+            <option value="VIEWER">项目 VIEWER</option>
+          </select>
+          <select
+            value={inviteTeamRole}
+            disabled={!canManageProject}
+            onChange={(event) => setInviteTeamRole(event.target.value as typeof inviteTeamRole)}
+          >
+            <option value="MEMBER">团队 MEMBER</option>
+            <option value="ADMIN">团队 ADMIN</option>
+            <option value="OWNER">团队 OWNER</option>
+          </select>
+          <button type="submit" disabled={!canManageProject || createInvitationMutation.isPending}>
+            创建邀请
+          </button>
+        </form>
+        {!canManageProject ? <span className="muted">只有项目 OWNER 或团队 OWNER / ADMIN 可以邀请项目成员。</span> : null}
+        <MutationError error={createInvitationMutation.error ?? revokeInvitationMutation.error} />
+        {createInvitationMutation.data ? (
+          <label className="copy-field">
+            邀请链接
+            <input readOnly value={getAcceptUrl(createInvitationMutation.data.acceptPath)} />
+          </label>
+        ) : null}
+      </section>
+      <section className="panel">
+        <h2>邀请记录</h2>
+        <div className="list">
+          {(invitationsQuery.data ?? []).map((invitation) => (
+            <div className="member-row" key={invitation.id}>
+              <div>
+                <strong>{invitation.email}</strong>
+                <span>
+                  团队 {invitation.teamRole ?? "MEMBER"} / 项目{" "}
+                  {invitation.projectRole ?? "VIEWER"} / {getInvitationStatusLabel(invitation.status)}
+                </span>
+                {invitation.status === "PENDING" ? (
+                  <span className="muted">{getAcceptUrl(invitation.acceptPath)}</span>
+                ) : null}
+              </div>
+              {invitation.status === "PENDING" ? (
+                <button
+                  className="danger-button"
+                  type="button"
+                  disabled={!canManageProject || revokeInvitationMutation.isPending}
+                  onClick={() => {
+                    if (window.confirm(`确认撤销发给 ${invitation.email} 的邀请？`)) {
+                      revokeInvitationMutation.mutate(invitation.id);
+                    }
+                  }}
+                >
+                  撤销
+                </button>
+              ) : null}
+            </div>
+          ))}
+          {!invitationsQuery.isLoading && (invitationsQuery.data ?? []).length === 0 ? (
+            <span className="muted">暂无邀请记录</span>
+          ) : null}
+        </div>
+      </section>
+      <section className="panel">
+        <h2>直接添加已有团队成员</h2>
         <form className="settings-form inline" onSubmit={handleAddMember}>
           <select
             value={memberUserId}

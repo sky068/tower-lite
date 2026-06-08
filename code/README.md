@@ -188,10 +188,20 @@ docs/local-testing.md
 - `GET /api/v1/teams`
 - `GET /api/v1/teams/:teamId`
 - `PATCH /api/v1/teams/:teamId`
+- `DELETE /api/v1/teams/:teamId`
 - `GET /api/v1/teams/:teamId/members`
 - `POST /api/v1/teams/:teamId/members`
 - `PATCH /api/v1/teams/:teamId/members/:userId/role`
 - `DELETE /api/v1/teams/:teamId/members/:userId`
+
+邀请：
+
+- `GET /api/v1/teams/:teamId/invitations`
+- `POST /api/v1/teams/:teamId/invitations`
+- `GET /api/v1/projects/:projectId/invitations`
+- `POST /api/v1/projects/:projectId/invitations`
+- `PATCH /api/v1/invitations/:invitationId/revoke`
+- `POST /api/v1/invitations/accept`
 
 项目：
 
@@ -260,6 +270,8 @@ docs/local-testing.md
 - 在看板列里快速创建任务，默认分配给当前用户
 - 通过新建任务弹窗创建任务，可以直接选择状态、多位负责人、优先级、开始日期和截止日期
 - 打开任务详情，编辑标题和描述
+- 从工作台或看板打开任务详情时使用背景路由弹窗，底层页面不卸载，URL 会同步为 `/tasks/:taskId`
+- 直接打开 `/tasks/:taskId` 链接时显示独立任务详情，关闭或返回时进入工作台
 - 设置任务状态、多位负责人、优先级、开始日期和截止日期，并在前端校验日期范围；负责人支持新增指派和取消指派
 - 在任务详情里创建最多两级子任务，并为子任务单独设置多位负责人、开始日期和截止日期
 - 子任务可以从父任务详情里打开，作为独立任务继续编辑
@@ -272,11 +284,13 @@ docs/local-testing.md
 - 创建、重命名、删除、排序自定义看板列表；默认的待处理、进行中、已完成列表不允许改名、排序或删除，自定义列表删除非空时需要明确选择任务迁移目标
 - 创建标签并给任务添加或移除标签
 - 管理团队成员
+- 团队 OWNER 可以创建团队邀请，复制邀请链接给指定邮箱用户；邀请接受前可以撤销，接受邀请时要求当前登录邮箱和邀请邮箱一致
+- 项目 OWNER 或团队 OWNER / ADMIN 可以创建项目邀请，接受后会同时加入团队和项目；V0.2 仅生成站内邀请链接，不发送邮件
 - 从团队成员下拉列表添加项目成员，管理项目成员、归档项目、删除项目
 - 已归档项目的看板进入只读状态，后端也会拒绝任务、列表、标签和评论写操作
 - 在工作台查看我的任务和通知
 - 我的任务包含分配给自己的顶层任务和子任务；多人负责人中的任一成员登录后都能看到分配给自己的任务，子任务按最多两层的父子片段展示，且支持按未完成、已完成、全部筛选，并支持按任务、父任务、项目、列表搜索
-- 单条或批量标记通知已读；点击通知任务链接时会自动标记已读
+- 单条或批量标记通知已读；点击通知任务链接时会自动标记已读；通知支持未读筛选并显示相对时间
 - 后端每 10 分钟扫描未来 24 小时内到期任务，生成站内提醒
 
 ## 当前环境备注

@@ -1,10 +1,15 @@
 import { FormEvent, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, type Location } from "react-router-dom";
 import { authApi, getApiErrorMessage } from "../../lib/api";
 import { useAuthStore } from "../../stores/authStore";
 
+type AuthRedirectState = {
+  from?: Location;
+};
+
 export function RegisterPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { accessToken, setSession } = useAuthStore();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -12,8 +17,13 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const redirectLocation = (location.state as AuthRedirectState | null)?.from;
+  const redirectTo = redirectLocation
+    ? `${redirectLocation.pathname}${redirectLocation.search}${redirectLocation.hash}`
+    : "/dashboard";
+
   if (accessToken) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={redirectTo} replace />;
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -24,7 +34,7 @@ export function RegisterPage() {
     try {
       const session = await authApi.register({ name, email, password });
       setSession(session);
-      navigate("/dashboard");
+      navigate(redirectTo, { replace: true });
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, "注册失败，请检查邮箱是否已被使用"));
     } finally {
@@ -73,7 +83,7 @@ export function RegisterPage() {
           <button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "注册中..." : "注册"}
           </button>
-          <Link className="text-link" to="/login">
+          <Link className="text-link" to="/login" state={location.state}>
             已有账号？登录
           </Link>
         </form>

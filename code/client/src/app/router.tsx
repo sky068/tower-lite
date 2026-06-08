@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useRoutes, type Location } from "react-router-dom";
 import { AppShell } from "../components/layout/AppShell";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { LoginPage } from "../features/auth/LoginPage";
@@ -7,9 +7,14 @@ import { ProjectBoardPage } from "../features/board/ProjectBoardPage";
 import { RequireAuth } from "../features/auth/RequireAuth";
 import { TeamSettingsPage } from "../features/team/TeamSettingsPage";
 import { ProjectSettingsPage } from "../features/project/ProjectSettingsPage";
-import { TaskPage } from "../features/task/TaskPage";
+import { TaskModalRoute, TaskPage } from "../features/task/TaskPage";
+import { AcceptInvitationPage } from "../features/invitation/AcceptInvitationPage";
 
-export const router = createBrowserRouter([
+type BackgroundRouteState = {
+  backgroundLocation?: Location;
+};
+
+const routes = [
   {
     path: "/",
     element: <Navigate to="/dashboard" replace />
@@ -46,9 +51,38 @@ export const router = createBrowserRouter([
         element: <ProjectSettingsPage />
       },
       {
+        path: "/invitations/accept",
+        element: <AcceptInvitationPage />
+      },
+      {
         path: "/tasks/:taskId",
         element: <TaskPage />
       }
     ]
   }
-]);
+];
+
+export function AppRouter() {
+  const location = useLocation();
+  const state = location.state as BackgroundRouteState | null;
+  const backgroundLocation = state?.backgroundLocation;
+  const routedElement = useRoutes(routes, backgroundLocation ?? location);
+
+  return (
+    <>
+      {routedElement}
+      {backgroundLocation ? (
+        <Routes>
+          <Route
+            path="/tasks/:taskId"
+            element={
+              <RequireAuth>
+                <TaskModalRoute />
+              </RequireAuth>
+            }
+          />
+        </Routes>
+      ) : null}
+    </>
+  );
+}

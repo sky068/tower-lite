@@ -135,3 +135,27 @@ export type Notification = {
   readAt: string | null;
   createdAt: string;
 };
+
+export type Invitation = {
+  id: string;
+  email: string;
+  token: string;
+  status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED";
+  teamRole: "OWNER" | "ADMIN" | "MEMBER" | null;
+  projectRole: "OWNER" | "EDITOR" | "VIEWER" | null;
+  teamId: string;
+  projectId: string | null;
+  acceptPath: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  createdAt: string;
+  inviter?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  project?: {
+    id: string;
+    name: string;
+  } | null;
+};

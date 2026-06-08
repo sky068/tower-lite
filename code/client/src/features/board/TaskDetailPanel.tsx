@@ -13,6 +13,7 @@ type TaskDetailPanelProps = {
   readOnly?: boolean;
   closeOnSave?: boolean;
   restoreWindowScrollOnClose?: boolean;
+  onOpenTask?: (taskId: string) => void;
   onTaskMoved?: (targetTaskListId: string) => void;
   onClose: () => void;
 };
@@ -27,6 +28,7 @@ export function TaskDetailPanel({
   readOnly = false,
   closeOnSave = true,
   restoreWindowScrollOnClose = true,
+  onOpenTask,
   onTaskMoved,
   onClose
 }: TaskDetailPanelProps) {
@@ -469,6 +471,11 @@ export function TaskDetailPanel({
     );
   }
 
+  function handleOpenTask(nextTaskId: string) {
+    setActiveTaskId(nextTaskId);
+    onOpenTask?.(nextTaskId);
+  }
+
   return (
     <div className="modal-backdrop">
       <section className="task-detail-modal" aria-label="任务详情">
@@ -485,7 +492,7 @@ export function TaskDetailPanel({
                       className="parent-trail-button"
                       key={parentTask.id}
                       type="button"
-                      onClick={() => setActiveTaskId(parentTask.id)}
+                      onClick={() => handleOpenTask(parentTask.id)}
                     >
                       <span>{parentTask.title}</span>
                       <span aria-hidden="true">&gt;</span>
@@ -882,7 +889,7 @@ export function TaskDetailPanel({
                     <button
                       className="row-main"
                       type="button"
-                      onClick={() => setActiveTaskId(subTask.id)}
+                      onClick={() => handleOpenTask(subTask.id)}
                     >
                       <strong>{subTask.title}</strong>
                       <span>

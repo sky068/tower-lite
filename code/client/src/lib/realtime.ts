@@ -82,13 +82,16 @@ export function useRealtimeEvents() {
 
         if (event.teamId) {
           void queryClient.invalidateQueries({ queryKey: ["projects", event.teamId] });
+          void queryClient.invalidateQueries({ queryKey: ["team-invitations", event.teamId] });
         } else {
           void queryClient.invalidateQueries({ queryKey: ["projects"] });
+          void queryClient.invalidateQueries({ queryKey: ["team-invitations"] });
         }
 
         if (event.projectId) {
           void queryClient.invalidateQueries({ queryKey: ["project", event.projectId] });
           void queryClient.invalidateQueries({ queryKey: ["project-members", event.projectId] });
+          void queryClient.invalidateQueries({ queryKey: ["project-invitations", event.projectId] });
         }
 
         return;
@@ -100,6 +103,7 @@ export function useRealtimeEvents() {
         if (event.teamId) {
           void queryClient.invalidateQueries({ queryKey: ["team-members", event.teamId] });
           void queryClient.invalidateQueries({ queryKey: ["projects", event.teamId] });
+          void queryClient.invalidateQueries({ queryKey: ["team-invitations", event.teamId] });
         }
 
         return;

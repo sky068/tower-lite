@@ -1,18 +1,28 @@
 import { FormEvent, useState } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, type Location } from "react-router-dom";
 import { authApi, getApiErrorMessage } from "../../lib/api";
 import { useAuthStore } from "../../stores/authStore";
 
+type AuthRedirectState = {
+  from?: Location;
+};
+
 export function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { accessToken, setSession } = useAuthStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const redirectLocation = (location.state as AuthRedirectState | null)?.from;
+  const redirectTo = redirectLocation
+    ? `${redirectLocation.pathname}${redirectLocation.search}${redirectLocation.hash}`
+    : "/dashboard";
+
   if (accessToken) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={redirectTo} replace />;
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -23,7 +33,7 @@ export function LoginPage() {
     try {
       const session = await authApi.login({ email, password });
       setSession(session);
-      navigate("/dashboard");
+      navigate(redirectTo, { replace: true });
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, "邮箱或密码不正确"));
     } finally {
@@ -61,7 +71,7 @@ export function LoginPage() {
           <button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "登录中..." : "登录"}
           </button>
-          <Link className="text-link" to="/register">
+          <Link className="text-link" to="/register" state={location.state}>
             还没有账号？注册
           </Link>
         </form>
