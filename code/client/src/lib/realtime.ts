@@ -36,6 +36,7 @@ export function useRealtimeEvents() {
       return;
     }
 
+    let isDisposed = false;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(
       `${protocol}//${window.location.host}/api/v1/events?token=${encodeURIComponent(accessToken)}`
@@ -43,7 +44,13 @@ export function useRealtimeEvents() {
     let reconnectTimer: number | null = null;
 
     socket.onmessage = (message) => {
-      const event = JSON.parse(message.data) as RealtimeEvent;
+      let event: RealtimeEvent;
+
+      try {
+        event = JSON.parse(message.data) as RealtimeEvent;
+      } catch {
+        return;
+      }
 
       if (event.type === "notification.changed") {
         void queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -100,6 +107,10 @@ export function useRealtimeEvents() {
     };
 
     socket.onclose = () => {
+      if (isDisposed) {
+        return;
+      }
+
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
       reconnectTimer = window.setTimeout(() => {
         setReconnectAttempt((current) => current + 1);
@@ -111,6 +122,8 @@ export function useRealtimeEvents() {
     };
 
     return () => {
+      isDisposed = true;
+
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }

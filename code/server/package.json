@@ -8,12 +8,13 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "tsc -p tsconfig.json && node --test dist/modules/tasks/*.test.js",
+    "test:integration": "tsc -p tsconfig.json && node --test dist/test/v0.integration.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:generate": "node scripts/prisma-with-env.mjs generate",
+    "prisma:migrate": "node scripts/prisma-with-env.mjs migrate dev",
     "prisma:seed": "tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --outDir dist-prisma prisma/seed.ts && node dist-prisma/seed.js",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "node scripts/prisma-with-env.mjs studio"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

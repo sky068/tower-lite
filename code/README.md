@@ -57,11 +57,18 @@ demo@tower.local / password123
 ```bash
 npm run dev:client
 npm run dev:server
+npm run dev:up
+npm run dev:down
+npm run dev:init
+npm run dev:all
 npm run docker:up
 npm run docker:down
 npm run docker:reset
 npm run doctor
 npm run test
+npm run test:integration
+npm run test:e2e
+npm run test:acceptance
 npm run typecheck
 npm run build
 npm run check:v0
@@ -79,6 +86,67 @@ http://localhost:5173
 http://localhost:4000/api/v1
 ```
 
+一键启动 / 关闭前后端：
+
+```bash
+npm run dev:up
+npm run dev:down
+```
+
+`dev:init` 和 `dev:all` 会调用 Docker Compose，因此需要先启动 Docker Desktop：
+
+```bash
+open -a Docker
+```
+
+等 Docker 启动完成后，先确认 daemon 正常：
+
+```bash
+docker ps
+```
+
+首次启动或重置数据库后，先初始化数据库并写入 demo 账号：
+
+```bash
+npm run dev:init
+```
+
+Prisma 命令会自动读取项目根目录的 `.env`。如果提示 `DATABASE_URL is missing`，先创建环境变量文件：
+
+```bash
+cp .env.example .env
+```
+
+如果想“一步到位”完成 Docker、迁移、seed，并启动前后端：
+
+```bash
+npm run dev:all
+```
+
+`dev:up` 只会后台启动后端和前端，不会自动启动 Docker、执行迁移或 seed；它会把 PID 和日志写入 `.tmp/dev/`：
+
+```text
+.tmp/dev/server.pid
+.tmp/dev/server.log
+.tmp/dev/client.pid
+.tmp/dev/client.log
+```
+
+`dev:down` 会优先按 PID 文件停止进程；如果 PID 文件不存在，也会检查 `4000` 和 `5173` 端口，并只停止当前项目目录下启动的相关进程。
+
+demo 登录账号：
+
+```text
+demo@tower.local / password123
+teammate@tower.local / password123
+```
+
+如果 demo 登录提示密码错误，通常是当前数据库没有执行 seed，重新运行：
+
+```bash
+npm run prisma:seed
+```
+
 后端健康检查：
 
 ```text
@@ -89,6 +157,12 @@ http://localhost:4000/api/v1/health
 
 ```text
 docs/api.http
+```
+
+更完整的本地启动、关闭和自动测试说明：
+
+```text
+docs/local-testing.md
 ```
 
 ## 当前已实现的 V0 后端接口
@@ -206,4 +280,7 @@ docs/api.http
 
 - 本项目仍处于开发阶段，数据库结构变更优先使用 `npm run docker:reset` 清空开发数据并重新初始化，不保留旧 schema 兼容路径。
 - Prisma CLI 的部分命令在本机曾触发二进制断言；因此已手写初始迁移文件到 `server/prisma/migrations/20260606000100_init/migration.sql`，真实数据库联调建议优先使用 Docker 初始化 SQL 路径。
-- `npm run test`、`npm run typecheck`、`npm run build` 和 `npm run check:v0` 已通过；`npx prisma validate --schema server/prisma/schema.prisma` 当前受上述 Prisma 本机二进制问题阻塞。
+- `npm run test`、`npm run typecheck`、`npm run build` 和 `npm run check:v0` 已通过。
+- `npm run test:integration` 会连接本地 PostgreSQL，运行前需要先确保 `npm run doctor` 的数据库检查通过。
+- `npm run test:e2e` 会通过 Playwright 自动启动后端和前端，并用 Chromium 跑浏览器验收；首次运行前如果提示缺少浏览器，请执行 `npx playwright install chromium`。
+- `npm run test:acceptance` 会依次运行后端集成测试和前端 E2E，适合 V0 回归验收。

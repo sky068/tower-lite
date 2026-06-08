@@ -1,5 +1,6 @@
 node_modules
 .npm-cache
+.tmp
 dist
 dist-prisma
 .env
@@ -7,5 +8,7 @@ dist-prisma
 .DS_Store
 *.log
 coverage
+playwright-report
+test-results
 client/.vite
 server/prisma/dev.db

@@ -67,12 +67,15 @@ export function AppShell() {
   }, [isNotificationsOpen]);
 
   async function handleLogout() {
-    try {
-      if (refreshToken) {
-        await authApi.logout({ refreshToken });
+    const tokenToRevoke = refreshToken;
+    clearSession();
+
+    if (tokenToRevoke) {
+      try {
+        await authApi.logout({ refreshToken: tokenToRevoke });
+      } catch {
+        // The local session is already cleared; a failed revoke should not block logout.
       }
-    } finally {
-      clearSession();
     }
   }
 
