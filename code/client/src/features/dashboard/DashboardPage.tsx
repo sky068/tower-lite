@@ -4,6 +4,52 @@ import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi, userApi } from "../../lib/api";
 import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
+import type { MyTask } from "../../types/api";
+
+type MyTaskTreeNode = {
+  task: MyTask;
+  children: MyTask[];
+};
+
+function MyTaskLink({
+  task,
+  depth,
+  returnTo,
+  isContextOnly = false
+}: {
+  task: MyTask;
+  depth: 0 | 1;
+  returnTo: string;
+  isContextOnly?: boolean;
+}) {
+  const className = [
+    "list-row",
+    "task-tree-row",
+    depth === 1 ? "child" : null,
+    isContextOnly ? "context" : null
+  ].filter(Boolean).join(" ");
+
+  return (
+    <Link
+      className={className}
+      to={`/tasks/${task.id}`}
+      state={{ returnTo }}
+    >
+      <div className="row-main">
+        <strong>{task.title}</strong>
+        <span>
+          {isContextOnly ? "父任务 / " : ""}
+          {depth === 1 ? `子任务 / ${task.parentTask?.title ?? "父任务"} / ` : ""}
+          {task.project.name} / {task.taskList.name}
+        </span>
+      </div>
+      <span className={getPriorityClassName(task.priority)}>
+        {getPriorityLabel(task.priority)}
+      </span>
+      <span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "无截止"}</span>
+    </Link>
+  );
+}
 
 export function DashboardPage() {
   const queryClient = useQueryClient();
@@ -49,6 +95,10 @@ export function DashboardPage() {
     const keyword = taskSearch.trim().toLowerCase();
 
     return (myTasksQuery.data ?? []).filter((task) => {
+      if (!task.isAssignedToMe) {
+        return true;
+      }
+
       const matchesStatus =
         taskStatusFilter === "ALL" ||
         (taskStatusFilter === "OPEN" && !task.completedAt) ||
@@ -62,6 +112,36 @@ export function DashboardPage() {
       return matchesStatus && matchesKeyword;
     });
   }, [myTasksQuery.data, taskSearch, taskStatusFilter]);
+
+  const myTaskTree = useMemo(() => {
+    const taskMap = new Map(filteredMyTasks.map((task) => [task.id, task]));
+    const childrenByParentId = new Map<string, MyTask[]>();
+
+    for (const task of filteredMyTasks) {
+      if (!task.parentId) {
+        continue;
+      }
+
+      const children = childrenByParentId.get(task.parentId) ?? [];
+      children.push(task);
+      childrenByParentId.set(task.parentId, children);
+    }
+
+    const nodes: MyTaskTreeNode[] = [];
+
+    for (const task of filteredMyTasks) {
+      if (task.parentId && taskMap.has(task.parentId) && task.isAssignedToMe) {
+        continue;
+      }
+
+      nodes.push({
+        task,
+        children: childrenByParentId.get(task.id) ?? []
+      });
+    }
+
+    return nodes;
+  }, [filteredMyTasks]);
 
   const createTeamMutation = useMutation({
     mutationFn: teamApi.create,
@@ -221,27 +301,31 @@ export function DashboardPage() {
           />
           <div className="list dashboard-scroll-list">
             {myTasksQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
-            {filteredMyTasks.map((task) => (
-              <Link
-                className="list-row"
-                key={task.id}
-                to={`/tasks/${task.id}`}
-                state={{ returnTo: location.pathname }}
-              >
-                <div className="row-main">
-                  <strong>{task.title}</strong>
-                  <span>
-                    {task.parentId ? "子任务 / " : ""}
-                    {task.project.name} / {task.taskList.name}
-                  </span>
-                </div>
-                <span className={getPriorityClassName(task.priority)}>
-                  {getPriorityLabel(task.priority)}
-                </span>
-                <span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "无截止"}</span>
-              </Link>
+            {myTaskTree.map((node) => (
+              <div className="task-tree-node" key={node.task.id}>
+                <MyTaskLink
+                  task={node.task}
+                  depth={0}
+                  returnTo={location.pathname}
+                  isContextOnly={!node.task.isAssignedToMe}
+                />
+                {node.children.length > 0 ? (
+                  <div className="task-tree-children">
+                    {node.children
+                      .filter((child) => child.isAssignedToMe)
+                      .map((child) => (
+                        <MyTaskLink
+                          key={child.id}
+                          task={child}
+                          depth={1}
+                          returnTo={location.pathname}
+                        />
+                      ))}
+                  </div>
+                ) : null}
+              </div>
             ))}
-            {!myTasksQuery.isLoading && filteredMyTasks.length === 0 ? (
+            {!myTasksQuery.isLoading && myTaskTree.length === 0 ? (
               <span className="muted">没有匹配的任务</span>
             ) : null}
           </div>

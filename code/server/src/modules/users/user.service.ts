@@ -44,30 +44,62 @@ export async function listMyTasks(userId: string) {
   `;
   const assignedTaskIds = assignedRows.map((row) => row.taskId);
 
-  const tasks = await prisma.task.findMany({
+  const assignedTasks = await prisma.task.findMany({
     where: {
       deletedAt: null,
-      OR: [
-        {
-          id: {
-            in: assignedTaskIds
-          }
-        }
-      ]
+      id: {
+        in: assignedTaskIds
+      }
     },
     include: {
       project: true,
-      taskList: true
+      taskList: true,
+      parent: {
+        select: {
+          id: true,
+          title: true
+        }
+      }
     },
     orderBy: [
       {
         dueDate: "asc"
       },
       {
-        createdAt: "desc"
+      createdAt: "desc"
       }
     ]
   });
+  const assignedTaskIdSet = new Set(assignedTaskIds);
+  const missingParentIds = [
+    ...new Set(
+      assignedTasks
+        .map((task) => task.parentId)
+        .filter((parentId): parentId is string => parentId !== null)
+        .filter((parentId) => !assignedTaskIdSet.has(parentId))
+    )
+  ];
+  const contextParentTasks = missingParentIds.length > 0
+    ? await prisma.task.findMany({
+        where: {
+          id: {
+            in: missingParentIds
+          },
+          deletedAt: null
+        },
+        include: {
+          project: true,
+          taskList: true,
+          parent: {
+            select: {
+              id: true,
+              title: true
+            }
+          }
+        }
+      })
+    : [];
+  const tasks = [...assignedTasks, ...contextParentTasks];
 
   return tasks.map((task) => ({
     id: task.id,
@@ -76,6 +108,13 @@ export async function listMyTasks(userId: string) {
     dueDate: task.dueDate,
     completedAt: task.completedAt,
     parentId: task.parentId,
+    isAssignedToMe: assignedTaskIdSet.has(task.id),
+    parentTask: task.parent
+      ? {
+          id: task.parent.id,
+          title: task.parent.title
+        }
+      : null,
     project: {
       id: task.project.id,
       name: task.project.name

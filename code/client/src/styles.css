@@ -439,6 +439,44 @@ input[type="date"]:not(:disabled) {
   padding-right: 4px;
 }
 
+.task-tree-node {
+  display: grid;
+  gap: 6px;
+}
+
+.task-tree-children {
+  display: grid;
+  gap: 6px;
+  margin-left: 18px;
+  padding-left: 12px;
+  border-left: 2px solid #dbeafe;
+}
+
+.task-tree-row.child {
+  min-height: 40px;
+  background: #f8fafc;
+}
+
+.task-tree-row.context {
+  border-style: dashed;
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.task-tree-row.context span,
+.task-tree-row.context strong {
+  color: #94a3b8;
+}
+
+.task-tree-row.context .priority-low,
+.task-tree-row.context .priority-medium,
+.task-tree-row.context .priority-high,
+.task-tree-row.context .priority-urgent {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
 .list-row {
   display: flex;
   align-items: center;
@@ -562,7 +600,9 @@ select[multiple] {
   font-size: 14px;
 }
 
-.checkbox-field legend {
+.checkbox-field legend,
+.field-label {
+  display: block;
   padding: 0;
 }
 
@@ -604,6 +644,58 @@ select[multiple] {
 
 .checkbox-list .checkbox-row.disabled {
   color: #94a3b8;
+}
+
+.readonly-value {
+  min-height: 38px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 9px 10px;
+}
+
+.task-assignee-editor {
+  position: relative;
+  min-width: 0;
+}
+
+.task-assignee-summary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-assignee-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-form .assignee-add-button {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
+  justify-self: auto;
+  place-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2563eb;
+  line-height: 1;
+  padding: 0;
+}
+
+.detail-form .assignee-add-button:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.task-assignee-menu {
+  top: calc(100% + 4px);
 }
 
 .compact-assignee-field {

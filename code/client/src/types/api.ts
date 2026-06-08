@@ -105,6 +105,11 @@ export type MyTask = {
   dueDate: string | null;
   completedAt: string | null;
   parentId: string | null;
+  isAssignedToMe: boolean;
+  parentTask: {
+    id: string;
+    title: string;
+  } | null;
   project: {
     id: string;
     name: string;
