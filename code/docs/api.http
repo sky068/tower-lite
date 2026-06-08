@@ -67,6 +67,14 @@ Content-Type: application/json
 GET {{baseUrl}}/teams/{{teamId}}/projects
 Authorization: Bearer {{accessToken}}
 
+### Team activity
+GET {{baseUrl}}/teams/{{teamId}}/activity
+Authorization: Bearer {{accessToken}}
+
+### Project activity
+GET {{baseUrl}}/projects/{{projectId}}/activity
+Authorization: Bearer {{accessToken}}
+
 ### List board
 GET {{baseUrl}}/projects/{{projectId}}/lists
 Authorization: Bearer {{accessToken}}

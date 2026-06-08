@@ -12,7 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "node scripts/prisma-with-env.mjs generate",
-    "prisma:migrate": "node scripts/prisma-with-env.mjs migrate dev",
+    "prisma:migrate": "node scripts/apply-sql-migrations.mjs",
     "prisma:seed": "tsc --target ES2022 --module NodeNext --moduleResolution NodeNext --esModuleInterop --skipLibCheck --outDir dist-prisma prisma/seed.ts && node dist-prisma/seed.js",
     "prisma:studio": "node scripts/prisma-with-env.mjs studio"
   },

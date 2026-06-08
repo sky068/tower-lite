@@ -3,6 +3,7 @@ import type { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { useAuthStore } from "../stores/authStore";
 import type {
   ApiResponse,
+  ActivityLog,
   AuthResponse,
   Comment,
   Invitation,
@@ -302,6 +303,15 @@ export const invitationApi = {
     return unwrap<{ ok: boolean; teamId: string; projectId: string | null }>(
       api.post("/invitations/accept", { token })
     );
+  }
+};
+
+export const activityApi = {
+  team(teamId: string) {
+    return unwrap<ActivityLog[]>(api.get(`/teams/${teamId}/activity`));
+  },
+  project(projectId: string) {
+    return unwrap<ActivityLog[]>(api.get(`/projects/${projectId}/activity`));
   }
 };
 

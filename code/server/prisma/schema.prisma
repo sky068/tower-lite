@@ -30,6 +30,7 @@ model User {
   refreshTokens       RefreshToken[]
   notifications       Notification[] @relation("NotificationRecipient")
   notificationActions Notification[] @relation("NotificationActor")
+  activityLogs        ActivityLog[]  @relation("ActivityActor")
 }
 
 model RefreshToken {
@@ -55,6 +56,7 @@ model Team {
   members   TeamMember[]
   projects  Project[]
   invites   Invitation[]
+  activityLogs ActivityLog[]
 }
 
 model TeamMember {
@@ -97,8 +99,30 @@ model Project {
   tags        Tag[]
   tasks       Task[]
   invites     Invitation[]
+  activityLogs ActivityLog[]
 
   @@index([teamId, status])
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  action     String
+  targetType String
+  targetId   String?
+  metadata   Json?
+  actorId    String?
+  teamId     String
+  projectId  String?
+  taskId     String?
+  createdAt  DateTime @default(now())
+
+  actor      User?    @relation("ActivityActor", fields: [actorId], references: [id])
+  team       Team     @relation(fields: [teamId], references: [id])
+  project    Project? @relation(fields: [projectId], references: [id])
+
+  @@index([teamId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([taskId, createdAt])
 }
 
 enum ProjectStatus {

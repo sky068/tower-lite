@@ -2,6 +2,7 @@ import { InvitationStatus, ProjectRole, TeamRole } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
+import { createActivityLog } from "../activity/activity.service.js";
 import { publishProjectEvent, publishTeamEvent } from "../realtime/realtime.service.js";
 import { requireProjectManager } from "../projects/project.policy.js";
 import { requireTeamOwner } from "../teams/team.policy.js";
@@ -157,6 +158,18 @@ export async function createTeamInvitation(
     }
   });
 
+  await createActivityLog({
+    actorId: userId,
+    teamId,
+    action: "team_invitation.created",
+    targetType: "invitation",
+    targetId: invitation.id,
+    metadata: {
+      email,
+      role: input.role
+    }
+  });
+
   return toInvitation(invitation);
 }
 
@@ -184,6 +197,21 @@ export async function createProjectInvitation(
     include: {
       inviter: true,
       project: true
+    }
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "project_invitation.created",
+    targetType: "invitation",
+    targetId: invitation.id,
+    metadata: {
+      email,
+      teamRole: input.teamRole,
+      projectRole: input.projectRole,
+      projectName: project.name
     }
   });
 
@@ -221,6 +249,18 @@ export async function revokeInvitation(userId: string, invitationId: string) {
     include: {
       inviter: true,
       project: true
+    }
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId: invitation.teamId,
+    projectId: invitation.projectId,
+    action: invitation.projectId ? "project_invitation.revoked" : "team_invitation.revoked",
+    targetType: "invitation",
+    targetId: invitationId,
+    metadata: {
+      email: invitation.email
     }
   });
 
@@ -368,6 +408,20 @@ export async function acceptInvitation(userId: string, input: AcceptInvitationIn
 
     throw new AppError("BUSINESS_RULE_VIOLATION", "Invitation is no longer pending", 422);
   }
+
+  await createActivityLog({
+    actorId: userId,
+    teamId: invitation.teamId,
+    projectId: invitation.projectId,
+    action: invitation.projectId ? "project_invitation.accepted" : "team_invitation.accepted",
+    targetType: "invitation",
+    targetId: invitation.id,
+    metadata: {
+      email: invitation.email,
+      teamRole,
+      projectRole: invitation.projectId ? projectRole : null
+    }
+  });
 
   await publishTeamEvent(invitation.teamId, { type: "team.changed", teamId: invitation.teamId });
 

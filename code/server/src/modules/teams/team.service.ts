@@ -1,6 +1,7 @@
 import { ProjectRole, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
+import { createActivityLog } from "../activity/activity.service.js";
 import { publishTeamEvent, publishToUsers } from "../realtime/realtime.service.js";
 import type {
   AddTeamMemberInput,
@@ -188,6 +189,20 @@ export async function addTeamMember(userId: string, teamId: string, input: AddTe
     }
   });
 
+  await createActivityLog({
+    actorId: userId,
+    teamId,
+    action: "team_member.added",
+    targetType: "team_member",
+    targetId: member.id,
+    metadata: {
+      userId: targetUser.id,
+      email: targetUser.email,
+      name: targetUser.name,
+      role: input.role
+    }
+  });
+
   await publishTeamEvent(teamId, { type: "team.changed", teamId });
 
   return {
@@ -224,6 +239,18 @@ export async function updateTeamMemberRole(
     },
     include: {
       user: true
+    }
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId,
+    action: "team_member.role_updated",
+    targetType: "team_member",
+    targetId: member.id,
+    metadata: {
+      userId: targetUserId,
+      role: input.role
     }
   });
 
@@ -265,6 +292,18 @@ export async function removeTeamMember(userId: string, teamId: string, targetUse
         id: member.id
       }
     });
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId,
+    action: "team_member.removed",
+    targetType: "team_member",
+    targetId: member.id,
+    metadata: {
+      userId: targetUserId,
+      role: member.role
+    }
   });
 
   await publishTeamEvent(teamId, { type: "team.changed", teamId });

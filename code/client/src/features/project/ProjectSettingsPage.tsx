@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { MutationError } from "../../components/shared/MutationError";
-import { invitationApi, projectApi, teamApi } from "../../lib/api";
+import { activityApi, invitationApi, projectApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
@@ -54,11 +55,17 @@ export function ProjectSettingsPage() {
     queryFn: () => projectApi.invitations(projectId!),
     enabled: Boolean(projectId) && canManageProject
   });
+  const activityQuery = useQuery({
+    queryKey: ["project-activity", projectId],
+    queryFn: () => activityApi.project(projectId!),
+    enabled: Boolean(projectId) && canManageProject
+  });
 
   const updateProjectMutation = useMutation({
     mutationFn: () => projectApi.update(projectId!, { name, description }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
   });
 
@@ -78,6 +85,7 @@ export function ProjectSettingsPage() {
       setMemberUserId("");
       setMemberRole("EDITOR");
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
   });
 
@@ -93,6 +101,7 @@ export function ProjectSettingsPage() {
       setInviteTeamRole("MEMBER");
       setInviteProjectRole("EDITOR");
       void queryClient.invalidateQueries({ queryKey: ["project-invitations", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
   });
 
@@ -100,6 +109,7 @@ export function ProjectSettingsPage() {
     mutationFn: invitationApi.revoke,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-invitations", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
   });
 
@@ -108,6 +118,7 @@ export function ProjectSettingsPage() {
       projectApi.updateMemberRole(projectId!, input.userId, input.role),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
   });
 
@@ -115,6 +126,7 @@ export function ProjectSettingsPage() {
     mutationFn: (userId: string) => projectApi.removeMember(projectId!, userId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
   });
 
@@ -339,6 +351,9 @@ export function ProjectSettingsPage() {
           ))}
         </div>
       </section>
+      {canManageProject ? (
+        <ActivityLogPanel logs={activityQuery.data ?? []} isLoading={activityQuery.isLoading} />
+      ) : null}
       <section className="panel danger-zone">
         <h2>危险操作</h2>
         <MutationError error={archiveProjectMutation.error ?? deleteProjectMutation.error} />

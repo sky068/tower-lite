@@ -11,6 +11,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./server/prisma/migrations/20260606000100_init/migration.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./server/prisma/migrations/20260606000300_task_change_notifications/migration.sql:/docker-entrypoint-initdb.d/002_task_change_notifications.sql:ro
+      - ./server/prisma/migrations/20260607000100_task_commented_notifications/migration.sql:/docker-entrypoint-initdb.d/003_task_commented_notifications.sql:ro
+      - ./server/prisma/migrations/20260608000100_activity_log/migration.sql:/docker-entrypoint-initdb.d/004_activity_log.sql:ro
       - ./server/prisma/migrations:/migrations:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tower -d tower"]

@@ -1,6 +1,7 @@
 import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskListType } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
+import { createActivityLog } from "../activity/activity.service.js";
 import { publishProjectEvent, publishTeamEvent, publishToUser } from "../realtime/realtime.service.js";
 import { requireTeamMember, requireTeamOwner } from "../teams/team.policy.js";
 import { requireProjectAccess, requireProjectManager } from "./project.policy.js";
@@ -113,6 +114,18 @@ export async function createProject(userId: string, teamId: string, input: Creat
     }
   });
 
+  await createActivityLog({
+    actorId: userId,
+    teamId,
+    projectId: project.id,
+    action: "project.created",
+    targetType: "project",
+    targetId: project.id,
+    metadata: {
+      name: project.name
+    }
+  });
+
   await publishTeamEvent(teamId, { type: "project.changed", teamId, projectId: project.id });
 
   return toProjectSummary(project);
@@ -169,6 +182,18 @@ export async function updateProject(userId: string, projectId: string, input: Up
     data: input
   });
 
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "project.updated",
+    targetType: "project",
+    targetId: projectId,
+    metadata: {
+      name: project.name
+    }
+  });
+
   await publishProjectEvent(projectId, {
     type: "project.changed",
     projectId,
@@ -190,6 +215,18 @@ export async function archiveProject(userId: string, projectId: string) {
     }
   });
 
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "project.archived",
+    targetType: "project",
+    targetId: projectId,
+    metadata: {
+      name: project.name
+    }
+  });
+
   await publishProjectEvent(projectId, {
     type: "project.changed",
     projectId,
@@ -208,6 +245,18 @@ export async function deleteProject(userId: string, projectId: string) {
     },
     data: {
       deletedAt: new Date()
+    }
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "project.deleted",
+    targetType: "project",
+    targetId: projectId,
+    metadata: {
+      name: project.name
     }
   });
 
@@ -287,6 +336,21 @@ export async function addProjectMember(
     }
   });
 
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "project_member.added",
+    targetType: "project_member",
+    targetId: member.id,
+    metadata: {
+      userId: input.userId,
+      email: member.user.email,
+      name: member.user.name,
+      role: input.role
+    }
+  });
+
   await createProjectJoinedNotification({
     actorId: userId,
     recipientId: input.userId,
@@ -318,7 +382,7 @@ export async function updateProjectMemberRole(
   targetUserId: string,
   input: UpdateProjectMemberRoleInput
 ) {
-  await requireProjectManager(userId, projectId);
+  const { project } = await requireProjectManager(userId, projectId);
 
   const member = await prisma.projectMember.findUnique({
     where: {
@@ -349,7 +413,20 @@ export async function updateProjectMemberRole(
     }
   });
 
-  await publishProjectEvent(projectId, { type: "project.changed", projectId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "project_member.role_updated",
+    targetType: "project_member",
+    targetId: member.id,
+    metadata: {
+      userId: targetUserId,
+      role: input.role
+    }
+  });
+
+  await publishProjectEvent(projectId, { type: "project.changed", projectId, teamId: project.teamId });
 
   return {
     id: updatedMember.id,
@@ -364,7 +441,7 @@ export async function updateProjectMemberRole(
 }
 
 export async function removeProjectMember(userId: string, projectId: string, targetUserId: string) {
-  await requireProjectManager(userId, projectId);
+  const { project } = await requireProjectManager(userId, projectId);
 
   const member = await prisma.projectMember.findUnique({
     where: {
@@ -389,7 +466,20 @@ export async function removeProjectMember(userId: string, projectId: string, tar
     }
   });
 
-  await publishProjectEvent(projectId, { type: "project.changed", projectId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "project_member.removed",
+    targetType: "project_member",
+    targetId: member.id,
+    metadata: {
+      userId: targetUserId,
+      role: member.role
+    }
+  });
+
+  await publishProjectEvent(projectId, { type: "project.changed", projectId, teamId: project.teamId });
 
   return { ok: true };
 }

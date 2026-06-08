@@ -1,4 +1,5 @@
 :root {
+  --scroll-list-five-half-height: 382px;
   color: #1f2937;
   background: #f6f7f9;
   font-family:
@@ -447,17 +448,46 @@ input[type="date"]:not(:disabled) {
 }
 
 .dashboard-scroll-list {
-  max-height: min(460px, 52vh);
+  max-height: min(var(--scroll-list-five-half-height), 52vh);
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
   padding-right: 4px;
+  scrollbar-width: none;
 }
 
 .settings-scroll-list {
-  max-height: min(420px, 50vh);
+  max-height: min(var(--scroll-list-five-half-height), 50vh);
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: auto;
   padding-right: 4px;
+  scrollbar-width: none;
+}
+
+.dashboard-scroll-list:hover,
+.dashboard-scroll-list:focus-within,
+.settings-scroll-list:hover,
+.settings-scroll-list:focus-within {
+  scrollbar-width: thin;
+}
+
+.dashboard-scroll-list::-webkit-scrollbar,
+.settings-scroll-list::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.dashboard-scroll-list:hover::-webkit-scrollbar,
+.dashboard-scroll-list:focus-within::-webkit-scrollbar,
+.settings-scroll-list:hover::-webkit-scrollbar,
+.settings-scroll-list:focus-within::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.dashboard-scroll-list::-webkit-scrollbar-thumb,
+.settings-scroll-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #cbd5e1;
 }
 
 .task-tree-node {
@@ -1507,6 +1537,41 @@ select[multiple] {
   overflow-wrap: anywhere;
 }
 
+.activity-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, auto);
+  gap: 12px;
+  align-items: start;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.activity-row div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.activity-row strong {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.activity-row span,
+.activity-row time {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.activity-meta {
+  justify-items: end;
+  text-align: right;
+}
+
 .danger-button,
 .danger-zone .segmented-actions button:last-child {
   background: #dc2626;
@@ -1585,7 +1650,13 @@ select[multiple] {
   .settings-form.invite-form,
   .inline-panel,
   .subtask-create-form,
-  .member-row {
+  .member-row,
+  .activity-row {
     grid-template-columns: 1fr;
+  }
+
+  .activity-meta {
+    justify-items: start;
+    text-align: left;
   }
 }

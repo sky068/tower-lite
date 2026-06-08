@@ -120,6 +120,22 @@ type TaskDetailResponse = TaskResponse & {
   tags: TagResponse[];
 };
 
+type ActivityLogResponse = {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  teamId: string;
+  projectId: string | null;
+  taskId: string | null;
+  metadata: Record<string, unknown> | null;
+  actor: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+};
+
 type TestUser = {
   id: string;
   email: string;
@@ -132,6 +148,61 @@ const emailDomain = `${runId}.integration.test`;
 let server: Server | null = null;
 let baseUrl = "";
 let databaseConnected = false;
+
+async function ensureActivityLogSchema() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS "ActivityLog" (
+      "id" TEXT NOT NULL,
+      "action" TEXT NOT NULL,
+      "targetType" TEXT NOT NULL,
+      "targetId" TEXT,
+      "metadata" JSONB,
+      "actorId" TEXT,
+      "teamId" TEXT NOT NULL,
+      "projectId" TEXT,
+      "taskId" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "ActivityLog_pkey" PRIMARY KEY ("id")
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "ActivityLog_teamId_createdAt_idx" ON "ActivityLog"("teamId", "createdAt")
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "ActivityLog_projectId_createdAt_idx" ON "ActivityLog"("projectId", "createdAt")
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "ActivityLog_taskId_createdAt_idx" ON "ActivityLog"("taskId", "createdAt")
+  `);
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ActivityLog_actorId_fkey'
+      ) THEN
+        ALTER TABLE "ActivityLog"
+          ADD CONSTRAINT "ActivityLog_actorId_fkey"
+          FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ActivityLog_teamId_fkey'
+      ) THEN
+        ALTER TABLE "ActivityLog"
+          ADD CONSTRAINT "ActivityLog_teamId_fkey"
+          FOREIGN KEY ("teamId") REFERENCES "Team"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ActivityLog_projectId_fkey'
+      ) THEN
+        ALTER TABLE "ActivityLog"
+          ADD CONSTRAINT "ActivityLog_projectId_fkey"
+          FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+      END IF;
+    END $$
+  `);
+}
 
 async function cleanupRunData() {
   const users = await prisma.user.findMany({
@@ -261,6 +332,15 @@ async function cleanupRunData() {
         ]
       }
     }),
+    prisma.activityLog.deleteMany({
+      where: {
+        OR: [
+          { actorId: { in: userIds } },
+          { teamId: { in: teamIds } },
+          { projectId: { in: projectIds } }
+        ]
+      }
+    }),
     prisma.project.deleteMany({
       where: {
         id: {
@@ -381,6 +461,7 @@ before(async () => {
   await prisma.$connect();
   await prisma.$queryRaw`SELECT 1`;
   databaseConnected = true;
+  await ensureActivityLogSchema();
   await cleanupRunData();
   server = await listen(createApp());
   const address = server.address();
@@ -449,6 +530,12 @@ describe("V0 HTTP integration", () => {
       body: {
         email: ` ${directAddedMember.email.toUpperCase()} `,
         role: "MEMBER"
+      }
+    });
+    await request<MemberResponse>("PATCH", `/api/v1/teams/${team.id}/members/${directAddedMember.id}/role`, {
+      token: owner.token,
+      body: {
+        role: "ADMIN"
       }
     });
 
@@ -900,6 +987,41 @@ describe("V0 HTTP integration", () => {
         (notification) => notification.type === "TASK_COMMENTED"
       )
     );
+
+    const teamActivity = (await request<ActivityLogResponse[]>(
+      "GET",
+      `/api/v1/teams/${team.id}/activity`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(teamActivity.some((log) => log.action === "team_member.added"));
+    assert.ok(teamActivity.some((log) => log.action === "team_invitation.accepted"));
+    assert.ok(teamActivity.some((log) => log.action === "project.created"));
+
+    await request<ActivityLogResponse[]>("GET", `/api/v1/teams/${team.id}/activity`, {
+      token: directAddedMember.token,
+      expectedStatus: 403
+    });
+
+    const projectActivity = (await request<ActivityLogResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/activity`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(projectActivity.some((log) => log.action === "task.created" && log.taskId === task.id));
+    assert.ok(projectActivity.some((log) => log.action === "task.status_changed" && log.taskId === task.id));
+    assert.ok(projectActivity.some((log) => log.action === "comment.created" && log.taskId === task.id));
+
+    await request<ActivityLogResponse[]>("GET", `/api/v1/projects/${project.id}/activity`, {
+      token: directAddedMember.token
+    });
+    await request<ActivityLogResponse[]>("GET", `/api/v1/projects/${project.id}/activity`, {
+      token: editor.token,
+      expectedStatus: 403
+    });
 
     const archivedProject = (await request<ProjectResponse>("PATCH", `/api/v1/projects/${project.id}/archive`, {
       token: owner.token

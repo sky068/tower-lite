@@ -35,7 +35,7 @@ npm run prisma:migrate
 npm run prisma:seed
 ```
 
-如果当前机器的 Prisma CLI 触发二进制断言，可以使用 Docker 初始化 SQL 路径：
+本项目的 `prisma:migrate` 使用本仓库的 SQL 迁移脚本执行 `server/prisma/migrations/*/migration.sql`，避开本机 Prisma schema engine 的兼容性问题。如果需要清空开发数据，可以使用 Docker 初始化 SQL 路径：
 
 ```bash
 npm run docker:reset
@@ -44,7 +44,7 @@ npm run prisma:generate
 npm run prisma:seed
 ```
 
-`docker:reset` 会删除当前 Docker 里的本项目开发数据库卷，并用 `server/prisma/migrations/20260606000100_init/migration.sql` 重新初始化 PostgreSQL。
+`docker:reset` 会删除当前 Docker 里的本项目开发数据库卷，并执行挂载到 `docker-entrypoint-initdb.d` 的 SQL 迁移重新初始化 PostgreSQL。
 
 演示账号：
 
@@ -189,6 +189,7 @@ docs/local-testing.md
 - `GET /api/v1/teams/:teamId`
 - `PATCH /api/v1/teams/:teamId`
 - `DELETE /api/v1/teams/:teamId`
+- `GET /api/v1/teams/:teamId/activity`
 - `GET /api/v1/teams/:teamId/members`
 - `POST /api/v1/teams/:teamId/members`
 - `PATCH /api/v1/teams/:teamId/members/:userId/role`
@@ -211,6 +212,7 @@ docs/local-testing.md
 - `PATCH /api/v1/projects/:projectId`
 - `PATCH /api/v1/projects/:projectId/archive`
 - `DELETE /api/v1/projects/:projectId`
+- `GET /api/v1/projects/:projectId/activity`
 - `GET /api/v1/projects/:projectId/members`
 - `POST /api/v1/projects/:projectId/members`
 - `PATCH /api/v1/projects/:projectId/members/:userId/role`
@@ -268,6 +270,18 @@ V0.2 增加团队邀请和项目邀请，当前只生成站内邀请链接，不
 - 已接受、已撤销或已过期的邀请不能再撤销。
 - 接受邀请、撤销邀请和邀请状态变化会通过 WebSocket 刷新相关成员、项目和邀请记录。
 
+## V0.3 审计日志规则
+
+V0.3 增加团队和项目的操作日志，用于管理者回溯关键操作：
+
+- 团队审计日志入口只对团队 `OWNER` 显示，后端接口也只允许团队 `OWNER` 访问。
+- 项目审计日志入口只对项目 `OWNER`、团队 `OWNER`、团队 `ADMIN` 显示，后端接口使用同样的权限校验。
+- 团队日志记录团队成员添加、角色调整、移除，以及团队邀请创建、撤销、接受。
+- 项目日志记录项目创建、更新、归档、删除，项目成员添加、角色调整、移除，项目邀请创建、撤销、接受。
+- 任务协作日志记录列表创建、更新、删除、排序，任务创建、更新、移动、状态变更、删除，以及评论创建、删除。
+- 日志保留操作者、操作时间、团队、项目、任务和简要 metadata；当前 V0.3 只提供最近 100 条列表，不提供导出、全文搜索或恢复数据。
+- 日志用于审计和排查，不替代通知；通知仍通过 WebSocket 推送给相关负责人。
+
 ## 当前前端已接入流程
 
 - 注册账号
@@ -301,6 +315,7 @@ V0.2 增加团队邀请和项目邀请，当前只生成站内邀请链接，不
 - 管理团队成员
 - 团队 OWNER 可以创建团队邀请，复制邀请链接给指定邮箱用户；邀请接受前可以撤销，接受邀请时要求当前登录邮箱和邀请邮箱一致
 - 项目 OWNER 或团队 OWNER / ADMIN 可以创建项目邀请，接受后会同时加入团队和项目；V0.2 仅生成站内邀请链接，不发送邮件
+- 团队 OWNER 可以在团队设置查看审计日志；项目 OWNER 或团队 OWNER / ADMIN 可以在项目设置查看审计日志
 - 从团队成员下拉列表添加项目成员，管理项目成员、归档项目、删除项目
 - 已归档项目的看板进入只读状态，后端也会拒绝任务、列表、标签和评论写操作
 - 在工作台查看我的任务和通知
@@ -311,7 +326,7 @@ V0.2 增加团队邀请和项目邀请，当前只生成站内邀请链接，不
 ## 当前环境备注
 
 - 本项目仍处于开发阶段，数据库结构变更优先使用 `npm run docker:reset` 清空开发数据并重新初始化，不保留旧 schema 兼容路径。
-- Prisma CLI 的部分命令在本机曾触发二进制断言；因此已手写初始迁移文件到 `server/prisma/migrations/20260606000100_init/migration.sql`，真实数据库联调建议优先使用 Docker 初始化 SQL 路径。
+- Prisma CLI 的部分迁移命令在本机曾触发 schema engine 错误；因此 `npm run prisma:migrate` 已改为执行仓库内 SQL 迁移文件，真实数据库联调建议优先使用 Docker 初始化 SQL 路径。
 - `npm run test`、`npm run typecheck`、`npm run build` 和 `npm run check:v0` 已通过。
 - `npm run test:integration` 会连接本地 PostgreSQL，运行前需要先确保 `npm run doctor` 的数据库检查通过。
 - `npm run test:e2e` 会通过 Playwright 自动启动后端和前端，并用 Chromium 跑浏览器验收；首次运行前如果提示缺少浏览器，请执行 `npx playwright install chromium`。

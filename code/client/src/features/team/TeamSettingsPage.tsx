@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { MutationError } from "../../components/shared/MutationError";
-import { invitationApi, teamApi } from "../../lib/api";
+import { activityApi, invitationApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { useAuthStore } from "../../stores/authStore";
 
@@ -35,6 +36,11 @@ export function TeamSettingsPage() {
     queryFn: () => teamApi.invitations(teamId!),
     enabled: Boolean(teamId) && canManageTeam
   });
+  const activityQuery = useQuery({
+    queryKey: ["team-activity", teamId],
+    queryFn: () => activityApi.team(teamId!),
+    enabled: Boolean(teamId) && canManageTeam
+  });
 
   const addMemberMutation = useMutation({
     mutationFn: () => teamApi.addMember(teamId!, { email, role }),
@@ -42,12 +48,14 @@ export function TeamSettingsPage() {
       setEmail("");
       setRole("MEMBER");
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     }
   });
   const updateTeamMutation = useMutation({
     mutationFn: () => teamApi.update(teamId!, { name: teamName.trim() }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["teams"] });
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     }
   });
 
@@ -57,6 +65,7 @@ export function TeamSettingsPage() {
       setInviteEmail("");
       setInviteRole("MEMBER");
       void queryClient.invalidateQueries({ queryKey: ["team-invitations", teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     }
   });
 
@@ -64,6 +73,7 @@ export function TeamSettingsPage() {
     mutationFn: invitationApi.revoke,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-invitations", teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     }
   });
 
@@ -72,6 +82,7 @@ export function TeamSettingsPage() {
       teamApi.updateMemberRole(teamId!, input.userId, input.role),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     }
   });
 
@@ -79,6 +90,7 @@ export function TeamSettingsPage() {
     mutationFn: (userId: string) => teamApi.removeMember(teamId!, userId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     }
   });
 
@@ -278,6 +290,9 @@ export function TeamSettingsPage() {
           ))}
         </div>
       </section>
+      {canManageTeam ? (
+        <ActivityLogPanel logs={activityQuery.data ?? []} isLoading={activityQuery.isLoading} />
+      ) : null}
       {canManageTeam ? (
         <section className="panel danger-zone">
           <h2>危险操作</h2>

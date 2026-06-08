@@ -159,3 +159,21 @@ export type Invitation = {
     name: string;
   } | null;
 };
+
+export type ActivityLog = {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  metadata: Record<string, unknown> | null;
+  actorId: string | null;
+  teamId: string;
+  projectId: string | null;
+  taskId: string | null;
+  createdAt: string;
+  actor: (Pick<User, "id" | "name" | "email" | "avatarUrl">) | null;
+  project?: {
+    id: string;
+    name: string;
+  } | null;
+};

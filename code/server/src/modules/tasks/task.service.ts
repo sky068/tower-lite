@@ -2,6 +2,7 @@ import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskListType } 
 import { logger } from "../../config/logger.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
+import { createActivityLog } from "../activity/activity.service.js";
 import {
   assertProjectActive,
   requireActiveProjectEditor,
@@ -494,7 +495,7 @@ export async function listProjectTaskLists(userId: string, projectId: string) {
 }
 
 export async function createTaskList(userId: string, projectId: string, input: CreateTaskListInput) {
-  await requireProjectManager(userId, projectId);
+  const { project } = await requireProjectManager(userId, projectId);
   assertCustomTaskListName(input.name);
 
   const lastList = await prisma.taskList.findFirst({
@@ -515,6 +516,17 @@ export async function createTaskList(userId: string, projectId: string, input: C
   });
 
   await publishProjectEvent(projectId, { type: "task.changed", projectId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "task_list.created",
+    targetType: "task_list",
+    targetId: taskList.id,
+    metadata: {
+      name: taskList.name
+    }
+  });
 
   return toTaskList(taskList);
 }
@@ -525,7 +537,7 @@ export async function updateTaskList(
   taskListId: string,
   input: UpdateTaskListInput
 ) {
-  await requireProjectManager(userId, projectId);
+  const { project } = await requireProjectManager(userId, projectId);
   const taskList = await assertTaskListInProject(taskListId, projectId);
   assertTaskListEditable(taskList);
   assertCustomTaskListName(input.name);
@@ -540,6 +552,18 @@ export async function updateTaskList(
   });
 
   await publishProjectEvent(projectId, { type: "task.changed", projectId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "task_list.updated",
+    targetType: "task_list",
+    targetId: taskListId,
+    metadata: {
+      beforeName: taskList.name,
+      name: updatedTaskList.name
+    }
+  });
 
   return toTaskList(updatedTaskList);
 }
@@ -550,7 +574,7 @@ export async function deleteTaskList(
   taskListId: string,
   input: DeleteTaskListInput
 ) {
-  await requireProjectManager(userId, projectId);
+  const { project } = await requireProjectManager(userId, projectId);
   const taskList = await assertTaskListInProject(taskListId, projectId);
   assertTaskListDeletable(taskList);
 
@@ -610,6 +634,18 @@ export async function deleteTaskList(
   });
 
   await publishProjectEvent(projectId, { type: "task.changed", projectId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "task_list.deleted",
+    targetType: "task_list",
+    targetId: taskListId,
+    metadata: {
+      name: taskList.name,
+      targetTaskListId: input.targetTaskListId ?? null
+    }
+  });
 
   return { ok: true };
 }
@@ -619,7 +655,7 @@ export async function reorderTaskLists(
   projectId: string,
   input: ReorderTaskListsInput
 ) {
-  await requireProjectManager(userId, projectId);
+  const { project } = await requireProjectManager(userId, projectId);
 
   const taskLists = await prisma.taskList.findMany({
     where: {
@@ -652,12 +688,22 @@ export async function reorderTaskLists(
   );
 
   await publishProjectEvent(projectId, { type: "task.changed", projectId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "task_list.reordered",
+    targetType: "task_list",
+    metadata: {
+      itemCount: input.items.length
+    }
+  });
 
   return { ok: true };
 }
 
 export async function createTask(userId: string, projectId: string, input: CreateTaskInput) {
-  await requireActiveProjectEditor(userId, projectId);
+  const { project } = await requireActiveProjectEditor(userId, projectId);
   const assigneeIds = normalizeAssigneeIds(input);
   assertValidDateRange(input.startDate, input.dueDate);
   const taskList = await assertTaskListInProject(input.taskListId, projectId);
@@ -697,6 +743,21 @@ export async function createTask(userId: string, projectId: string, input: Creat
   });
 
   await publishProjectEvent(projectId, { type: "task.changed", projectId, taskId: task.id });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    taskId: task.id,
+    action: "task.created",
+    targetType: "task",
+    targetId: task.id,
+    metadata: {
+      title: task.title,
+      parentId: task.parentId,
+      taskListId: task.taskListId,
+      assigneeIds
+    }
+  });
 
   const assigneeMap = await getTaskAssigneeMap([task.id]);
   return toTask(attachAssignees(task, assigneeMap));
@@ -779,7 +840,7 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
     throw new AppError("RESOURCE_NOT_FOUND", "Task not found", 404);
   }
 
-  await requireActiveProjectEditor(userId, task.projectId);
+  const { project } = await requireActiveProjectEditor(userId, task.projectId);
   const shouldUpdateAssignees = input.assigneeIds !== undefined;
   const assigneeIds = shouldUpdateAssignees ? normalizeAssigneeIds(input) : undefined;
   const previousAssigneeMap = await getTaskAssigneeMap([taskId]);
@@ -839,6 +900,20 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
   });
 
   await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId: task.projectId,
+    taskId,
+    action: "task.updated",
+    targetType: "task",
+    targetId: taskId,
+    metadata: {
+      title: updatedTask.title,
+      assigneeIds: assigneeIds ?? undefined,
+      addedAssigneeIds
+    }
+  });
 
   const assigneeMap = await getTaskAssigneeMap([updatedTask.id]);
   return toTask(attachAssignees(updatedTask, assigneeMap));
@@ -859,7 +934,7 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
     throw new AppError("RESOURCE_NOT_FOUND", "Task not found", 404);
   }
 
-  await requireActiveProjectEditor(userId, task.projectId);
+  const { project } = await requireActiveProjectEditor(userId, task.projectId);
   const targetList = await assertTaskListInProject(input.targetTaskListId, task.projectId);
   const hasStatusChanged = task.taskListId !== input.targetTaskListId;
 
@@ -908,6 +983,22 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
   }
 
   await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId: task.projectId,
+    taskId,
+    action: hasStatusChanged ? "task.status_changed" : "task.moved",
+    targetType: "task",
+    targetId: taskId,
+    metadata: {
+      title: updatedTask.title,
+      fromTaskListId: task.taskListId,
+      toTaskListId: input.targetTaskListId,
+      fromTaskListName: task.taskList.name,
+      toTaskListName: targetList.name
+    }
+  });
 
   const assigneeMap = await getTaskAssigneeMap([updatedTask.id]);
   return toTask(attachAssignees(updatedTask, assigneeMap));
@@ -936,7 +1027,7 @@ export async function deleteTask(userId: string, taskId: string) {
     throw new AppError("RESOURCE_NOT_FOUND", "Task not found", 404);
   }
 
-  await requireActiveProjectEditor(userId, task.projectId);
+  const { project } = await requireActiveProjectEditor(userId, task.projectId);
   assertTaskDeletable({ subTaskCount: task._count.subTasks });
 
   await prisma.task.update({
@@ -949,6 +1040,18 @@ export async function deleteTask(userId: string, taskId: string) {
   });
 
   await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId: task.projectId,
+    taskId,
+    action: "task.deleted",
+    targetType: "task",
+    targetId: taskId,
+    metadata: {
+      title: task.title
+    }
+  });
 
   return { ok: true };
 }
@@ -965,7 +1068,7 @@ export async function createComment(userId: string, taskId: string, input: Creat
     throw new AppError("RESOURCE_NOT_FOUND", "Task not found", 404);
   }
 
-  await requireActiveProjectEditor(userId, task.projectId);
+  const { project } = await requireActiveProjectEditor(userId, task.projectId);
 
   const comment = await prisma.comment.create({
     data: {
@@ -997,6 +1100,19 @@ export async function createComment(userId: string, taskId: string, input: Creat
   });
 
   await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId: task.projectId,
+    taskId,
+    action: "comment.created",
+    targetType: "comment",
+    targetId: comment.id,
+    metadata: {
+      taskTitle: task.title,
+      contentPreview: comment.content.slice(0, 120)
+    }
+  });
 
   return {
     id: comment.id,
@@ -1053,6 +1169,19 @@ export async function deleteComment(userId: string, taskId: string, commentId: s
     type: "task.changed",
     projectId: comment.task.projectId,
     taskId
+  });
+  await createActivityLog({
+    actorId: userId,
+    teamId: access.project.teamId,
+    projectId: comment.task.projectId,
+    taskId,
+    action: "comment.deleted",
+    targetType: "comment",
+    targetId: commentId,
+    metadata: {
+      taskTitle: comment.task.title,
+      contentPreview: comment.content.slice(0, 120)
+    }
   });
 
   return { ok: true };
