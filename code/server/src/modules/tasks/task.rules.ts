@@ -1,7 +1,4 @@
-import { TaskListType } from "@prisma/client";
 import { AppError } from "../../middleware/error-handler.js";
-
-const defaultTaskListNames = new Set(["待处理", "进行中", "已完成"]);
 
 export function assertValidDateRange(startDate?: Date | null, dueDate?: Date | null) {
   if (startDate && dueDate && startDate > dueDate) {
@@ -19,31 +16,31 @@ export function assertV01SubTaskParent(parentTask: { depth: number }) {
   }
 }
 
-export function assertTaskListDeletable(taskList: { type: TaskListType }) {
-  if (taskList.type !== TaskListType.CUSTOM) {
+export function assertTaskListEditable(taskList: { isDefault: boolean }) {
+  if (taskList.isDefault) {
     throw new AppError(
       "BUSINESS_RULE_VIOLATION",
-      "Default task lists cannot be deleted",
+      "Default task list cannot be edited",
       422
     );
   }
 }
 
-export function assertTaskListEditable(taskList: { type: TaskListType }) {
-  if (taskList.type !== TaskListType.CUSTOM) {
+export function assertTaskListDeletable(taskList: { isDefault: boolean }) {
+  if (taskList.isDefault) {
     throw new AppError(
       "BUSINESS_RULE_VIOLATION",
-      "Default task lists cannot be edited",
+      "Default task list cannot be deleted",
       422
     );
   }
 }
 
-export function assertCustomTaskListName(name: string) {
-  if (defaultTaskListNames.has(name.trim())) {
+export function assertTaskListNameAvailable(existingTaskList: { id: string } | null, taskListId?: string) {
+  if (existingTaskList && existingTaskList.id !== taskListId) {
     throw new AppError(
       "BUSINESS_RULE_VIOLATION",
-      "Custom task list name cannot duplicate default task lists",
+      "Task list name already exists in this project",
       422
     );
   }

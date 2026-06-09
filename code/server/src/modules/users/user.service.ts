@@ -171,6 +171,7 @@ export async function listMyTasks(userId: string) {
   return tasks.map((task) => ({
     id: task.id,
     title: task.title,
+    status: task.status,
     priority: task.priority,
     dueDate: task.dueDate,
     completedAt: task.completedAt,
@@ -195,8 +196,7 @@ export async function listMyTasks(userId: string) {
     },
     taskList: {
       id: task.taskList.id,
-      name: task.taskList.name,
-      type: task.taskList.type
+      name: task.taskList.name
     }
   }));
 }

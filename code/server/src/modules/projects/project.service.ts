@@ -4,7 +4,6 @@ import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
 import { publishProjectEvent, publishTeamEvent, publishToUser } from "../realtime/realtime.service.js";
 import { requireTeamMember, requireTeamOwner } from "../teams/team.policy.js";
-import { createDefaultTaskLists } from "./default-task-lists.js";
 import { requireProjectAccess, requireProjectManager } from "./project.policy.js";
 import type {
   AddProjectMemberInput,
@@ -102,9 +101,6 @@ export async function createProject(userId: string, teamId: string, input: Creat
           userId,
           role: ProjectRole.OWNER
         }
-      },
-      taskLists: {
-        create: createDefaultTaskLists()
       }
     }
   });

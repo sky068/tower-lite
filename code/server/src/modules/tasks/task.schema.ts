@@ -1,4 +1,4 @@
-import { Priority } from "@prisma/client";
+import { Priority, TaskStatus } from "@prisma/client";
 import { z } from "zod";
 
 export const projectIdParamsSchema = z.object({
@@ -29,9 +29,7 @@ export const updateTaskListSchema = z.object({
   name: taskListNameSchema
 });
 
-export const deleteTaskListSchema = z.object({
-  targetTaskListId: z.string().uuid().optional()
-});
+export const deleteTaskListSchema = z.object({});
 
 export const reorderTaskListsSchema = z.object({
   items: z.array(
@@ -53,10 +51,11 @@ const nullableDateSchema = z.preprocess(
 );
 
 export const createTaskSchema = z.object({
-  taskListId: z.string().uuid(),
+  taskListId: z.string().uuid().optional(),
   title: z.string().min(1).max(200),
   description: z.string().max(5000).optional(),
   assigneeIds: z.array(z.string().uuid()).default([]),
+  status: z.nativeEnum(TaskStatus).default(TaskStatus.TODO),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   startDate: optionalDateSchema,
   dueDate: optionalDateSchema,
@@ -68,6 +67,7 @@ export const updateTaskSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(5000).nullable().optional(),
   assigneeIds: z.array(z.string().uuid()).optional(),
+  status: z.nativeEnum(TaskStatus).optional(),
   priority: z.nativeEnum(Priority).optional(),
   startDate: nullableDateSchema,
   dueDate: nullableDateSchema,

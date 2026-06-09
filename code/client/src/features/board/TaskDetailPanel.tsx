@@ -6,7 +6,9 @@ import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
+import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
 import { useAuthStore } from "../../stores/authStore";
+import type { TaskStatus } from "../../types/api";
 
 type TaskDetailPanelProps = {
   projectId: string;
@@ -53,6 +55,7 @@ export function TaskDetailPanel({
   const [isSubTaskAssigneeOpen, setIsSubTaskAssigneeOpen] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState("");
   const [subTaskListId, setSubTaskListId] = useState("");
+  const [subTaskStatus, setSubTaskStatus] = useState<TaskStatus>("TODO");
   const [subTaskAssigneeIds, setSubTaskAssigneeIds] = useState<string[]>([]);
   const [subTaskStartDate, setSubTaskStartDate] = useState("");
   const [subTaskDueDate, setSubTaskDueDate] = useState("");
@@ -60,6 +63,7 @@ export function TaskDetailPanel({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [status, setStatus] = useState<TaskStatus>("TODO");
   const [priority, setPriority] = useState<"LOW" | "MEDIUM" | "HIGH" | "URGENT">("MEDIUM");
   const [taskListId, setTaskListId] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -92,6 +96,7 @@ export function TaskDetailPanel({
     setIsSubTaskCreateOpen(false);
     setIsSubTaskAssigneeOpen(false);
     setSubTaskTitle("");
+    setSubTaskStatus("TODO");
     setSubTaskAssigneeIds([]);
     setSubTaskStartDate("");
     setSubTaskDueDate("");
@@ -204,6 +209,7 @@ export function TaskDetailPanel({
           ? task.assignees.map((assignee) => assignee.id)
           : []
       );
+      setStatus(task.status);
       setPriority(task.priority);
       setTaskListId(task.taskListId);
       setStartDate(task.startDate ? task.startDate.slice(0, 10) : "");
@@ -258,6 +264,7 @@ export function TaskDetailPanel({
         taskListId: subTaskListId || task!.taskListId,
         parentId: activeTaskId,
         assigneeIds: input.assigneeIds,
+        status: subTaskStatus,
         title: input.title,
         startDate: input.startDate,
         dueDate: input.dueDate
@@ -265,6 +272,7 @@ export function TaskDetailPanel({
     onSuccess: () => {
       setSubTaskTitle("");
       setSubTaskListId(task?.taskListId ?? "");
+      setSubTaskStatus("TODO");
       setSubTaskAssigneeIds([]);
       setSubTaskStartDate("");
       setSubTaskDueDate("");
@@ -282,6 +290,7 @@ export function TaskDetailPanel({
         title: title.trim(),
         description: description.trim() || null,
         assigneeIds,
+        status,
         priority,
         startDate: startDate || null,
         dueDate: dueDate || null
@@ -394,6 +403,7 @@ export function TaskDetailPanel({
     setIsSubTaskAssigneeOpen(false);
     setSubTaskTitle("");
     setSubTaskListId(task?.taskListId ?? "");
+    setSubTaskStatus("TODO");
     setSubTaskAssigneeIds([]);
     setSubTaskStartDate("");
     setSubTaskDueDate("");
@@ -615,6 +625,20 @@ export function TaskDetailPanel({
                 <label>
                   <span className="status-field-label">状态</span>
                   <select
+                    value={status}
+                    disabled={readOnly}
+                    onChange={(event) => setStatus(event.target.value as TaskStatus)}
+                  >
+                    {TASK_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  清单
+                  <select
                     value={taskListId || task.taskListId}
                     disabled={readOnly || moveTaskMutation.isPending}
                     onChange={(event) => setTaskListId(event.target.value)}
@@ -672,8 +696,10 @@ export function TaskDetailPanel({
                 </button>
               </form>
               <div className="detail-grid">
-                <span>所在列</span>
+                <span>所在清单</span>
                 <strong>{currentList?.name ?? "未知"}</strong>
+                <span>状态</span>
+                <strong>{getTaskStatusLabel(task.status)}</strong>
                 <span>优先级</span>
                 <strong>
                   <span className={getPriorityClassName(task.priority)}>
@@ -843,6 +869,18 @@ export function TaskDetailPanel({
                   />
                   <select
                     aria-label="子任务状态"
+                    value={subTaskStatus}
+                    onChange={(event) => setSubTaskStatus(event.target.value as TaskStatus)}
+                    disabled={!canCreateSubTask}
+                  >
+                    {TASK_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="子任务清单"
                     value={subTaskListId || task.taskListId}
                     onChange={(event) => setSubTaskListId(event.target.value)}
                     disabled={!canCreateSubTask}
@@ -929,6 +967,10 @@ export function TaskDetailPanel({
                       <strong>{subTask.title}</strong>
                       <span>
                         状态：
+                        {getTaskStatusLabel(subTask.status)}
+                      </span>
+                      <span>
+                        清单：
                         {lists.find((list) => list.id === subTask.taskListId)?.name ?? "未知"}
                       </span>
                       <span>

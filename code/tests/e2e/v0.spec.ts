@@ -32,7 +32,7 @@ type TaskResponse = {
 type TaskListResponse = {
   id: string;
   name: string;
-  type: "TODO" | "IN_PROGRESS" | "DONE" | "CUSTOM";
+  isDefault: boolean;
   tasks: TaskResponse[];
 };
 
@@ -230,17 +230,18 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const taskTitle = `E2E Task ${runId}`;
   const subTaskTitle = `E2E Subtask ${runId}`;
   const secondLevelSubTaskTitle = `E2E Nested Subtask ${runId}`;
+  const customListName = `E2E Custom List ${runId}`;
+  const deleteListName = `E2E Delete List ${runId}`;
+  const deletedWithListTaskTitle = `E2E Deleted With List ${runId}`;
 
   await login(page, owner);
   await expect(page.getByText(`E2E Project ${runId}`)).toBeVisible();
   await page.goto(`/projects/${projectId}/board`);
   await expect(page.getByRole("heading", { name: "项目看板" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "待处理" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "进行中" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "已完成" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "暂无清单" })).toBeVisible();
 
-  await page.getByRole("button", { name: "新建任务" }).click();
-  const modal = page.getByLabel("新建任务");
+  await page.getByRole("button", { name: "新建任务", exact: true }).click();
+  const modal = page.getByLabel("新建任务", { exact: true });
   await expect(modal).toBeVisible();
   await modal.getByLabel("标题").fill(taskTitle);
   await modal.getByLabel("描述").fill("Created by Playwright through the real frontend.");
@@ -250,6 +251,12 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await modal.getByRole("button", { name: "创建" }).click();
 
   await expect(modal).toBeHidden();
+  await expect(page.getByRole("heading", { name: "默认清单" })).toBeVisible();
+  const defaultColumn = boardColumn(page, "默认清单");
+  await expect(defaultColumn.getByRole("button", { name: "在默认清单新建任务" })).toBeVisible();
+  await expect(defaultColumn.getByRole("button", { name: "默认清单清单菜单" })).toHaveCount(0);
+  await expect(defaultColumn.getByRole("button", { name: "保存" })).toHaveCount(0);
+  await expect(defaultColumn.getByRole("button", { name: "删除" })).toHaveCount(0);
   const taskCard = page.getByRole("button", { name: new RegExp(taskTitle) });
   await expect(taskCard).toBeVisible();
 
@@ -260,6 +267,19 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const detail = page.getByLabel("任务详情");
   await expect(detail).toBeVisible();
   await expect(detail.getByRole("heading", { name: taskTitle })).toBeVisible();
+  await detail.getByLabel("描述").fill("Updated by Playwright in task detail.");
+  await detail.getByLabel("优先级").selectOption("URGENT");
+  await detail.getByRole("button", { name: "保存" }).click();
+  await expect(detail.getByText("已保存")).toBeVisible();
+  await expect(detail.getByLabel("优先级")).toHaveValue("URGENT");
+  await detail.getByRole("button", { name: "关闭" }).click();
+  await expect(detail).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
+  await expect(page.getByRole("button", { name: new RegExp("紧急") }).first()).toBeVisible();
+
+  await taskCard.click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${taskId}$`));
+  await expect(detail).toBeVisible();
   await detail.getByRole("button", { name: "创建子任务" }).click();
   await detail.getByPlaceholder("新增子任务").fill(subTaskTitle);
   await detail.getByRole("button", { name: "选择负责人" }).click();
@@ -286,11 +306,67 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(detail).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
 
-  const doneColumn = boardColumn(page, "已完成");
-  await page.getByRole("button", { name: new RegExp(taskTitle) }).dragTo(doneColumn);
-  await expect(doneColumn.getByRole("button", { name: new RegExp(taskTitle) })).toBeVisible();
+  await apiRequest<TaskListResponse>("POST", `/projects/${projectId}/lists`, {
+    token: owner.token,
+    expectedStatus: 201,
+    data: {
+      name: customListName
+    }
+  });
+  await page.reload();
+  const customColumn = boardColumn(page, customListName);
+  await expect(customColumn).toBeVisible();
+  await expect(customColumn.getByRole("button", { name: `在${customListName}新建任务` })).toBeVisible();
+  await expect(customColumn.getByRole("button", { name: "保存" })).toHaveCount(0);
+  await expect(customColumn.getByRole("button", { name: "删除清单" })).toHaveCount(0);
+  await customColumn.getByRole("button", { name: `${customListName}清单菜单` }).click();
+  await expect(customColumn.getByRole("button", { name: "编辑清单" })).toBeVisible();
+  await expect(customColumn.getByRole("button", { name: "删除清单" })).toBeVisible();
+  await customColumn.getByRole("button", { name: "编辑清单" }).click();
+  await expect(page.locator(".column-title-form input")).toHaveValue(customListName);
+  await expect(page.getByRole("button", { name: "保存" })).toBeVisible();
+  await expect(page.getByTitle("拖拽排序")).toBeVisible();
+  await page.getByRole("button", { name: "取消" }).click();
+  await expect(customColumn.getByRole("button", { name: "保存" })).toHaveCount(0);
+  await page.getByRole("button", { name: new RegExp(taskTitle) }).dragTo(customColumn);
+  await expect(customColumn.getByRole("button", { name: new RegExp(taskTitle) })).toBeVisible();
+
+  const deleteList = (await apiRequest<TaskListResponse>("POST", `/projects/${projectId}/lists`, {
+    token: owner.token,
+    expectedStatus: 201,
+    data: {
+      name: deleteListName
+    }
+  })).data;
+  await apiRequest<TaskResponse>("POST", `/projects/${projectId}/tasks`, {
+    token: owner.token,
+    expectedStatus: 201,
+    data: {
+      taskListId: deleteList.id,
+      title: deletedWithListTaskTitle
+    }
+  });
+  await page.reload();
+  const deleteColumn = boardColumn(page, deleteListName);
+  await expect(deleteColumn.getByRole("button", { name: new RegExp(deletedWithListTaskTitle) })).toBeVisible();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("确认删除清单并删除这些任务");
+    await dialog.accept();
+  });
+  await deleteColumn.getByRole("button", { name: `${deleteListName}清单菜单` }).click();
+  await deleteColumn.getByRole("button", { name: "删除清单" }).click();
+  await expect(page.getByRole("heading", { name: deleteListName })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: new RegExp(deletedWithListTaskTitle) })).toHaveCount(0);
+
+  await customColumn.getByRole("button", { name: new RegExp(taskTitle) }).click();
+  await expect(detail).toBeVisible();
+  await detail.getByLabel("状态").selectOption("DONE");
+  await detail.getByRole("button", { name: "保存" }).click();
+  await expect(detail.getByText("已保存")).toBeVisible();
+  await detail.getByRole("button", { name: "关闭" }).click();
+  await expect(detail).toBeHidden();
   await expect(
-    doneColumn.getByRole("button", { name: new RegExp(`${escapeRegExp(owner.name)}.*今天完成`) })
+    customColumn.getByRole("button", { name: new RegExp(`${escapeRegExp(owner.name)}.*今天完成`) })
   ).toBeVisible();
 
   const editorContext = await browser.newContext();
@@ -336,6 +412,13 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(
     allNotifications.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(subTaskTitle)}`) })
   ).toBeVisible();
+  const assignedTaskNotification = allNotifications
+    .locator(".notification-center-row")
+    .filter({ hasText: "你被分配了一个任务" })
+    .filter({ hasText: taskTitle })
+    .first();
+  await assignedTaskNotification.getByRole("button", { name: "已读" }).click();
+  await expect(assignedTaskNotification).not.toHaveClass(/unread/);
 
   await apiRequest("POST", `/tasks/${taskId}/comments`, {
     token: owner.token,
@@ -354,8 +437,14 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(editorPage).toHaveURL(/\/dashboard$/);
 
   await editorPage.goto(`/projects/${projectId}/board`);
-  await expect(editorPage.getByRole("button", { name: "新建任务" })).toBeVisible();
-  await expect(editorPage.getByRole("button", { name: "添加列表" })).toHaveCount(0);
+  await expect(editorPage.getByRole("button", { name: "新建任务", exact: true })).toBeVisible();
+  await expect(editorPage.getByRole("button", { name: "添加清单" })).toHaveCount(0);
+  const editorCustomColumn = boardColumn(editorPage, customListName);
+  await expect(editorCustomColumn).toBeVisible();
+  await expect(editorCustomColumn.getByRole("button", { name: `在${customListName}新建任务` })).toBeVisible();
+  await expect(editorCustomColumn.getByRole("button", { name: `${customListName}清单菜单` })).toHaveCount(0);
+  await expect(editorCustomColumn.getByRole("button", { name: "保存" })).toHaveCount(0);
+  await expect(editorCustomColumn.getByRole("button", { name: "删除" })).toHaveCount(0);
   await editorContext.close();
 
   await page.getByRole("button", { name: "用户菜单" }).click();
@@ -387,9 +476,13 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await accountSettings.getByRole("button", { name: "关闭账号设置" }).click();
   await expect(accountSettings).toBeHidden();
 
+  await apiRequest<ProjectResponse>("PATCH", `/projects/${projectId}/archive`, {
+    token: owner.token
+  });
+
   await logout(page);
   await login(page, viewer);
   await page.goto(`/projects/${projectId}/board`);
-  await expect(page.getByText("你当前是只读成员，可以查看任务但不能修改看板。")).toBeVisible();
-  await expect(page.getByRole("button", { name: "新建任务" })).toHaveCount(0);
+  await expect(page.getByText("这个项目已归档，当前看板为只读状态。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "新建任务", exact: true })).toHaveCount(0);
 });

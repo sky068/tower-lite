@@ -3,6 +3,17 @@ import { prisma } from "../../lib/prisma.js";
 import { requireProjectManager } from "../projects/project.policy.js";
 import { requireTeamOwner } from "../teams/team.policy.js";
 
+const teamActivityActions = [
+  "team_member.added",
+  "team_member.role_updated",
+  "team_member.removed",
+  "team_invitation.created",
+  "team_invitation.revoked",
+  "team_invitation.accepted",
+  "project.created",
+  "project.deleted"
+];
+
 export type CreateActivityInput = {
   actorId: string | null;
   teamId: string;
@@ -34,7 +45,10 @@ export async function listTeamActivity(userId: string, teamId: string) {
 
   const rows = await prisma.activityLog.findMany({
     where: {
-      teamId
+      teamId,
+      action: {
+        in: teamActivityActions
+      }
     },
     include: {
       actor: {

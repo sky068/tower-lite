@@ -1185,17 +1185,66 @@ select[multiple] {
   gap: 10px;
 }
 
+.column-title-actions {
+  position: relative;
+}
+
+.column-title-text {
+  display: grid;
+  min-width: 0;
+}
+
 .column-title-static h2 {
   margin: 0;
   font-size: 15px;
 }
 
-.column-title-static span {
+.column-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.compact-icon-button {
+  width: 30px;
+  height: 30px;
+}
+
+.column-menu {
+  position: relative;
+}
+
+.column-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  min-width: 132px;
+  padding: 6px;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 24px rgb(15 23 42 / 12%);
+}
+
+.column-menu-popover button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #334155;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.column-menu-popover button:hover:not(:disabled) {
   background: #f1f5f9;
-  color: #64748b;
-  padding: 3px 7px;
-  font-size: 12px;
+}
+
+.column-menu-popover .danger-menu-item {
+  color: #dc2626;
 }
 
 .task-card {

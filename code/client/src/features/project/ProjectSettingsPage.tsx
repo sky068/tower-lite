@@ -354,7 +354,11 @@ export function ProjectSettingsPage() {
         </div>
       </section>
       {canManageProject ? (
-        <ActivityLogPanel logs={activityQuery.data ?? []} isLoading={activityQuery.isLoading} />
+        <ActivityLogPanel
+          logs={activityQuery.data ?? []}
+          isLoading={activityQuery.isLoading}
+          title="项目审计日志"
+        />
       ) : null}
       <section className="panel danger-zone">
         <h2>危险操作</h2>

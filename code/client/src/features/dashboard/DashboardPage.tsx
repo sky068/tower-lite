@@ -322,7 +322,7 @@ export function DashboardPage() {
             className="filter-input"
             value={taskSearch}
             onChange={(event) => setTaskSearch(event.target.value)}
-            placeholder="搜索任务、项目或列表"
+            placeholder="搜索任务、项目或清单"
           />
           <div className="list dashboard-scroll-list">
             {myTasksQuery.isLoading ? <span className="muted">任务加载中...</span> : null}

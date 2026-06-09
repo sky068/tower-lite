@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { TaskListType } from "@prisma/client";
 import { AppError } from "../../middleware/error-handler.js";
 import {
-  assertCustomTaskListName,
   assertTaskListDeletable,
   assertTaskListEditable,
+  assertTaskListNameAvailable,
   assertTaskDeletable,
   assertV01SubTaskParent,
   assertValidDateRange
@@ -47,52 +46,41 @@ describe("task rules", () => {
     );
   });
 
-  it("allows deleting custom task lists", () => {
-    assert.doesNotThrow(() => assertTaskListDeletable({ type: TaskListType.CUSTOM }));
+  it("allows editing and deleting non-default task lists", () => {
+    assert.doesNotThrow(() => assertTaskListEditable({ isDefault: false }));
+    assert.doesNotThrow(() => assertTaskListDeletable({ isDefault: false }));
   });
 
-  it("rejects deleting default task lists", () => {
-    for (const type of [TaskListType.TODO, TaskListType.IN_PROGRESS, TaskListType.DONE]) {
-      assert.throws(
-        () => assertTaskListDeletable({ type }),
-        (error) =>
-          error instanceof AppError &&
-          error.code === "BUSINESS_RULE_VIOLATION" &&
-          error.status === 422
-      );
-    }
+  it("rejects editing and deleting the default task list", () => {
+    assert.throws(
+      () => assertTaskListEditable({ isDefault: true }),
+      (error) =>
+        error instanceof AppError &&
+        error.code === "BUSINESS_RULE_VIOLATION" &&
+        error.status === 422
+    );
+    assert.throws(
+      () => assertTaskListDeletable({ isDefault: true }),
+      (error) =>
+        error instanceof AppError &&
+        error.code === "BUSINESS_RULE_VIOLATION" &&
+        error.status === 422
+    );
   });
 
-  it("allows editing custom task lists", () => {
-    assert.doesNotThrow(() => assertTaskListEditable({ type: TaskListType.CUSTOM }));
+  it("allows a unique or unchanged task list name", () => {
+    assert.doesNotThrow(() => assertTaskListNameAvailable(null));
+    assert.doesNotThrow(() => assertTaskListNameAvailable({ id: "same-list" }, "same-list"));
   });
 
-  it("rejects editing default task lists", () => {
-    for (const type of [TaskListType.TODO, TaskListType.IN_PROGRESS, TaskListType.DONE]) {
-      assert.throws(
-        () => assertTaskListEditable({ type }),
-        (error) =>
-          error instanceof AppError &&
-          error.code === "BUSINESS_RULE_VIOLATION" &&
-          error.status === 422
-      );
-    }
-  });
-
-  it("allows custom task list names that do not duplicate default lists", () => {
-    assert.doesNotThrow(() => assertCustomTaskListName("评审中"));
-  });
-
-  it("rejects custom task list names that duplicate default lists", () => {
-    for (const name of ["待处理", "进行中", "已完成", "  已完成  "]) {
-      assert.throws(
-        () => assertCustomTaskListName(name),
-        (error) =>
-          error instanceof AppError &&
-          error.code === "BUSINESS_RULE_VIOLATION" &&
-          error.status === 422
-      );
-    }
+  it("rejects duplicate task list names in the same project", () => {
+    assert.throws(
+      () => assertTaskListNameAvailable({ id: "other-list" }, "current-list"),
+      (error) =>
+        error instanceof AppError &&
+        error.code === "BUSINESS_RULE_VIOLATION" &&
+        error.status === 422
+    );
   });
 
   it("allows deleting tasks without subtasks", () => {

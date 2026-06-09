@@ -1,4 +1,4 @@
-import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskListType } from "@prisma/client";
+import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskStatus } from "@prisma/client";
 import { logger } from "../../config/logger.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
@@ -11,9 +11,9 @@ import {
 } from "../projects/project.policy.js";
 import { publishProjectEvent, publishToUser } from "../realtime/realtime.service.js";
 import {
-  assertCustomTaskListName,
-  assertTaskListEditable,
   assertTaskListDeletable,
+  assertTaskListEditable,
+  assertTaskListNameAvailable,
   assertTaskDeletable,
   assertV01SubTaskParent,
   assertValidDateRange
@@ -32,14 +32,14 @@ import type {
 function toTaskList(taskList: {
   id: string;
   name: string;
-  type: TaskListType;
+  isDefault: boolean;
   sortKey: Prisma.Decimal;
   tasks?: Array<ReturnType<typeof toTask>>;
 }) {
   return {
     id: taskList.id,
     name: taskList.name,
-    type: taskList.type,
+    isDefault: taskList.isDefault,
     sortKey: taskList.sortKey.toString(),
     tasks: taskList.tasks ?? []
   };
@@ -49,6 +49,7 @@ function toTask(task: {
   id: string;
   title: string;
   description: string | null;
+  status: string;
   priority: string;
   sortKey: Prisma.Decimal;
   startDate: Date | null;
@@ -90,6 +91,7 @@ function toTask(task: {
     id: task.id,
     title: task.title,
     description: task.description,
+    status: task.status,
     priority: task.priority,
     sortKey: task.sortKey.toString(),
     startDate: task.startDate,
@@ -148,6 +150,72 @@ async function assertTaskListInProject(taskListId: string, projectId: string) {
   }
 
   return taskList;
+}
+
+async function assertTaskListNameUnique(projectId: string, name: string, taskListId?: string) {
+  const existingTaskList = await prisma.taskList.findFirst({
+    where: {
+      projectId,
+      name
+    },
+    select: {
+      id: true
+    }
+  });
+
+  assertTaskListNameAvailable(existingTaskList, taskListId);
+}
+
+async function getOrCreateDefaultTaskList(projectId: string) {
+  const existingList = await prisma.taskList.findFirst({
+    where: {
+      projectId
+    },
+    orderBy: {
+      sortKey: "asc"
+    }
+  });
+
+  if (existingList) {
+    return existingList;
+  }
+
+  return prisma.taskList.create({
+    data: {
+      name: "默认清单",
+      isDefault: true,
+      projectId,
+      sortKey: new Prisma.Decimal(1000)
+    }
+  });
+}
+
+function getTaskStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    TODO: "待处理",
+    IN_PROGRESS: "进行中",
+    DONE: "已完成"
+  };
+
+  return labels[status] ?? status;
+}
+
+function getCompletionPatch(input: { nextStatus: TaskStatus; currentStatus?: TaskStatus; userId: string }) {
+  if (input.nextStatus === TaskStatus.DONE && input.currentStatus !== TaskStatus.DONE) {
+    return {
+      completedAt: new Date(),
+      completedById: input.userId
+    };
+  }
+
+  if (input.nextStatus !== TaskStatus.DONE && input.currentStatus === TaskStatus.DONE) {
+    return {
+      completedAt: null,
+      completedById: null
+    };
+  }
+
+  return {};
 }
 
 function normalizeAssigneeIds(input: { assigneeIds?: string[] }) {
@@ -511,7 +579,7 @@ export async function listProjectTaskLists(userId: string, projectId: string) {
 
 export async function createTaskList(userId: string, projectId: string, input: CreateTaskListInput) {
   const { project } = await requireProjectManager(userId, projectId);
-  assertCustomTaskListName(input.name);
+  await assertTaskListNameUnique(projectId, input.name);
 
   const lastList = await prisma.taskList.findFirst({
     where: {
@@ -555,7 +623,7 @@ export async function updateTaskList(
   const { project } = await requireProjectManager(userId, projectId);
   const taskList = await assertTaskListInProject(taskListId, projectId);
   assertTaskListEditable(taskList);
-  assertCustomTaskListName(input.name);
+  await assertTaskListNameUnique(projectId, input.name, taskListId);
 
   const updatedTaskList = await prisma.taskList.update({
     where: {
@@ -583,64 +651,118 @@ export async function updateTaskList(
   return toTaskList(updatedTaskList);
 }
 
+async function getTaskListTaskIdsWithDescendants(taskListId: string) {
+  const taskIds = new Set(
+    (
+      await prisma.task.findMany({
+        where: {
+          taskListId
+        },
+        select: {
+          id: true
+        }
+      })
+    ).map((task) => task.id)
+  );
+  let frontier = [...taskIds];
+
+  while (frontier.length > 0) {
+    const children = await prisma.task.findMany({
+      where: {
+        parentId: {
+          in: frontier
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+    const nextFrontier = children
+      .map((task) => task.id)
+      .filter((taskId) => !taskIds.has(taskId));
+
+    nextFrontier.forEach((taskId) => taskIds.add(taskId));
+    frontier = nextFrontier;
+  }
+
+  return [...taskIds];
+}
+
+async function deleteTasksByIds(tx: Prisma.TransactionClient, taskIds: string[]) {
+  if (taskIds.length === 0) {
+    return;
+  }
+
+  await tx.taskDependency.deleteMany({
+    where: {
+      OR: [
+        {
+          dependentTaskId: {
+            in: taskIds
+          }
+        },
+        {
+          prerequisiteId: {
+            in: taskIds
+          }
+        }
+      ]
+    }
+  });
+  await tx.taskAssignee.deleteMany({
+    where: {
+      taskId: {
+        in: taskIds
+      }
+    }
+  });
+  await tx.taskTag.deleteMany({
+    where: {
+      taskId: {
+        in: taskIds
+      }
+    }
+  });
+  await tx.comment.deleteMany({
+    where: {
+      taskId: {
+        in: taskIds
+      }
+    }
+  });
+  await tx.task.updateMany({
+    where: {
+      id: {
+        in: taskIds
+      }
+    },
+    data: {
+      parentId: null
+    }
+  });
+  await tx.task.deleteMany({
+    where: {
+      id: {
+        in: taskIds
+      }
+    }
+  });
+}
+
 export async function deleteTaskList(
   userId: string,
   projectId: string,
   taskListId: string,
-  input: DeleteTaskListInput
+  _input: DeleteTaskListInput
 ) {
   const { project } = await requireProjectManager(userId, projectId);
   const taskList = await assertTaskListInProject(taskListId, projectId);
   assertTaskListDeletable(taskList);
 
-  const listCount = await prisma.taskList.count({
-    where: {
-      projectId
-    }
-  });
-
-  if (listCount <= 1) {
-    throw new AppError("BUSINESS_RULE_VIOLATION", "Project must keep at least one task list", 422);
-  }
-
-  const taskCount = await prisma.task.count({
-    where: {
-      taskListId,
-      deletedAt: null
-    }
-  });
-
-  if (taskCount > 0 && !input.targetTaskListId) {
-    throw new AppError(
-      "BUSINESS_RULE_VIOLATION",
-      "Target task list is required when deleting a non-empty list",
-      422
-    );
-  }
-
-  const targetTaskList = input.targetTaskListId
-    ? await assertTaskListInProject(input.targetTaskListId, projectId)
-    : null;
-
-  if (input.targetTaskListId) {
-    if (input.targetTaskListId === taskListId) {
-      throw new AppError("BUSINESS_RULE_VIOLATION", "Target task list must be different", 422);
-    }
-  }
+  const taskIds = await getTaskListTaskIdsWithDescendants(taskListId);
 
   await prisma.$transaction(async (tx) => {
-    if (input.targetTaskListId && targetTaskList) {
-      await tx.task.updateMany({
-        where: {
-          taskListId
-        },
-        data: {
-          taskListId: input.targetTaskListId,
-          completedAt: targetTaskList.type === TaskListType.DONE ? new Date() : null,
-          completedById: targetTaskList.type === TaskListType.DONE ? userId : null
-        }
-      });
-    }
+    await deleteTasksByIds(tx, taskIds);
 
     await tx.taskList.delete({
       where: {
@@ -659,7 +781,7 @@ export async function deleteTaskList(
     targetId: taskListId,
     metadata: {
       name: taskList.name,
-      targetTaskListId: input.targetTaskListId ?? null
+      deletedTaskCount: taskIds.length
     }
   });
 
@@ -686,8 +808,8 @@ export async function reorderTaskLists(
     throw new AppError("BUSINESS_RULE_VIOLATION", "All task lists must belong to this project", 422);
   }
 
-  for (const taskList of taskLists) {
-    assertTaskListEditable(taskList);
+  if (taskLists.some((taskList) => taskList.isDefault)) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Default task list cannot be edited", 422);
   }
 
   await prisma.$transaction(
@@ -722,7 +844,10 @@ export async function createTask(userId: string, projectId: string, input: Creat
   const { project } = await requireActiveProjectEditor(userId, projectId);
   const assigneeIds = normalizeAssigneeIds(input);
   assertValidDateRange(input.startDate, input.dueDate);
-  const taskList = await assertTaskListInProject(input.taskListId, projectId);
+  const taskList = input.taskListId
+    ? await assertTaskListInProject(input.taskListId, projectId)
+    : await getOrCreateDefaultTaskList(projectId);
+  const taskStatus = input.status ?? TaskStatus.TODO;
   await assertAssigneesAreProjectMembers(assigneeIds, projectId);
   await assertTagsInProject(input.tagIds, projectId);
   await assertV01ParentTask(input.parentId, projectId);
@@ -731,16 +856,16 @@ export async function createTask(userId: string, projectId: string, input: Creat
     data: {
       title: input.title,
       description: input.description,
+      status: taskStatus,
       priority: input.priority,
       startDate: input.startDate,
       dueDate: input.dueDate,
-      taskListId: input.taskListId,
+      taskListId: taskList.id,
       projectId,
       creatorId: userId,
       parentId: input.parentId,
-      completedAt: taskList.type === TaskListType.DONE ? new Date() : null,
-      completedById: taskList.type === TaskListType.DONE ? userId : null,
-      sortKey: await getNextSortKey(input.taskListId),
+      ...getCompletionPatch({ nextStatus: taskStatus, userId }),
+      sortKey: await getNextSortKey(taskList.id),
       tags: {
         create: input.tagIds.map((tagId) => ({
           tagId
@@ -882,9 +1007,20 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
       data: {
         title: input.title,
         description: input.description,
+        status: input.status,
         priority: input.priority,
         startDate: input.startDate,
-        dueDate: input.dueDate
+        dueDate: input.dueDate,
+        ...(input.status
+          ? getCompletionPatch({
+              nextStatus: input.status,
+              currentStatus: task.status,
+              userId
+            })
+          : {})
+      },
+      include: {
+        completedBy: true
       }
     });
 
@@ -910,6 +1046,7 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
   });
 
   const addedAssigneeIds = assigneeIds?.filter((assigneeId) => !previousAssigneeIds.has(assigneeId)) ?? [];
+  const hasStatusChanged = Boolean(input.status && input.status !== task.status);
 
   await createTaskAssignedNotifications({
     actorId: userId,
@@ -920,17 +1057,49 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
     dedupeSuffix: updatedTask.updatedAt.toISOString()
   });
 
+  if (hasStatusChanged && input.status) {
+    try {
+      const recipientIds = await filterActiveProjectRecipients(
+        task.projectId,
+        await getActiveTaskAssigneeIds(taskId)
+      );
+
+      await Promise.all(
+        recipientIds.map((recipientId) =>
+          createNotification({
+            type: NotificationType.TASK_STATUS_CHANGED,
+            recipientId,
+            actorId: userId,
+            projectId: task.projectId,
+            taskId,
+            title: "任务状态已变更",
+            content: `${updatedTask.title}: ${getTaskStatusLabel(task.status)} -> ${getTaskStatusLabel(input.status!)}`,
+            dedupeKey: `task_status_changed:${taskId}:${recipientId}:${task.status}:${input.status}:${updatedTask.updatedAt.toISOString()}`,
+            skipActor: true
+          })
+        )
+      );
+    } catch (error) {
+      logger.error(
+        { err: error, taskId, projectId: task.projectId },
+        "Failed to create task status change notifications"
+      );
+    }
+  }
+
   await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
   await createActivityLog({
     actorId: userId,
     teamId: project.teamId,
     projectId: task.projectId,
     taskId,
-    action: "task.updated",
+    action: hasStatusChanged ? "task.status_changed" : "task.updated",
     targetType: "task",
     targetId: taskId,
     metadata: {
       title: updatedTask.title,
+      fromStatus: hasStatusChanged ? task.status : undefined,
+      toStatus: hasStatusChanged ? input.status : undefined,
       assigneeIds: assigneeIds ?? undefined,
       addedAssigneeIds
     }
@@ -957,7 +1126,7 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
 
   const { project } = await requireActiveProjectEditor(userId, task.projectId);
   const targetList = await assertTaskListInProject(input.targetTaskListId, task.projectId);
-  const hasStatusChanged = task.taskListId !== input.targetTaskListId;
+  const hasListChanged = task.taskListId !== input.targetTaskListId;
 
   const updatedTask = await prisma.task.update({
     where: {
@@ -965,47 +1134,12 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
     },
     data: {
       taskListId: input.targetTaskListId,
-      sortKey: new Prisma.Decimal(input.sortKey),
-      completedAt:
-        targetList.type === TaskListType.DONE
-          ? task.completedAt ?? new Date()
-          : null,
-      completedById: targetList.type === TaskListType.DONE ? task.completedById ?? userId : null
+      sortKey: new Prisma.Decimal(input.sortKey)
     },
     include: {
       completedBy: true
     }
   });
-
-  if (hasStatusChanged) {
-    try {
-      const recipientIds = await filterActiveProjectRecipients(
-        task.projectId,
-        await getActiveTaskAssigneeIds(taskId)
-      );
-
-      await Promise.all(
-        recipientIds.map((recipientId) =>
-          createNotification({
-            type: NotificationType.TASK_STATUS_CHANGED,
-            recipientId,
-            actorId: userId,
-            projectId: task.projectId,
-            taskId,
-            title: "任务状态已变更",
-            content: `${updatedTask.title}: ${task.taskList.name} -> ${targetList.name}`,
-            dedupeKey: `task_status_changed:${taskId}:${recipientId}:${task.taskListId}:${input.targetTaskListId}:${updatedTask.updatedAt.toISOString()}`,
-            skipActor: true
-          })
-        )
-      );
-    } catch (error) {
-      logger.error(
-        { err: error, taskId, projectId: task.projectId },
-        "Failed to create task status change notifications"
-      );
-    }
-  }
 
   await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
   await createActivityLog({
@@ -1013,7 +1147,7 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
     teamId: project.teamId,
     projectId: task.projectId,
     taskId,
-    action: hasStatusChanged ? "task.status_changed" : "task.moved",
+    action: hasListChanged ? "task.moved" : "task.updated",
     targetType: "task",
     targetId: taskId,
     metadata: {

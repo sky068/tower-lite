@@ -18,10 +18,10 @@ const actionLabels: Record<string, string> = {
   "project_invitation.created": "创建项目邀请",
   "project_invitation.revoked": "撤销项目邀请",
   "project_invitation.accepted": "接受项目邀请",
-  "task_list.created": "创建任务列表",
-  "task_list.updated": "更新任务列表",
-  "task_list.deleted": "删除任务列表",
-  "task_list.reordered": "调整列表排序",
+  "task_list.created": "创建任务清单",
+  "task_list.updated": "更新任务清单",
+  "task_list.deleted": "删除任务清单",
+  "task_list.reordered": "调整清单排序",
   "task.created": "创建任务",
   "task.updated": "更新任务",
   "task.moved": "移动任务",
@@ -34,6 +34,7 @@ const actionLabels: Record<string, string> = {
 type ActivityLogPanelProps = {
   logs: ActivityLog[];
   isLoading: boolean;
+  title?: string;
 };
 
 function metadataValue(metadata: ActivityLog["metadata"], key: string) {
@@ -71,10 +72,10 @@ function getLogSummary(log: ActivityLog) {
   return title ?? log.project?.name ?? log.targetId ?? "无附加信息";
 }
 
-export function ActivityLogPanel({ logs, isLoading }: ActivityLogPanelProps) {
+export function ActivityLogPanel({ logs, isLoading, title = "审计日志" }: ActivityLogPanelProps) {
   return (
     <section className="panel">
-      <h2>审计日志</h2>
+      <h2>{title}</h2>
       <div className="list settings-scroll-list">
         {isLoading ? <span className="muted">日志加载中...</span> : null}
         {logs.map((log) => (

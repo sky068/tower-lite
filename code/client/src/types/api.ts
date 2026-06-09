@@ -49,15 +49,18 @@ export type Project = {
 export type TaskList = {
   id: string;
   name: string;
-  type: "TODO" | "IN_PROGRESS" | "DONE" | "CUSTOM";
+  isDefault: boolean;
   sortKey: string;
   tasks: Task[];
 };
+
+export type TaskStatus = "TODO" | "IN_PROGRESS" | "DONE";
 
 export type Task = {
   id: string;
   title: string;
   description: string | null;
+  status: TaskStatus;
   priority: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
   sortKey: string;
   startDate: string | null;
@@ -123,7 +126,6 @@ export type MyTask = {
   taskList: {
     id: string;
     name: string;
-    type: TaskList["type"];
   };
 };
 

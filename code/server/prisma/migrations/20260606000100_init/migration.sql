@@ -2,7 +2,7 @@ CREATE TYPE "TeamRole" AS ENUM ('OWNER', 'ADMIN', 'MEMBER');
 CREATE TYPE "ProjectStatus" AS ENUM ('ACTIVE', 'ARCHIVED');
 CREATE TYPE "ProjectRole" AS ENUM ('OWNER', 'EDITOR', 'VIEWER');
 CREATE TYPE "InvitationStatus" AS ENUM ('PENDING', 'ACCEPTED', 'EXPIRED', 'REVOKED');
-CREATE TYPE "TaskListType" AS ENUM ('TODO', 'IN_PROGRESS', 'DONE', 'CUSTOM');
+CREATE TYPE "TaskStatus" AS ENUM ('TODO', 'IN_PROGRESS', 'DONE');
 CREATE TYPE "Priority" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'URGENT');
 CREATE TYPE "DependencyType" AS ENUM ('FINISH_TO_START', 'START_TO_START', 'FINISH_TO_FINISH', 'START_TO_FINISH');
 CREATE TYPE "NotificationType" AS ENUM ('TASK_ASSIGNED', 'TASK_DUE_SOON', 'COMMENT_MENTION', 'TASK_COMPLETED', 'PROJECT_JOINED');
@@ -95,7 +95,7 @@ CREATE TABLE "Invitation" (
 CREATE TABLE "TaskList" (
   "id" TEXT NOT NULL,
   "name" TEXT NOT NULL,
-  "type" "TaskListType" NOT NULL DEFAULT 'CUSTOM',
+  "isDefault" BOOLEAN NOT NULL DEFAULT false,
   "sortKey" DECIMAL(18,6) NOT NULL,
   "projectId" TEXT NOT NULL,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -107,6 +107,7 @@ CREATE TABLE "Task" (
   "id" TEXT NOT NULL,
   "title" TEXT NOT NULL,
   "description" TEXT,
+  "status" "TaskStatus" NOT NULL DEFAULT 'TODO',
   "priority" "Priority" NOT NULL DEFAULT 'MEDIUM',
   "sortKey" DECIMAL(18,6) NOT NULL,
   "startDate" TIMESTAMP(3),
@@ -211,9 +212,11 @@ CREATE UNIQUE INDEX "Invitation_token_key" ON "Invitation"("token");
 CREATE INDEX "Invitation_email_status_idx" ON "Invitation"("email", "status");
 CREATE INDEX "Invitation_teamId_status_idx" ON "Invitation"("teamId", "status");
 CREATE INDEX "TaskList_projectId_sortKey_idx" ON "TaskList"("projectId", "sortKey");
+CREATE UNIQUE INDEX "TaskList_projectId_name_key" ON "TaskList"("projectId", "name");
 CREATE INDEX "Task_projectId_idx" ON "Task"("projectId");
 CREATE INDEX "Task_taskListId_sortKey_idx" ON "Task"("taskListId", "sortKey");
 CREATE INDEX "Task_parentId_idx" ON "Task"("parentId");
+CREATE INDEX "Task_status_idx" ON "Task"("status");
 CREATE UNIQUE INDEX "TaskDependency_dependentTaskId_prerequisiteId_key" ON "TaskDependency"("dependentTaskId", "prerequisiteId");
 CREATE UNIQUE INDEX "Tag_projectId_name_key" ON "Tag"("projectId", "name");
 CREATE INDEX "TaskAssignee_userId_idx" ON "TaskAssignee"("userId");

@@ -3,6 +3,7 @@ import { after, before, describe, it } from "node:test";
 import type { Server } from "node:http";
 import { Prisma } from "@prisma/client";
 import { createApp } from "../app.js";
+import { runDueReminderScan } from "../jobs/due-reminder.js";
 import { prisma } from "../lib/prisma.js";
 
 type ApiEnvelope<T> = {
@@ -48,13 +49,14 @@ type MemberResponse = {
 type TaskListResponse = {
   id: string;
   name: string;
-  type: "TODO" | "IN_PROGRESS" | "DONE" | "CUSTOM";
+  isDefault: boolean;
   tasks: TaskResponse[];
 };
 
 type TaskResponse = {
   id: string;
   title: string;
+  status: "TODO" | "IN_PROGRESS" | "DONE";
   taskListId: string;
   parentId: string | null;
   completedAt: string | null;
@@ -74,6 +76,7 @@ type TaskResponse = {
 type MyTaskResponse = {
   id: string;
   title: string;
+  status: "TODO" | "IN_PROGRESS" | "DONE";
   parentId: string | null;
   completedAt: string | null;
   completedBy: {
@@ -83,7 +86,6 @@ type MyTaskResponse = {
   taskList: {
     id: string;
     name: string;
-    type: string;
   };
 };
 
@@ -502,6 +504,25 @@ describe("V0 HTTP integration", () => {
     })).data;
     assert.ok(ownerTeams.some((item) => item.id === team.id));
 
+    const disposableTeam = (await request<TeamResponse>("POST", "/api/v1/teams", {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: `Disposable Team ${runId}`
+      }
+    })).data;
+    await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${disposableTeam.id}`, {
+      token: owner.token
+    });
+    const ownerTeamsAfterDisposableDelete = (await request<TeamResponse[]>("GET", "/api/v1/teams", {
+      token: owner.token
+    })).data;
+    assert.equal(ownerTeamsAfterDisposableDelete.some((item) => item.id === disposableTeam.id), false);
+    await request<TeamResponse>("GET", `/api/v1/teams/${disposableTeam.id}`, {
+      token: owner.token,
+      expectedStatus: 403
+    });
+
     await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
       token: owner.token,
       expectedStatus: 201,
@@ -771,22 +792,84 @@ describe("V0 HTTP integration", () => {
     const lists = (await request<TaskListResponse[]>("GET", `/api/v1/projects/${project.id}/lists`, {
       token: owner.token
     })).data;
-    assert.deepEqual(
-      lists.map((list) => list.type),
-      ["TODO", "IN_PROGRESS", "DONE"]
-    );
+    assert.equal(lists.length, 0);
 
-    const todoList = lists.find((list) => list.type === "TODO");
-    const doneList = lists.find((list) => list.type === "DONE");
-    assert.ok(todoList);
-    assert.ok(doneList);
-
-    await request<TaskListResponse>("PATCH", `/api/v1/projects/${project.id}/lists/${todoList.id}`, {
+    const defaultedTask = (await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        title: "Task creates default list"
+      }
+    })).data;
+    assert.equal(defaultedTask.status, "TODO");
+    const listsAfterDefaultTask = (await request<TaskListResponse[]>("GET", `/api/v1/projects/${project.id}/lists`, {
+      token: owner.token
+    })).data;
+    const defaultList = listsAfterDefaultTask.find((list) => list.id === defaultedTask.taskListId);
+    assert.ok(defaultList);
+    assert.equal(defaultList.name, "默认清单");
+    assert.equal(defaultList.isDefault, true);
+    await request<TaskListResponse>("PATCH", `/api/v1/projects/${project.id}/lists/${defaultList.id}`, {
       token: owner.token,
       expectedStatus: 422,
       body: {
+        name: "不能改名"
+      }
+    });
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${project.id}/lists/${defaultList.id}`, {
+      token: owner.token,
+      expectedStatus: 422
+    });
+
+    const customList = (await request<TaskListResponse>("POST", `/api/v1/projects/${project.id}/lists`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
         name: "Backlog"
       }
+    })).data;
+    const updatedCustomList = (await request<TaskListResponse>("PATCH", `/api/v1/projects/${project.id}/lists/${customList.id}`, {
+      token: owner.token,
+      body: {
+        name: "开发清单"
+      }
+    })).data;
+    assert.equal(updatedCustomList.name, "开发清单");
+    await request<TaskListResponse>("POST", `/api/v1/projects/${project.id}/lists`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        name: "开发清单"
+      }
+    });
+    const anotherList = (await request<TaskListResponse>("POST", `/api/v1/projects/${project.id}/lists`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: "测试清单"
+      }
+    })).data;
+    await request<TaskListResponse>("PATCH", `/api/v1/projects/${project.id}/lists/${anotherList.id}`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        name: "开发清单"
+      }
+    });
+    const taskDeletedWithList = (await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        taskListId: anotherList.id,
+        title: "Task deleted with list"
+      }
+    })).data;
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${project.id}/lists/${anotherList.id}`, {
+      token: owner.token
+    });
+    await request<TaskResponse>("GET", `/api/v1/tasks/${taskDeletedWithList.id}`, {
+      token: owner.token,
+      expectedStatus: 404
     });
 
     await request<TaskListResponse>("POST", `/api/v1/projects/${project.id}/lists`, {
@@ -801,7 +884,7 @@ describe("V0 HTTP integration", () => {
       token: viewer.token,
       expectedStatus: 403,
       body: {
-        taskListId: todoList.id,
+        taskListId: customList.id,
         title: "Viewer cannot create tasks"
       }
     });
@@ -810,7 +893,6 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        taskListId: todoList.id,
         title: "Assigned integration task",
         description: "Created by owner and assigned to editor",
         priority: "HIGH",
@@ -855,7 +937,7 @@ describe("V0 HTTP integration", () => {
       token: editor.token,
       expectedStatus: 201,
       body: {
-        taskListId: todoList.id,
+        taskListId: task.taskListId,
         parentId: task.id,
         title: "One level subtask",
         assigneeIds: [editor.id]
@@ -867,7 +949,7 @@ describe("V0 HTTP integration", () => {
       token: editor.token,
       expectedStatus: 201,
       body: {
-        taskListId: todoList.id,
+        taskListId: task.taskListId,
         parentId: subTask.id,
         title: "Second level subtask is allowed in V0.1"
       }
@@ -878,7 +960,7 @@ describe("V0 HTTP integration", () => {
       token: editor.token,
       expectedStatus: 422,
       body: {
-        taskListId: todoList.id,
+        taskListId: task.taskListId,
         parentId: secondLevelSubTask.id,
         title: "Third level subtask is not allowed in V0.1"
       }
@@ -927,12 +1009,21 @@ describe("V0 HTTP integration", () => {
     const movedTask = (await request<TaskResponse>("PATCH", `/api/v1/tasks/${task.id}/move`, {
       token: owner.token,
       body: {
-        targetTaskListId: doneList.id,
+        targetTaskListId: customList.id,
         sortKey: "1000"
       }
     })).data;
-    assert.equal(movedTask.completedAt !== null, true);
-    assert.equal(movedTask.completedBy?.id, owner.id);
+    assert.equal(movedTask.completedAt, null);
+
+    const completedTask = (await request<TaskResponse>("PATCH", `/api/v1/tasks/${task.id}`, {
+      token: owner.token,
+      body: {
+        status: "DONE"
+      }
+    })).data;
+    assert.equal(completedTask.status, "DONE");
+    assert.equal(completedTask.completedAt !== null, true);
+    assert.equal(completedTask.completedBy?.id, owner.id);
     const editorCompletedTasks = (await request<MyTaskResponse[]>("GET", "/api/v1/users/me/tasks", {
       token: editor.token
     })).data;
@@ -977,6 +1068,40 @@ describe("V0 HTTP integration", () => {
     )).data;
     assert.equal(editorNotificationsAfterReadAll.every((notification) => notification.isRead), true);
 
+    const dueSoonTask = (await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        taskListId: task.taskListId,
+        title: "Due soon task",
+        dueDate: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        assigneeIds: [editor.id]
+      }
+    })).data;
+    await runDueReminderScan();
+    await runDueReminderScan();
+    const editorNotificationsAfterDueScan = (await request<NotificationResponse[]>(
+      "GET",
+      "/api/v1/users/me/notifications",
+      {
+        token: editor.token
+      }
+    )).data;
+    const dueSoonNotifications = editorNotificationsAfterDueScan.filter(
+      (notification) =>
+        notification.type === "TASK_DUE_SOON" &&
+        notification.content.includes("Due soon task")
+    );
+    assert.equal(dueSoonNotifications.length, 1);
+
+    await request<{ ok: boolean }>("DELETE", `/api/v1/tasks/${dueSoonTask.id}`, {
+      token: owner.token
+    });
+    await request<TaskResponse>("GET", `/api/v1/tasks/${dueSoonTask.id}`, {
+      token: owner.token,
+      expectedStatus: 404
+    });
+
     await request<{ id: string }>("POST", `/api/v1/tasks/${task.id}/comments`, {
       token: editor.token,
       expectedStatus: 201,
@@ -1008,6 +1133,10 @@ describe("V0 HTTP integration", () => {
     assert.ok(teamActivity.some((log) => log.action === "team_member.added"));
     assert.ok(teamActivity.some((log) => log.action === "team_invitation.accepted"));
     assert.ok(teamActivity.some((log) => log.action === "project.created"));
+    assert.ok(!teamActivity.some((log) => log.action.startsWith("task.")));
+    assert.ok(!teamActivity.some((log) => log.action.startsWith("task_list.")));
+    assert.ok(!teamActivity.some((log) => log.action.startsWith("comment.")));
+    assert.ok(!teamActivity.some((log) => log.action.startsWith("project_invitation.")));
 
     await request<ActivityLogResponse[]>("GET", `/api/v1/teams/${team.id}/activity`, {
       token: directAddedMember.token,
@@ -1023,6 +1152,7 @@ describe("V0 HTTP integration", () => {
     )).data;
     assert.ok(projectActivity.some((log) => log.action === "task.created" && log.taskId === task.id));
     assert.ok(projectActivity.some((log) => log.action === "task.status_changed" && log.taskId === task.id));
+    assert.ok(projectActivity.some((log) => log.action === "task.deleted" && log.taskId === dueSoonTask.id));
     assert.ok(projectActivity.some((log) => log.action === "comment.created" && log.taskId === task.id));
 
     await request<ActivityLogResponse[]>("GET", `/api/v1/projects/${project.id}/activity`, {
@@ -1042,7 +1172,7 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 422,
       body: {
-        taskListId: todoList.id,
+        taskListId: task.taskListId,
         title: "Archived projects reject writes"
       }
     });

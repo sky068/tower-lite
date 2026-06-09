@@ -1,8 +1,7 @@
 import bcrypt from "bcryptjs";
 import { config } from "dotenv";
 import { resolve } from "node:path";
-import { Prisma, PrismaClient, ProjectRole, TaskListType, TeamRole } from "@prisma/client";
-import { createDefaultTaskLists } from "../src/modules/projects/default-task-lists.js";
+import { Prisma, PrismaClient, ProjectRole, TeamRole } from "@prisma/client";
 
 config();
 config({ path: resolve(process.cwd(), "../.env") });
@@ -73,17 +72,16 @@ async function main() {
             role: ProjectRole.EDITOR
           }
         ]
-      },
-      taskLists: {
-        create: createDefaultTaskLists()
       }
     }
   });
 
-  const todoList = await prisma.taskList.findFirstOrThrow({
-    where: {
+  const defaultList = await prisma.taskList.create({
+    data: {
+      name: "默认清单",
+      isDefault: true,
       projectId: project.id,
-      type: TaskListType.TODO
+      sortKey: new Prisma.Decimal(1000)
     }
   });
 
@@ -94,7 +92,7 @@ async function main() {
       description: "打开任务详情，试试评论、标签和一层子任务。",
       priority: "HIGH",
       projectId: project.id,
-      taskListId: todoList.id,
+      taskListId: defaultList.id,
       creatorId: user.id,
       sortKey: new Prisma.Decimal(1000),
       assignees: {

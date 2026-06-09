@@ -293,7 +293,11 @@ export function TeamSettingsPage() {
         </div>
       </section>
       {canManageTeam ? (
-        <ActivityLogPanel logs={activityQuery.data ?? []} isLoading={activityQuery.isLoading} />
+        <ActivityLogPanel
+          logs={activityQuery.data ?? []}
+          isLoading={activityQuery.isLoading}
+          title="团队审计日志"
+        />
       ) : null}
       {canManageTeam ? (
         <section className="panel danger-zone">
