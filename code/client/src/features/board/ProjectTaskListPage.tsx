@@ -492,7 +492,7 @@ export function ProjectTaskListPage() {
         {!listsQuery.isLoading && !listsQuery.error && lists.length === 0 ? (
           <section className="empty-state">
             <h2>暂无清单</h2>
-            <span>新建任务时会自动创建默认清单</span>
+            <span>项目暂无可用清单，请刷新后重试</span>
           </section>
         ) : null}
         {filteredLists.length > 0 ? (

@@ -614,7 +614,7 @@ export function ProjectBoardPage() {
           <section className="board-column">
             <div className="column-title-static">
               <h2>暂无清单</h2>
-              <span>新建任务时会自动创建默认清单</span>
+              <span>项目暂无可用清单，请刷新后重试</span>
             </div>
           </section>
         ) : null}
@@ -843,7 +843,7 @@ export function ProjectBoardPage() {
                   </select>
                 </label>
               ) : (
-                <span className="muted">创建后会自动生成默认清单。</span>
+                <span className="muted">项目暂无可用清单，请刷新后重试。</span>
               )}
               <fieldset className="checkbox-field">
                 <legend>指派给</legend>

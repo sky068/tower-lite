@@ -1,4 +1,4 @@
-import { DeliveryChannel, NotificationType, ProjectRole } from "@prisma/client";
+import { DeliveryChannel, NotificationType, Prisma, ProjectRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
@@ -118,6 +118,13 @@ export async function createProject(userId: string, teamId: string, input: Creat
       icon: input.icon,
       teamId,
       createdById: userId,
+      taskLists: {
+        create: {
+          name: "默认清单",
+          isDefault: true,
+          sortKey: new Prisma.Decimal(1000)
+        }
+      },
       members: {
         create: {
           userId,

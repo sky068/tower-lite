@@ -254,7 +254,10 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await page.getByRole("button", { name: `← 返回 E2E Project ${runId}` }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
   await expect(page.getByRole("heading", { name: `E2E Project ${runId}` })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "暂无清单" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "默认清单" })).toBeVisible();
+  const defaultColumn = boardColumn(page, "默认清单");
+  await expect(defaultColumn.getByRole("button", { name: "在默认清单新建任务" })).toBeVisible();
+  await expect(defaultColumn.getByRole("button", { name: "默认清单清单菜单" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "新建任务", exact: true }).click();
   const modal = page.getByLabel("新建任务", { exact: true });
@@ -268,9 +271,6 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
 
   await expect(modal).toBeHidden();
   await expect(page.getByRole("heading", { name: "默认清单" })).toBeVisible();
-  const defaultColumn = boardColumn(page, "默认清单");
-  await expect(defaultColumn.getByRole("button", { name: "在默认清单新建任务" })).toBeVisible();
-  await expect(defaultColumn.getByRole("button", { name: "默认清单清单菜单" })).toHaveCount(0);
   await expect(defaultColumn.getByRole("button", { name: "保存" })).toHaveCount(0);
   await expect(defaultColumn.getByRole("button", { name: "删除" })).toHaveCount(0);
   const taskCard = page.getByRole("button", { name: new RegExp(taskTitle) });

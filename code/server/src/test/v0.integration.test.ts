@@ -806,7 +806,11 @@ describe("V0 HTTP integration", () => {
     const lists = (await request<TaskListResponse[]>("GET", `/api/v1/projects/${project.id}/lists`, {
       token: owner.token
     })).data;
-    assert.equal(lists.length, 0);
+    assert.equal(lists.length, 1);
+    const initialDefaultList = lists[0];
+    assert.equal(initialDefaultList.name, "默认清单");
+    assert.equal(initialDefaultList.isDefault, true);
+    assert.equal(initialDefaultList.tasks.length, 0);
 
     const defaultedTask = (await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
       token: owner.token,
@@ -816,9 +820,11 @@ describe("V0 HTTP integration", () => {
       }
     })).data;
     assert.equal(defaultedTask.status, "TODO");
+    assert.equal(defaultedTask.taskListId, initialDefaultList.id);
     const listsAfterDefaultTask = (await request<TaskListResponse[]>("GET", `/api/v1/projects/${project.id}/lists`, {
       token: owner.token
     })).data;
+    assert.equal(listsAfterDefaultTask.length, 1);
     const defaultList = listsAfterDefaultTask.find((list) => list.id === defaultedTask.taskListId);
     assert.ok(defaultList);
     assert.equal(defaultList.name, "默认清单");
