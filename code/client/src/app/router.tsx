@@ -4,6 +4,7 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { RegisterPage } from "../features/auth/RegisterPage";
 import { ProjectBoardPage } from "../features/board/ProjectBoardPage";
+import { ProjectTaskListPage } from "../features/board/ProjectTaskListPage";
 import { RequireAuth } from "../features/auth/RequireAuth";
 import { TeamSettingsPage } from "../features/team/TeamSettingsPage";
 import { ProjectSettingsPage } from "../features/project/ProjectSettingsPage";
@@ -41,6 +42,10 @@ const routes = [
       {
         path: "/projects/:projectId/board",
         element: <ProjectBoardPage />
+      },
+      {
+        path: "/projects/:projectId/list",
+        element: <ProjectTaskListPage />
       },
       {
         path: "/teams/:teamId/settings",

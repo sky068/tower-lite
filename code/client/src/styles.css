@@ -1,5 +1,6 @@
 :root {
   --scroll-list-five-half-height: 382px;
+  --scroll-list-three-half-height: 178px;
   color: #1f2937;
   background: #f6f7f9;
   font-family:
@@ -312,7 +313,7 @@ input[type="date"]:not(:disabled) {
   background: #ffffff;
   color: #334155;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .avatar-upload-button {
@@ -474,6 +475,57 @@ input[type="date"]:not(:disabled) {
   margin: 0;
 }
 
+.project-menu {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-top: 6px;
+}
+
+.project-menu a,
+.project-menu button {
+  min-height: 24px;
+  border: 0;
+  background: transparent;
+  color: #475569;
+  padding: 0;
+  font: inherit;
+  text-decoration: none;
+}
+
+.project-menu a {
+  display: inline-flex;
+  align-items: center;
+}
+
+.project-menu a.active {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.project-menu a:not(.active):hover {
+  color: #1d4ed8;
+}
+
+.project-menu button:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.back-button {
+  min-height: 28px;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  padding: 0;
+  font: inherit;
+}
+
+.back-button:hover {
+  color: #1d4ed8;
+}
+
 .empty-state,
 .task-card,
 .board-column,
@@ -504,6 +556,218 @@ input[type="date"]:not(:disabled) {
   gap: 16px;
   overflow-x: auto;
   padding-bottom: 8px;
+}
+
+.project-task-list-view {
+  display: grid;
+  gap: 14px;
+}
+
+.project-task-list-shell {
+  overflow-x: auto;
+}
+
+.project-task-list-shell-inner {
+  display: grid;
+  min-width: 760px;
+  gap: 10px;
+}
+
+.project-task-list-group {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.project-task-list-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 44px;
+  border: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #1f2937;
+  padding: 0 14px;
+  text-align: left;
+}
+
+.project-task-list-group-toggle {
+  display: inline-flex;
+  min-width: 0;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.project-task-list-group-header strong {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.project-task-list-group-header span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.project-task-list-table {
+  display: grid;
+  min-width: 0;
+}
+
+.project-task-list-head,
+.project-task-list-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 72px 150px minmax(220px, 0.9fr);
+  align-items: center;
+  column-gap: 24px;
+}
+
+.project-task-list-head {
+  min-height: 38px;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 0 14px;
+}
+
+.project-task-list-node {
+  display: grid;
+}
+
+.project-task-list-row {
+  min-height: 46px;
+  border-bottom: 1px solid #edf2f7;
+  background: #ffffff;
+  color: #1f2937;
+  padding: 0 14px;
+}
+
+.project-task-list-row:hover {
+  background: #f8fafc;
+}
+
+.project-task-list-row.completed .project-task-title-cell {
+  color: #64748b;
+  text-decoration: line-through;
+}
+
+.project-task-title-cell {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
+
+.project-task-title-cell span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-spacer {
+  width: 14px;
+  flex: 0 0 14px;
+}
+
+.tree-toggle-button,
+.project-task-title-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.tree-toggle-button {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  place-items: center;
+  border-radius: 6px;
+}
+
+.tree-toggle-button:hover {
+  background: #e2e8f0;
+}
+
+.project-task-title-button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-task-title-button span:first-child {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-task-subtask-count {
+  flex: 0 0 auto;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.project-task-title-button:hover {
+  color: #1d4ed8;
+}
+
+.project-task-priority-square {
+  display: inline-grid;
+  justify-self: start;
+  width: 34px;
+  min-height: 34px;
+  place-items: center;
+  border-radius: 6px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.project-task-date-cell {
+  color: #475569;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.project-task-assignees-cell {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.project-task-unassigned {
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.project-task-list-empty {
+  padding: 16px 14px;
 }
 
 .board-toolbar {
@@ -713,6 +977,14 @@ input[type="date"]:not(:disabled) {
   scrollbar-width: none;
 }
 
+.dashboard-compact-scroll-list {
+  max-height: var(--scroll-list-three-half-height);
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  padding-right: 4px;
+  scrollbar-width: none;
+}
+
 .dashboard-task-panel {
   grid-column: 1 / -1;
 }
@@ -727,12 +999,15 @@ input[type="date"]:not(:disabled) {
 
 .dashboard-scroll-list:hover,
 .dashboard-scroll-list:focus-within,
+.dashboard-compact-scroll-list:hover,
+.dashboard-compact-scroll-list:focus-within,
 .settings-scroll-list:hover,
 .settings-scroll-list:focus-within {
   scrollbar-width: thin;
 }
 
 .dashboard-scroll-list::-webkit-scrollbar,
+.dashboard-compact-scroll-list::-webkit-scrollbar,
 .settings-scroll-list::-webkit-scrollbar {
   width: 0;
   height: 0;
@@ -740,6 +1015,8 @@ input[type="date"]:not(:disabled) {
 
 .dashboard-scroll-list:hover::-webkit-scrollbar,
 .dashboard-scroll-list:focus-within::-webkit-scrollbar,
+.dashboard-compact-scroll-list:hover::-webkit-scrollbar,
+.dashboard-compact-scroll-list:focus-within::-webkit-scrollbar,
 .settings-scroll-list:hover::-webkit-scrollbar,
 .settings-scroll-list:focus-within::-webkit-scrollbar {
   width: 8px;
@@ -747,6 +1024,7 @@ input[type="date"]:not(:disabled) {
 }
 
 .dashboard-scroll-list::-webkit-scrollbar-thumb,
+.dashboard-compact-scroll-list::-webkit-scrollbar-thumb,
 .settings-scroll-list::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: #cbd5e1;

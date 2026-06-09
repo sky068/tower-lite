@@ -498,6 +498,13 @@ describe("V0 HTTP integration", () => {
         name: `Integration Team ${runId}`
       }
     })).data;
+    await request<TeamResponse>("POST", "/api/v1/teams", {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        name: `Integration Team ${runId}`
+      }
+    });
 
     const ownerTeams = (await request<TeamResponse[]>("GET", "/api/v1/teams", {
       token: owner.token
@@ -578,6 +585,13 @@ describe("V0 HTTP integration", () => {
         description: "V0 integration workflow"
       }
     })).data;
+    await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        name: `Integration Project ${runId}`
+      }
+    });
 
     const teamInvitation = (await request<InvitationResponse>(
       "POST",
@@ -955,6 +969,16 @@ describe("V0 HTTP integration", () => {
       }
     })).data;
     assert.equal(secondLevelSubTask.parentId, subTask.id);
+
+    const projectTaskListView = (await request<TaskListResponse[]>("GET", `/api/v1/projects/${project.id}/tasks`, {
+      token: viewer.token
+    })).data;
+    const listViewTasks = projectTaskListView.flatMap((list) => list.tasks);
+    assert.ok(listViewTasks.some((item) => item.id === task.id));
+    assert.ok(listViewTasks.some((item) => item.id === subTask.id && item.parentId === task.id));
+    assert.ok(
+      listViewTasks.some((item) => item.id === secondLevelSubTask.id && item.parentId === subTask.id)
+    );
 
     await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
       token: editor.token,

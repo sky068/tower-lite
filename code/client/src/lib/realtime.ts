@@ -69,6 +69,7 @@ export function useRealtimeEvents() {
       if (event.type === "task.changed") {
         void queryClient.invalidateQueries({ queryKey: ["my-tasks"] });
         void queryClient.invalidateQueries({ queryKey: ["board", event.projectId] });
+        void queryClient.invalidateQueries({ queryKey: ["project-task-list", event.projectId] });
 
         if (event.taskId) {
           void queryClient.invalidateQueries({ queryKey: ["task", event.taskId] });
@@ -112,6 +113,7 @@ export function useRealtimeEvents() {
       if (event.type === "tags.changed") {
         void queryClient.invalidateQueries({ queryKey: ["tags", event.projectId] });
         void queryClient.invalidateQueries({ queryKey: ["board", event.projectId] });
+        void queryClient.invalidateQueries({ queryKey: ["project-task-list", event.projectId] });
 
         if (event.taskId) {
           void queryClient.invalidateQueries({ queryKey: ["task", event.taskId] });

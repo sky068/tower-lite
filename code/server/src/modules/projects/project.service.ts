@@ -85,8 +85,30 @@ async function createProjectJoinedNotification(input: {
   publishToUser(input.recipientId, { type: "notification.changed" });
 }
 
+async function assertProjectNameUnique(teamId: string, name: string, excludeProjectId?: string) {
+  const existingProject = await prisma.project.findFirst({
+    where: {
+      teamId,
+      name,
+      deletedAt: null,
+      ...(excludeProjectId
+        ? {
+            id: {
+              not: excludeProjectId
+            }
+          }
+        : {})
+    }
+  });
+
+  if (existingProject) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Project name already exists in this team", 422);
+  }
+}
+
 export async function createProject(userId: string, teamId: string, input: CreateProjectInput) {
   await requireTeamOwner(userId, teamId);
+  await assertProjectNameUnique(teamId, input.name);
 
   const project = await prisma.project.create({
     data: {
@@ -164,7 +186,10 @@ export async function getProject(userId: string, projectId: string) {
 }
 
 export async function updateProject(userId: string, projectId: string, input: UpdateProjectInput) {
-  await requireProjectManager(userId, projectId);
+  const { project: existingProject } = await requireProjectManager(userId, projectId);
+  if (input.name) {
+    await assertProjectNameUnique(existingProject.teamId, input.name, projectId);
+  }
 
   const project = await prisma.project.update({
     where: {

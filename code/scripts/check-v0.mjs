@@ -7,6 +7,7 @@ const requiredFiles = [
   "client/src/features/auth/LoginPage.tsx",
   "client/src/features/auth/RegisterPage.tsx",
   "client/src/features/board/ProjectBoardPage.tsx",
+  "client/src/features/board/ProjectTaskListPage.tsx",
   "client/src/features/board/TaskDetailPanel.tsx",
   "client/src/features/dashboard/DashboardPage.tsx",
   "client/src/features/project/ProjectSettingsPage.tsx",

@@ -577,6 +577,56 @@ export async function listProjectTaskLists(userId: string, projectId: string) {
   );
 }
 
+export async function listProjectTaskListView(userId: string, projectId: string) {
+  await requireProjectAccess(userId, projectId);
+
+  const lists = await prisma.taskList.findMany({
+    where: {
+      projectId
+    },
+    include: {
+      tasks: {
+        where: {
+          deletedAt: null
+        },
+        include: {
+          tags: {
+            include: {
+              tag: true
+            }
+          },
+          completedBy: true,
+          _count: {
+            select: {
+              subTasks: {
+                where: {
+                  deletedAt: null
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          sortKey: "asc"
+        }
+      }
+    },
+    orderBy: {
+      sortKey: "asc"
+    }
+  });
+
+  const taskIds = lists.flatMap((list) => list.tasks.map((task) => task.id));
+  const assigneeMap = await getTaskAssigneeMap(taskIds);
+
+  return lists.map((list) =>
+    toTaskList({
+      ...list,
+      tasks: list.tasks.map((task) => toTask(attachAssignees(task, assigneeMap)))
+    })
+  );
+}
+
 export async function createTaskList(userId: string, projectId: string, input: CreateTaskListInput) {
   const { project } = await requireProjectManager(userId, projectId);
   await assertTaskListNameUnique(projectId, input.name);

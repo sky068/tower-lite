@@ -237,7 +237,23 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await login(page, owner);
   await expect(page.getByText(`E2E Project ${runId}`)).toBeVisible();
   await page.goto(`/projects/${projectId}/board`);
-  await expect(page.getByRole("heading", { name: "项目看板" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: `E2E Project ${runId}` })).toBeVisible();
+  const projectMenu = page.getByRole("navigation", { name: "项目菜单" });
+  await expect(projectMenu.getByRole("link", { name: "看板" })).toHaveAttribute("aria-current", "page");
+  await expect(projectMenu.getByRole("link", { name: "列表" })).toHaveAttribute(
+    "href",
+    `/projects/${projectId}/list`
+  );
+  await expect(projectMenu.getByRole("link", { name: "设置" })).toHaveAttribute(
+    "href",
+    `/projects/${projectId}/settings`
+  );
+  await expect(projectMenu.getByRole("button", { name: "回收站" })).toBeDisabled();
+  await projectMenu.getByRole("link", { name: "设置" }).click();
+  await expect(page.getByRole("heading", { name: "项目设置" })).toBeVisible();
+  await page.getByRole("button", { name: `← 返回 E2E Project ${runId}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
+  await expect(page.getByRole("heading", { name: `E2E Project ${runId}` })).toBeVisible();
   await expect(page.getByRole("heading", { name: "暂无清单" })).toBeVisible();
 
   await page.getByRole("button", { name: "新建任务", exact: true }).click();
@@ -304,6 +320,43 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(detail.getByText("Owner comment from E2E")).toBeVisible();
   await detail.getByRole("button", { name: "关闭" }).click();
   await expect(detail).toBeHidden();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
+  await page.getByPlaceholder("搜索任务、负责人或标签").fill(secondLevelSubTaskTitle);
+  await expect(page.getByRole("button", { name: new RegExp(taskTitle) })).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(secondLevelSubTaskTitle) })).toHaveCount(0);
+  await page.getByPlaceholder("搜索任务、负责人或标签").clear();
+
+  await projectMenu.getByRole("link", { name: "列表" }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/list$`));
+  await expect(page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "列表" })).toHaveAttribute(
+    "aria-current",
+    "page"
+  );
+  const taskListHead = page.locator(".project-task-list-head");
+  await expect(taskListHead.getByText("任务标题", { exact: true })).toBeVisible();
+  await expect(taskListHead.getByText("优先级", { exact: true })).toBeVisible();
+  await expect(taskListHead.getByText("截止时间", { exact: true })).toBeVisible();
+  await expect(taskListHead.getByText("负责人", { exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder("搜索任务、负责人或标签")).toBeVisible();
+  await expect(page.locator(".board-filters select").first()).toHaveValue("ALL");
+  await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "设置" }).click();
+  await expect(page.getByRole("heading", { name: "项目设置" })).toBeVisible();
+  await page.getByRole("button", { name: `← 返回 E2E Project ${runId}` }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/list$`));
+  const defaultListGroup = page.locator(".project-task-list-group").filter({ hasText: "默认清单" });
+  const defaultListTaskTitles = defaultListGroup.locator(".project-task-title-button");
+  await expect(defaultListTaskTitles.filter({ hasText: taskTitle })).toBeVisible();
+  await expect(defaultListTaskTitles.filter({ hasText: subTaskTitle })).toBeVisible();
+  await expect(defaultListTaskTitles.filter({ hasText: secondLevelSubTaskTitle })).toBeVisible();
+  await defaultListGroup.getByRole("button", { name: /默认清单/ }).first().click();
+  await expect(defaultListTaskTitles.filter({ hasText: taskTitle })).toHaveCount(0);
+  await defaultListGroup.getByRole("button", { name: /默认清单/ }).first().click();
+  await defaultListTaskTitles.filter({ hasText: taskTitle }).click();
+  await expect(page).toHaveURL(new RegExp(`/tasks/${taskId}$`));
+  await expect(detail).toBeVisible();
+  await detail.getByRole("button", { name: "关闭" }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/list$`));
+  await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "看板" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
 
   await apiRequest<TaskListResponse>("POST", `/projects/${projectId}/lists`, {

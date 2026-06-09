@@ -20,7 +20,29 @@ function toTeamSummary(team: { id: string; name: string; createdAt: Date; update
   };
 }
 
+async function assertTeamNameUnique(name: string, excludeTeamId?: string) {
+  const existingTeam = await prisma.team.findFirst({
+    where: {
+      name,
+      deletedAt: null,
+      ...(excludeTeamId
+        ? {
+            id: {
+              not: excludeTeamId
+            }
+          }
+        : {})
+    }
+  });
+
+  if (existingTeam) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Team name already exists", 422);
+  }
+}
+
 export async function createTeam(userId: string, input: CreateTeamInput) {
+  await assertTeamNameUnique(input.name);
+
   const team = await prisma.team.create({
     data: {
       name: input.name,
@@ -75,6 +97,9 @@ export async function getTeam(userId: string, teamId: string) {
 
 export async function updateTeam(userId: string, teamId: string, input: UpdateTeamInput) {
   await requireTeamOwner(userId, teamId);
+  if (input.name) {
+    await assertTeamNameUnique(input.name, teamId);
+  }
 
   const team = await prisma.team.update({
     where: {

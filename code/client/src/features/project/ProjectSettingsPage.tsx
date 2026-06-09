@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { MutationError } from "../../components/shared/MutationError";
 import { UserAvatar } from "../../components/shared/UserAvatar";
@@ -11,6 +11,7 @@ import { useAuthStore } from "../../stores/authStore";
 
 export function ProjectSettingsPage() {
   const { projectId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -50,6 +51,11 @@ export function ProjectSettingsPage() {
     teamMembersQuery.data
   );
   const isArchived = projectQuery.data?.status === "ARCHIVED";
+  const locationState = location.state as { returnTo?: string } | null;
+  const fallbackReturnPath = projectId ? `/projects/${projectId}/board` : "/dashboard";
+  const returnPath =
+    locationState?.returnTo?.startsWith(projectId ? `/projects/${projectId}/` : "") ? locationState.returnTo : fallbackReturnPath;
+  const returnLabel = `← 返回 ${projectQuery.data?.name ?? "项目"}`;
 
   const invitationsQuery = useQuery({
     queryKey: ["project-invitations", projectId],
@@ -166,6 +172,15 @@ export function ProjectSettingsPage() {
   return (
     <div className="page">
       <div className="page-heading">
+        {projectId ? (
+          <button
+            className="back-button"
+            type="button"
+            onClick={() => navigate(returnPath)}
+          >
+            {returnLabel}
+          </button>
+        ) : null}
         <h1>项目设置</h1>
         <p>管理项目基础信息、成员和生命周期。</p>
       </div>

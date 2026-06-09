@@ -234,7 +234,7 @@ export function DashboardPage() {
             </button>
           </form>
           <MutationError error={createTeamMutation.error} />
-          <div className="list">
+          <div className="list dashboard-compact-scroll-list">
             {teamsQuery.isLoading ? <span className="muted">团队加载中...</span> : null}
             {teams.map((team) => (
               <div className={team.id === activeTeamId ? "list-row selected" : "list-row"} key={team.id}>
@@ -272,7 +272,7 @@ export function DashboardPage() {
             </form>
           ) : null}
           <MutationError error={createProjectMutation.error} />
-          <div className="list">
+          <div className="list dashboard-compact-scroll-list">
             {projectsQuery.isLoading ? <span className="muted">项目加载中...</span> : null}
             {(projectsQuery.data ?? []).map((project) => (
               <div className="list-row" key={project.id}>
@@ -284,11 +284,6 @@ export function DashboardPage() {
                   <Link className="mini-link" to={`/projects/${project.id}/board`}>
                     看板
                   </Link>
-                  {canManageActiveTeamProjects || project.role === "OWNER" ? (
-                    <Link className="mini-link" to={`/projects/${project.id}/settings`}>
-                      设置
-                    </Link>
-                  ) : null}
                 </div>
               </div>
             ))}

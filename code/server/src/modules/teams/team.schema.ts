@@ -4,7 +4,7 @@ import { z } from "zod";
 const emailSchema = z.string().trim().email().transform((email) => email.toLowerCase());
 
 export const createTeamSchema = z.object({
-  name: z.string().min(1).max(80)
+  name: z.string().trim().min(1).max(80)
 });
 
 export const teamIdParamsSchema = z.object({

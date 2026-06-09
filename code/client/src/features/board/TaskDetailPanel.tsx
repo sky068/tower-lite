@@ -281,6 +281,7 @@ export function TaskDetailPanel({
       setIsSubTaskAssigneeOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
     }
   });
 
@@ -298,7 +299,8 @@ export function TaskDetailPanel({
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] }),
-        queryClient.invalidateQueries({ queryKey: ["board", projectId] })
+        queryClient.invalidateQueries({ queryKey: ["board", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] })
       ]);
     }
   });
@@ -314,7 +316,8 @@ export function TaskDetailPanel({
       onTaskMoved?.(targetTaskListId);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] }),
-        queryClient.invalidateQueries({ queryKey: ["board", projectId] })
+        queryClient.invalidateQueries({ queryKey: ["board", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] })
       ]);
     }
   });
@@ -334,6 +337,7 @@ export function TaskDetailPanel({
       void queryClient.invalidateQueries({ queryKey: ["tags", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
     }
   });
 
@@ -343,6 +347,7 @@ export function TaskDetailPanel({
       void queryClient.invalidateQueries({ queryKey: ["tags", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
     }
   });
 
@@ -364,6 +369,7 @@ export function TaskDetailPanel({
     mutationFn: () => boardApi.deleteTask(activeTaskId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
       onClose();
     }
   });

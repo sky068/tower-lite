@@ -12,6 +12,7 @@ import {
   deleteTaskList,
   getTask,
   listComments,
+  listProjectTaskListView,
   listProjectTaskLists,
   moveTask,
   reorderTaskLists,
@@ -92,6 +93,15 @@ taskRoutes.delete(
       req.params.listId,
       req.body
     );
+    return sendData(req, res, data);
+  })
+);
+
+taskRoutes.get(
+  "/projects/:projectId/tasks",
+  validate("params", projectIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await listProjectTaskListView(getCurrentUserId(req), req.params.projectId);
     return sendData(req, res, data);
   })
 );

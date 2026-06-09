@@ -11,7 +11,7 @@ import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
 import { useAuthStore } from "../../stores/authStore";
-import type { TaskList, TaskStatus } from "../../types/api";
+import type { Task, TaskList, TaskStatus } from "../../types/api";
 
 function formatDate(value: string | null) {
   return value ? new Date(value).toLocaleDateString() : null;
@@ -66,6 +66,12 @@ export function ProjectBoardPage() {
   const listsQuery = useQuery({
     queryKey: ["board", projectId],
     queryFn: () => boardApi.lists(projectId!),
+    enabled: Boolean(projectId)
+  });
+
+  const fullListsQuery = useQuery({
+    queryKey: ["project-task-list", projectId],
+    queryFn: () => boardApi.taskListView(projectId!),
     enabled: Boolean(projectId)
   });
 
@@ -140,6 +146,7 @@ export function ProjectBoardPage() {
       setNewTaskDateError("");
       setIsCreateTaskOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
     }
   });
 
@@ -149,6 +156,7 @@ export function ProjectBoardPage() {
       setListName("");
       setListNameError("");
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
     }
   });
 
@@ -161,6 +169,7 @@ export function ProjectBoardPage() {
     onSuccess: () => {
       setDraggingTaskId(null);
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
     }
   });
 
@@ -172,6 +181,7 @@ export function ProjectBoardPage() {
       setEditingListId(null);
       setOpenListMenuId(null);
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
     }
   });
 
@@ -179,6 +189,7 @@ export function ProjectBoardPage() {
     mutationFn: (listId: string) => boardApi.deleteList(projectId!, listId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
     }
   });
 
@@ -188,6 +199,7 @@ export function ProjectBoardPage() {
     onSuccess: async () => {
       setDraggingListId(null);
       await queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
       setOrderedListIds([]);
       listDropCommittedRef.current = false;
     },
@@ -253,8 +265,10 @@ export function ProjectBoardPage() {
   function getFilteredTasks(columnId: string) {
     const keyword = taskSearch.trim().toLowerCase();
     const column = lists.find((list) => list.id === columnId);
+    const allTasks = (fullListsQuery.data ?? lists).flatMap((list) => list.tasks);
+    const taskById = new Map(allTasks.map((task) => [task.id, task]));
 
-    return (column?.tasks ?? []).filter((task) => {
+    function taskMatchesFilters(task: Task) {
       const matchesKeyword =
         !keyword ||
         task.title.toLowerCase().includes(keyword) ||
@@ -271,6 +285,30 @@ export function ProjectBoardPage() {
         (completionFilter === "DONE" && task.status === "DONE");
 
       return matchesKeyword && matchesAssignee && matchesPriority && matchesCompletion;
+    }
+
+    function isDescendantOfRoot(task: Task, rootTaskId: string) {
+      let parentId = task.parentId;
+
+      while (parentId) {
+        if (parentId === rootTaskId) {
+          return true;
+        }
+
+        parentId = taskById.get(parentId)?.parentId ?? null;
+      }
+
+      return false;
+    }
+
+    return (column?.tasks ?? []).filter((task) => {
+      return taskMatchesFilters(task) || allTasks.some((candidate) => {
+        if (candidate.id === task.id || !isDescendantOfRoot(candidate, task.id)) {
+          return false;
+        }
+
+        return taskMatchesFilters(candidate);
+      });
     });
   }
 
@@ -465,13 +503,28 @@ export function ProjectBoardPage() {
   return (
     <div className="page">
       <div className="page-heading">
-        <h1>项目看板</h1>
-        <p>V0.1 看板支持任务创建、任务详情、移动任务和两级子任务。</p>
-        {projectId && projectPermissions.canManageProject ? (
-          <Link className="text-link inline" to={`/projects/${projectId}/settings`}>
-            项目设置
+        <h1>{projectQuery.data?.name ?? "项目"}</h1>
+        <nav className="project-menu" aria-label="项目菜单">
+          <Link className="active" aria-current="page" to={`/projects/${projectId}/board`}>
+            看板
           </Link>
-        ) : null}
+          <Link to={`/projects/${projectId}/list`}>
+            列表
+          </Link>
+          {projectId && projectPermissions.canManageProject ? (
+            <Link
+              to={`/projects/${projectId}/settings`}
+              state={{ returnTo: location.pathname }}
+            >
+              设置
+            </Link>
+          ) : null}
+          {projectPermissions.canManageProject ? (
+            <button type="button" disabled>
+              回收站
+            </button>
+          ) : null}
+        </nav>
       </div>
       {isArchived ? (
         <section className="notice-panel">
