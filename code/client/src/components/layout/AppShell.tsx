@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, ListChecks } from "lucide-react";
+import { Bell, ListChecks, LogOut, Settings, X } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { MutationError } from "../shared/MutationError";
 import { authApi, userApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
 import { useRealtimeEvents } from "../../lib/realtime";
@@ -19,13 +20,30 @@ const realtimeStatusLabels = {
   reconnecting: "实时连接重连中"
 };
 
+function getInitials(name: string) {
+  return name.trim().slice(0, 2).toUpperCase();
+}
+
 export function AppShell() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, refreshToken, clearSession } = useAuthStore();
+  const { user, refreshToken, clearSession, updateUser } = useAuthStore();
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
+  const [notificationCenterFilter, setNotificationCenterFilter] = useState<"ALL" | "UNREAD">("ALL");
+  const [profileName, setProfileName] = useState(user?.name ?? "");
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState(user?.avatarUrl ?? "");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordFormError, setPasswordFormError] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
   const realtimeStatus = useRealtimeEvents();
 
   const notificationsQuery = useQuery({
@@ -48,19 +66,70 @@ export function AppShell() {
     }
   });
 
+  const updateProfileMutation = useMutation({
+    mutationFn: () =>
+      userApi.updateProfile({
+        name: profileName.trim(),
+        avatarUrl: profileAvatarUrl.trim() || null
+      }),
+    onSuccess: (updatedUser) => {
+      setProfileSaved(true);
+      try {
+        updateUser(updatedUser);
+        void queryClient.invalidateQueries({ queryKey: ["me"] });
+      } catch {
+        // The profile is saved on the server; a local cache write failure should not turn it into a failed save.
+      }
+    },
+    onError: () => {
+      setProfileSaved(false);
+    }
+  });
+
+  const updatePasswordMutation = useMutation({
+    mutationFn: () =>
+      userApi.updatePassword({
+        currentPassword,
+        newPassword
+      }),
+    onSuccess: () => {
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordFormError("");
+      setPasswordSaved(true);
+    },
+    onError: () => {
+      setPasswordSaved(false);
+    }
+  });
+
   const notifications = notificationsQuery.data ?? [];
   const unreadCount = useMemo(
     () => notifications.filter((notification) => !notification.isRead).length,
     [notifications]
   );
   const recentNotifications = notifications.slice(0, 6);
+  const notificationCenterItems = useMemo(
+    () =>
+      notificationCenterFilter === "UNREAD"
+        ? notifications.filter((notification) => !notification.isRead)
+        : notifications,
+    [notificationCenterFilter, notifications]
+  );
 
   useEffect(() => {
     setIsNotificationsOpen(false);
+    setIsUserMenuOpen(false);
   }, [location.pathname]);
 
   useEffect(() => {
-    if (!isNotificationsOpen) {
+    setProfileName(user?.name ?? "");
+    setProfileAvatarUrl(user?.avatarUrl ?? "");
+  }, [user]);
+
+  useEffect(() => {
+    if (!isNotificationsOpen && !isUserMenuOpen) {
       return;
     }
 
@@ -68,12 +137,16 @@ export function AppShell() {
       if (!notificationsRef.current?.contains(event.target as Node)) {
         setIsNotificationsOpen(false);
       }
+
+      if (!userMenuRef.current?.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
 
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isNotificationsOpen]);
+  }, [isNotificationsOpen, isUserMenuOpen]);
 
   async function handleLogout() {
     const tokenToRevoke = refreshToken;
@@ -94,6 +167,47 @@ export function AppShell() {
       markNotificationReadMutation.mutate(notification.id);
     }
     setIsNotificationsOpen(false);
+    setIsNotificationCenterOpen(false);
+  }
+
+  function handleOpenNotificationCenter() {
+    setIsNotificationsOpen(false);
+    setIsNotificationCenterOpen(true);
+  }
+
+  function handleOpenAccountSettings() {
+    setIsUserMenuOpen(false);
+    setIsAccountSettingsOpen(true);
+    setProfileName(user?.name ?? "");
+    setProfileAvatarUrl(user?.avatarUrl ?? "");
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordFormError("");
+    setProfileSaved(false);
+    setPasswordSaved(false);
+  }
+
+  function handleUpdateProfile(event: FormEvent) {
+    event.preventDefault();
+
+    if (profileName.trim()) {
+      setProfileSaved(false);
+      updateProfileMutation.mutate();
+    }
+  }
+
+  function handleUpdatePassword(event: FormEvent) {
+    event.preventDefault();
+
+    if (newPassword !== confirmPassword) {
+      setPasswordFormError("两次输入的新密码不一致。");
+      return;
+    }
+
+    setPasswordFormError("");
+    setPasswordSaved(false);
+    updatePasswordMutation.mutate();
   }
 
   return (
@@ -184,17 +298,252 @@ export function AppShell() {
                       <span className="muted">暂无通知</span>
                     ) : null}
                   </div>
-                  <Link className="notification-footer" to="/dashboard">
+                  <button className="notification-footer" type="button" onClick={handleOpenNotificationCenter}>
                     查看全部
-                  </Link>
+                  </button>
                 </section>
               ) : null}
             </div>
-            <button className="text-button" type="button" onClick={() => void handleLogout()}>
-              退出
-            </button>
+            <div className="user-menu" ref={userMenuRef}>
+              <button
+                className="avatar-button"
+                aria-label="用户菜单"
+                aria-expanded={isUserMenuOpen}
+                type="button"
+                onClick={() => setIsUserMenuOpen((current) => !current)}
+              >
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} alt={user.name} />
+                ) : (
+                  <span>{user ? getInitials(user.name) : "我"}</span>
+                )}
+              </button>
+              {isUserMenuOpen ? (
+                <section className="user-popover" aria-label="用户菜单">
+                  <header className="user-popover-header">
+                    <div className="user-popover-avatar">
+                      {user?.avatarUrl ? (
+                        <img src={user.avatarUrl} alt={user.name} />
+                      ) : (
+                        <span>{user ? getInitials(user.name) : "我"}</span>
+                      )}
+                    </div>
+                    <div>
+                      <strong>{user?.name}</strong>
+                      <span>{user?.email}</span>
+                    </div>
+                  </header>
+                  <div className="user-popover-actions">
+                    <button type="button" onClick={handleOpenAccountSettings}>
+                      <Settings size={16} />
+                      <span>设置</span>
+                    </button>
+                    <button type="button" onClick={() => void handleLogout()}>
+                      <LogOut size={16} />
+                      <span>退出</span>
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+            </div>
           </div>
         </header>
+        {isAccountSettingsOpen ? (
+          <div className="modal-backdrop">
+            <section className="modal account-settings-modal" aria-label="账号设置">
+              <header className="modal-header">
+                <h2>账号设置</h2>
+                <button
+                  className="icon-button modal-close-button"
+                  type="button"
+                  aria-label="关闭账号设置"
+                  title="关闭"
+                  onClick={() => setIsAccountSettingsOpen(false)}
+                >
+                  <X size={18} />
+                </button>
+              </header>
+              <div className="account-settings-content">
+                <form className="modal-form" onSubmit={handleUpdateProfile}>
+                  <h3>个人资料</h3>
+                  <label>
+                    名字
+                    <input
+                      value={profileName}
+                      onChange={(event) => {
+                        setProfileName(event.target.value);
+                        setProfileSaved(false);
+                      }}
+                      required
+                    />
+                  </label>
+                  <label>
+                    头像 URL
+                    <input
+                      value={profileAvatarUrl}
+                      onChange={(event) => {
+                        setProfileAvatarUrl(event.target.value);
+                        setProfileSaved(false);
+                      }}
+                      placeholder="https://example.com/avatar.png"
+                    />
+                  </label>
+                  <button type="submit" disabled={updateProfileMutation.isPending || !profileName.trim()}>
+                    保存资料
+                  </button>
+                  {profileSaved ? <span className="success-text">资料已保存。</span> : null}
+                  <MutationError error={updateProfileMutation.error} />
+                </form>
+                <form className="modal-form" onSubmit={handleUpdatePassword}>
+                  <h3>修改密码</h3>
+                  <label>
+                    当前密码
+                    <input
+                      type="password"
+                      value={currentPassword}
+                      onChange={(event) => {
+                        setCurrentPassword(event.target.value);
+                        setPasswordSaved(false);
+                      }}
+                      required
+                    />
+                  </label>
+                  <label>
+                    新密码
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(event) => {
+                        setNewPassword(event.target.value);
+                        setPasswordFormError("");
+                        setPasswordSaved(false);
+                      }}
+                      minLength={8}
+                      required
+                    />
+                  </label>
+                  <label>
+                    确认新密码
+                    <input
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(event) => {
+                        setConfirmPassword(event.target.value);
+                        setPasswordFormError("");
+                        setPasswordSaved(false);
+                      }}
+                      minLength={8}
+                      required
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={updatePasswordMutation.isPending || !currentPassword || !newPassword}
+                  >
+                    更新密码
+                  </button>
+                  {passwordFormError ? <span className="error-text">{passwordFormError}</span> : null}
+                  {passwordSaved ? <span className="success-text">密码已更新。</span> : null}
+                  <MutationError error={updatePasswordMutation.error} />
+                </form>
+              </div>
+            </section>
+          </div>
+        ) : null}
+        {isNotificationCenterOpen ? (
+          <div className="modal-backdrop">
+            <section className="modal notification-center-modal" aria-label="全部通知">
+              <header className="modal-header">
+                <div>
+                  <h2>全部通知</h2>
+                  <span>{unreadCount > 0 ? `${unreadCount} 条未读` : "没有未读通知"}</span>
+                </div>
+                <button
+                  className="icon-button modal-close-button"
+                  type="button"
+                  aria-label="关闭全部通知"
+                  title="关闭"
+                  onClick={() => setIsNotificationCenterOpen(false)}
+                >
+                  <X size={18} />
+                </button>
+              </header>
+              <div className="notification-center-toolbar">
+                <select
+                  className="compact-select"
+                  value={notificationCenterFilter}
+                  onChange={(event) =>
+                    setNotificationCenterFilter(event.target.value as typeof notificationCenterFilter)
+                  }
+                >
+                  <option value="ALL">全部</option>
+                  <option value="UNREAD">未读</option>
+                </select>
+                <button
+                  className="subtle-button"
+                  type="button"
+                  disabled={unreadCount === 0 || markAllNotificationsReadMutation.isPending}
+                  onClick={() => markAllNotificationsReadMutation.mutate()}
+                >
+                  全部已读
+                </button>
+              </div>
+              <div className="notification-center-list">
+                {notificationsQuery.isLoading ? <span className="muted">通知加载中...</span> : null}
+                {notificationCenterItems.map((notification) => (
+                  <div
+                    className={
+                      notification.isRead
+                        ? "notification-center-row"
+                        : "notification-center-row unread"
+                    }
+                    key={notification.id}
+                  >
+                    {notification.link ? (
+                      <Link
+                        className="row-main"
+                        to={notification.link}
+                        state={{ backgroundLocation: location, returnTo: location.pathname }}
+                        onClick={() => handleOpenNotification(notification)}
+                      >
+                        <strong>{notification.title}</strong>
+                        <span>{notification.content}</span>
+                        <time dateTime={notification.createdAt}>
+                          {formatRelativeTime(notification.createdAt)}
+                        </time>
+                      </Link>
+                    ) : (
+                      <button
+                        className="row-main"
+                        type="button"
+                        onClick={() => handleOpenNotification(notification)}
+                      >
+                        <strong>{notification.title}</strong>
+                        <span>{notification.content}</span>
+                        <time dateTime={notification.createdAt}>
+                          {formatRelativeTime(notification.createdAt)}
+                        </time>
+                      </button>
+                    )}
+                    <button
+                      className="mini-button"
+                      type="button"
+                      disabled={notification.isRead || markNotificationReadMutation.isPending}
+                      onClick={() => markNotificationReadMutation.mutate(notification.id)}
+                    >
+                      已读
+                    </button>
+                  </div>
+                ))}
+                {!notificationsQuery.isLoading && notificationCenterItems.length === 0 ? (
+                  <span className="muted">
+                    {notificationCenterFilter === "UNREAD" ? "暂无未读通知" : "暂无通知"}
+                  </span>
+                ) : null}
+              </div>
+            </section>
+          </div>
+        ) : null}
         <section className="content">
           <Outlet />
         </section>

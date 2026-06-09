@@ -40,6 +40,26 @@ Content-Type: application/json
 GET {{baseUrl}}/users/me
 Authorization: Bearer {{accessToken}}
 
+### Update profile
+PATCH {{baseUrl}}/users/me/profile
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Demo User",
+  "avatarUrl": "https://example.com/avatar.png"
+}
+
+### Update password
+PATCH {{baseUrl}}/users/me/password
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "currentPassword": "password123",
+  "newPassword": "password456"
+}
+
 ### Create team
 POST {{baseUrl}}/teams
 Authorization: Bearer {{accessToken}}

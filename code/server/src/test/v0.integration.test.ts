@@ -21,6 +21,7 @@ type AuthResponse = {
     id: string;
     email: string;
     name: string;
+    avatarUrl: string | null;
   };
 };
 
@@ -486,6 +487,45 @@ describe("V0 HTTP integration", () => {
     const invitedTeamMember = await registerUser("InvitedTeamMember");
     const invitedProjectMember = await registerUser("InvitedProjectMember");
     const concurrentProjectInvitee = await registerUser("ConcurrentProjectInvitee");
+
+    const updatedOwner = (await request<AuthResponse["user"]>("PATCH", "/api/v1/users/me/profile", {
+      token: owner.token,
+      body: {
+        name: "Updated Owner",
+        avatarUrl: "https://example.com/avatar.png"
+      }
+    })).data;
+    assert.equal(updatedOwner.name, "Updated Owner");
+    assert.equal(updatedOwner.avatarUrl, "https://example.com/avatar.png");
+
+    await request<{ ok: boolean }>("PATCH", "/api/v1/users/me/password", {
+      token: owner.token,
+      expectedStatus: 401,
+      body: {
+        currentPassword: "wrong-password",
+        newPassword: "Password456!"
+      }
+    });
+    await request<{ ok: boolean }>("PATCH", "/api/v1/users/me/password", {
+      token: owner.token,
+      body: {
+        currentPassword: "Password123!",
+        newPassword: "Password456!"
+      }
+    });
+    await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      expectedStatus: 401,
+      body: {
+        email: owner.email,
+        password: "Password123!"
+      }
+    });
+    await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      body: {
+        email: owner.email,
+        password: "Password456!"
+      }
+    });
 
     const team = (await request<TeamResponse>("POST", "/api/v1/teams", {
       token: owner.token,

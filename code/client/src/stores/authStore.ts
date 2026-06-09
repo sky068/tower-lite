@@ -6,6 +6,7 @@ type AuthState = {
   refreshToken: string | null;
   user: User | null;
   setSession: (session: { accessToken: string; refreshToken: string; user: User }) => void;
+  updateUser: (user: User) => void;
   clearSession: () => void;
 };
 
@@ -32,6 +33,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.setItem("tower.refreshToken", session.refreshToken);
     localStorage.setItem("tower.user", JSON.stringify(session.user));
     set(session);
+  },
+  updateUser: (user) => {
+    localStorage.setItem("tower.user", JSON.stringify(user));
+    set({ user });
   },
   clearSession: () => {
     localStorage.removeItem("tower.accessToken");

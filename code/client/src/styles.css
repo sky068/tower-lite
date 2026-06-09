@@ -127,8 +127,32 @@ input[type="date"]:not(:disabled) {
   position: relative;
 }
 
+.user-menu {
+  position: relative;
+}
+
 .notification-button {
   color: #334155;
+}
+
+.avatar-button {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #d9dee7;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.avatar-button img,
+.user-popover-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .notification-badge {
@@ -153,7 +177,8 @@ input[type="date"]:not(:disabled) {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   width: min(360px, calc(100vw - 32px));
   max-height: 420px;
   overflow: hidden;
@@ -162,6 +187,83 @@ input[type="date"]:not(:disabled) {
   background: #ffffff;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
   z-index: 50;
+}
+
+.user-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(300px, calc(100vw - 32px));
+  overflow: hidden;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
+  z-index: 50;
+}
+
+.user-popover-header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 12px;
+}
+
+.user-popover-avatar {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.user-popover-header div:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.user-popover-header strong {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.user-popover-header span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.user-popover-actions {
+  display: grid;
+  padding: 6px;
+}
+
+.user-popover-actions button {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #334155;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.user-popover-actions button:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .notification-popover-header {
@@ -176,7 +278,9 @@ input[type="date"]:not(:disabled) {
 .notification-list {
   display: grid;
   gap: 4px;
-  overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 8px;
 }
 
@@ -217,11 +321,21 @@ input[type="date"]:not(:disabled) {
 }
 
 .notification-footer {
+  display: block;
+  flex: 0 0 auto;
+  width: 100%;
+  border: 0;
   border-top: 1px solid #e2e8f0;
+  background: #ffffff;
   color: #2563eb;
+  cursor: pointer;
   padding: 10px 12px;
   text-align: center;
   text-decoration: none;
+}
+
+.notification-footer:hover {
+  background: #eff6ff;
 }
 
 .text-button {
@@ -455,6 +569,10 @@ input[type="date"]:not(:disabled) {
   scrollbar-width: none;
 }
 
+.dashboard-task-panel {
+  grid-column: 1 / -1;
+}
+
 .settings-scroll-list {
   max-height: min(var(--scroll-list-five-half-height), 50vh);
   overflow-y: auto;
@@ -563,35 +681,46 @@ input[type="date"]:not(:disabled) {
   background: #eff6ff;
 }
 
-.dashboard-notification-row {
+.notification-center-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 12px;
   min-height: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px 12px;
 }
 
-.dashboard-notification-row .row-main {
+.notification-center-row.unread {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.notification-center-row .row-main {
   min-width: 0;
   gap: 4px;
+  text-align: left;
+  text-decoration: none;
 }
 
-.dashboard-notification-row strong,
-.dashboard-notification-row span,
-.dashboard-notification-row time {
+.notification-center-row strong,
+.notification-center-row span,
+.notification-center-row time {
   overflow-wrap: anywhere;
   line-height: 1.35;
 }
 
-.dashboard-notification-row strong {
+.notification-center-row strong {
   font-size: 14px;
 }
 
-.dashboard-notification-row span {
+.notification-center-row span {
   font-size: 12px;
 }
 
-.dashboard-notification-row .mini-button {
+.notification-center-row .mini-button {
   align-self: start;
   white-space: nowrap;
 }
@@ -1054,9 +1183,30 @@ select[multiple] {
   font-size: 18px;
 }
 
+.modal-header > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.modal-header > div > span {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.modal-close-button {
+  flex: 0 0 auto;
+}
+
 .modal-form {
   display: grid;
   gap: 12px;
+}
+
+.modal-form h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 15px;
 }
 
 .modal-form label {
@@ -1084,6 +1234,48 @@ select[multiple] {
   background: #2563eb;
   color: #ffffff;
   padding: 0 14px;
+}
+
+.account-settings-modal {
+  width: min(680px, 100%);
+}
+
+.account-settings-content {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.notification-center-modal {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(720px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+}
+
+.notification-center-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notification-center-list {
+  display: grid;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.success-text {
+  color: #15803d;
+  font-size: 13px;
+}
+
+.error-text {
+  color: #b91c1c;
+  font-size: 13px;
 }
 
 .form-grid-2 {
@@ -1643,6 +1835,10 @@ select[multiple] {
   }
 
   .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .account-settings-content {
     grid-template-columns: 1fr;
   }
 

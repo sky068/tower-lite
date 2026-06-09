@@ -46,6 +46,7 @@ type UserFixture = {
 const password = "Password123!";
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const emailDomain = `${runId}.e2e.test`;
+const apiPort = Number(process.env.PLAYWRIGHT_API_PORT ?? 4000);
 
 let api: APIRequestContext;
 let owner: UserFixture;
@@ -125,6 +126,7 @@ async function findTaskIdByTitle(title: string) {
 }
 
 async function logout(page: Page) {
+  await page.getByRole("button", { name: "用户菜单" }).click();
   await page.getByRole("button", { name: "退出" }).click();
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem("tower.accessToken")))
@@ -133,7 +135,7 @@ async function logout(page: Page) {
 
 test.beforeAll(async () => {
   api = await request.newContext({
-    baseURL: "http://127.0.0.1:4000/api/v1/",
+    baseURL: `http://127.0.0.1:${apiPort}/api/v1/`,
     extraHTTPHeaders: {
       "content-type": "application/json"
     }
@@ -314,8 +316,16 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await editorPage.getByRole("button", { name: "关闭" }).click();
   await expect(editorPage).toHaveURL(/\/dashboard$/);
   await expect(editorPage.getByRole("heading", { name: "工作台" })).toBeVisible();
-  await expect(editorPage.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(taskTitle)}`) })).toBeVisible();
-  await expect(editorPage.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(subTaskTitle)}`) })).toBeVisible();
+  await editorPage.getByRole("button", { name: "通知" }).click();
+  await editorPage.getByRole("button", { name: "查看全部" }).click();
+  const allNotifications = editorPage.getByRole("region", { name: "全部通知" });
+  await expect(allNotifications).toBeVisible();
+  await expect(
+    allNotifications.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(taskTitle)}`) })
+  ).toBeVisible();
+  await expect(
+    allNotifications.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(subTaskTitle)}`) })
+  ).toBeVisible();
 
   await apiRequest("POST", `/tasks/${taskId}/comments`, {
     token: owner.token,
@@ -324,7 +334,9 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
       content: "Realtime comment notification from owner"
     }
   });
-  await expect(editorPage.getByText("Realtime comment notification from owner")).toBeVisible();
+  await expect(allNotifications.getByText("Realtime comment notification from owner")).toBeVisible();
+  await allNotifications.getByRole("button", { name: "关闭全部通知" }).click();
+  await expect(allNotifications).toBeHidden();
 
   await editorPage.goto(`/tasks/${taskId}`);
   await expect(editorPage.getByRole("link", { name: "返回工作台" })).toBeVisible();
@@ -335,6 +347,28 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(editorPage.getByRole("button", { name: "新建任务" })).toBeVisible();
   await expect(editorPage.getByRole("button", { name: "添加列表" })).toHaveCount(0);
   await editorContext.close();
+
+  await page.getByRole("button", { name: "用户菜单" }).click();
+  await expect(page.getByText(owner.email)).toBeVisible();
+  await page.getByRole("button", { name: "设置" }).click();
+  const accountSettings = page.getByRole("region", { name: "账号设置" });
+  await expect(accountSettings).toBeVisible();
+  await accountSettings.getByLabel("名字").fill("E2E Captain");
+  await accountSettings.getByLabel("头像 URL").fill("https://example.com/avatar.png");
+  const profileResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/api/v1/users/me/profile")
+  );
+  await accountSettings.getByRole("button", { name: "保存资料" }).click();
+  const profileResponse = await profileResponsePromise;
+  expect(profileResponse.status(), await profileResponse.text()).toBe(200);
+  await expect(accountSettings.getByText("资料已保存。")).toBeVisible();
+  await accountSettings.getByLabel("当前密码").fill(password);
+  await accountSettings.getByLabel("新密码", { exact: true }).fill("Password456!");
+  await accountSettings.getByLabel("确认新密码").fill("Password456!");
+  await accountSettings.getByRole("button", { name: "更新密码" }).click();
+  await expect(accountSettings.getByText("密码已更新。")).toBeVisible();
+  await accountSettings.getByRole("button", { name: "关闭账号设置" }).click();
+  await expect(accountSettings).toBeHidden();
 
   await logout(page);
   await login(page, viewer);

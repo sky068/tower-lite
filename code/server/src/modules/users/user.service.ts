@@ -1,5 +1,16 @@
+import bcrypt from "bcryptjs";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
+import type { UpdatePasswordInput, UpdateProfileInput } from "./user.schema.js";
+
+function toPublicUser(user: { id: string; email: string; name: string; avatarUrl: string | null }) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    avatarUrl: user.avatarUrl
+  };
+}
 
 export async function getCurrentUser(userId: string) {
   const user = await prisma.user.findFirst({
@@ -14,12 +25,66 @@ export async function getCurrentUser(userId: string) {
   }
 
   return {
-    id: user.id,
-    email: user.email,
-    name: user.name,
-    avatarUrl: user.avatarUrl,
+    ...toPublicUser(user),
     feishuBound: Boolean(user.feishuOpenId || user.feishuUnionId)
   };
+}
+
+export async function updateProfile(userId: string, input: UpdateProfileInput) {
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    }
+  });
+
+  if (!user) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: {
+      id: userId
+    },
+    data: {
+      name: input.name,
+      avatarUrl: input.avatarUrl === undefined ? user.avatarUrl : input.avatarUrl
+    }
+  });
+
+  return toPublicUser(updatedUser);
+}
+
+export async function updatePassword(userId: string, input: UpdatePasswordInput) {
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    }
+  });
+
+  if (!user?.passwordHash) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Password login is not enabled for this account", 422);
+  }
+
+  const isValidPassword = await bcrypt.compare(input.currentPassword, user.passwordHash);
+
+  if (!isValidPassword) {
+    throw new AppError("UNAUTHORIZED", "Current password is incorrect", 401);
+  }
+
+  const passwordHash = await bcrypt.hash(input.newPassword, 12);
+
+  await prisma.user.update({
+    where: {
+      id: userId
+    },
+    data: {
+      passwordHash
+    }
+  });
+
+  return { ok: true };
 }
 
 export async function listMyTasks(userId: string) {

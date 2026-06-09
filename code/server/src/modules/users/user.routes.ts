@@ -3,13 +3,15 @@ import { getCurrentUserId, requireAuth } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import { asyncHandler } from "../../utils/async-handler.js";
 import { sendData } from "../../utils/api-response.js";
-import { notificationIdParamsSchema } from "./user.schema.js";
+import { notificationIdParamsSchema, updatePasswordSchema, updateProfileSchema } from "./user.schema.js";
 import {
   getCurrentUser,
   listMyTasks,
   listNotifications,
   markAllNotificationsRead,
-  markNotificationRead
+  markNotificationRead,
+  updatePassword,
+  updateProfile
 } from "./user.service.js";
 
 export const userRoutes = Router();
@@ -20,6 +22,24 @@ userRoutes.get(
   "/users/me",
   asyncHandler(async (req, res) => {
     const data = await getCurrentUser(getCurrentUserId(req));
+    return sendData(req, res, data);
+  })
+);
+
+userRoutes.patch(
+  "/users/me/profile",
+  validate("body", updateProfileSchema),
+  asyncHandler(async (req, res) => {
+    const data = await updateProfile(getCurrentUserId(req), req.body);
+    return sendData(req, res, data);
+  })
+);
+
+userRoutes.patch(
+  "/users/me/password",
+  validate("body", updatePasswordSchema),
+  asyncHandler(async (req, res) => {
+    const data = await updatePassword(getCurrentUserId(req), req.body);
     return sendData(req, res, data);
   })
 );

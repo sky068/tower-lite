@@ -1,5 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const apiPort = Number(process.env.PLAYWRIGHT_API_PORT ?? 4000);
+const clientPort = Number(process.env.PLAYWRIGHT_CLIENT_PORT ?? 5173);
+const apiOrigin = `http://127.0.0.1:${apiPort}`;
+const clientOrigin = `http://127.0.0.1:${clientPort}`;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 60_000,
@@ -9,7 +14,7 @@ export default defineConfig({
   fullyParallel: false,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    baseURL: clientOrigin,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -17,14 +22,14 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: "npm run dev:server",
-      url: "http://127.0.0.1:4000/api/v1/health",
+      command: `API_PORT=${apiPort} npm run dev:server`,
+      url: `${apiOrigin}/api/v1/health`,
       reuseExistingServer: true,
       timeout: 120_000
     },
     {
-      command: "npm run dev:client",
-      url: "http://127.0.0.1:5173",
+      command: `VITE_PORT=${clientPort} VITE_API_TARGET=${apiOrigin} npm run dev:client`,
+      url: clientOrigin,
       reuseExistingServer: true,
       timeout: 120_000
     }

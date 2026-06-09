@@ -3,7 +3,6 @@ import { FormEvent, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi, userApi } from "../../lib/api";
-import { formatRelativeTime } from "../../lib/dateTime";
 import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
 import type { MyTask } from "../../types/api";
 
@@ -63,7 +62,6 @@ export function DashboardPage() {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [taskSearch, setTaskSearch] = useState("");
   const [taskStatusFilter, setTaskStatusFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
-  const [notificationFilter, setNotificationFilter] = useState<"UNREAD" | "ALL">("ALL");
 
   const teamsQuery = useQuery({
     queryKey: ["teams"],
@@ -82,11 +80,6 @@ export function DashboardPage() {
   const myTasksQuery = useQuery({
     queryKey: ["my-tasks"],
     queryFn: userApi.myTasks
-  });
-
-  const notificationsQuery = useQuery({
-    queryKey: ["notifications"],
-    queryFn: userApi.notifications
   });
 
   const activeTeam = useMemo(
@@ -163,14 +156,6 @@ export function DashboardPage() {
 
     return nodes;
   }, [myTaskDisplay]);
-  const filteredNotifications = useMemo(() => {
-    const notifications = notificationsQuery.data ?? [];
-
-    return notificationFilter === "UNREAD"
-      ? notifications.filter((notification) => !notification.isRead)
-      : notifications;
-  }, [notificationFilter, notificationsQuery.data]);
-
   const createTeamMutation = useMutation({
     mutationFn: teamApi.create,
     onSuccess: (team) => {
@@ -188,20 +173,6 @@ export function DashboardPage() {
     }
   });
 
-  const markAllNotificationsReadMutation = useMutation({
-    mutationFn: userApi.markAllNotificationsRead,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    }
-  });
-
-  const markNotificationReadMutation = useMutation({
-    mutationFn: userApi.markNotificationRead,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
-    }
-  });
-
   function handleCreateTeam(event: FormEvent) {
     event.preventDefault();
     createTeamMutation.mutate({ name: teamName });
@@ -211,12 +182,6 @@ export function DashboardPage() {
     event.preventDefault();
     if (activeTeamId && canCreateProject) {
       createProjectMutation.mutate(projectName);
-    }
-  }
-
-  function handleNotificationLinkClick(notification: { id: string; isRead: boolean }) {
-    if (!notification.isRead) {
-      markNotificationReadMutation.mutate(notification.id);
     }
   }
 
@@ -308,7 +273,7 @@ export function DashboardPage() {
       </div>
 
       <div className="dashboard-grid">
-        <section className="panel dashboard-scroll-panel">
+        <section className="panel dashboard-scroll-panel dashboard-task-panel">
           <div className="panel-title-row">
             <h2>我的任务</h2>
             <select
@@ -357,83 +322,6 @@ export function DashboardPage() {
             ))}
             {!myTasksQuery.isLoading && myTaskTree.length === 0 ? (
               <span className="muted">没有匹配的任务</span>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="panel dashboard-scroll-panel">
-          <div className="panel-title-row">
-            <h2>通知</h2>
-            <div className="panel-title-actions">
-              <select
-                className="compact-select"
-                value={notificationFilter}
-                onChange={(event) =>
-                  setNotificationFilter(event.target.value as typeof notificationFilter)
-                }
-              >
-                <option value="ALL">全部</option>
-                <option value="UNREAD">未读</option>
-              </select>
-              <button
-                className="subtle-button"
-                type="button"
-                onClick={() => markAllNotificationsReadMutation.mutate()}
-                disabled={markAllNotificationsReadMutation.isPending}
-              >
-                全部已读
-              </button>
-            </div>
-          </div>
-          <div className="list dashboard-scroll-list">
-            {notificationsQuery.isLoading ? <span className="muted">通知加载中...</span> : null}
-            {filteredNotifications.map((notification) => (
-              <div
-                className={
-                  notification.isRead
-                    ? "list-row dashboard-notification-row"
-                    : "list-row dashboard-notification-row unread"
-                }
-                key={notification.id}
-              >
-                {notification.link ? (
-                  <Link
-                    className="row-main"
-                    to={notification.link}
-                    state={{ backgroundLocation: location, returnTo: location.pathname }}
-                    onClick={() => {
-                      handleNotificationLinkClick(notification);
-                    }}
-                  >
-                    <strong>{notification.title}</strong>
-                    <span>{notification.content}</span>
-                    <time dateTime={notification.createdAt}>
-                      {formatRelativeTime(notification.createdAt)}
-                    </time>
-                  </Link>
-                ) : (
-                  <div className="row-main">
-                    <strong>{notification.title}</strong>
-                    <span>{notification.content}</span>
-                    <time dateTime={notification.createdAt}>
-                      {formatRelativeTime(notification.createdAt)}
-                    </time>
-                  </div>
-                )}
-                <button
-                  className="mini-button"
-                  type="button"
-                  onClick={() => markNotificationReadMutation.mutate(notification.id)}
-                  disabled={notification.isRead || markNotificationReadMutation.isPending}
-                >
-                  已读
-                </button>
-              </div>
-            ))}
-            {!notificationsQuery.isLoading && filteredNotifications.length === 0 ? (
-              <span className="muted">
-                {notificationFilter === "UNREAD" ? "暂无未读通知" : "暂无通知"}
-              </span>
             ) : null}
           </div>
         </section>
