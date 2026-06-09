@@ -59,11 +59,21 @@ type ProjectTrashResponse = {
     name: string;
     taskCount: number;
     deletedAt: string | null;
+    deletedBy: {
+      id: string;
+      name: string;
+      email: string;
+    } | null;
   }>;
   tasks: Array<{
     id: string;
     title: string;
     deletedAt: string | null;
+    deletedBy: {
+      id: string;
+      name: string;
+      email: string;
+    } | null;
     taskList: {
       id: string;
       name: string;
@@ -912,7 +922,11 @@ describe("V0 HTTP integration", () => {
     let projectTrash = (await request<ProjectTrashResponse>("GET", `/api/v1/projects/${project.id}/trash`, {
       token: owner.token
     })).data;
-    assert.ok(projectTrash.taskLists.some((list) => list.id === anotherList.id && list.taskCount === 1));
+    assert.ok(
+      projectTrash.taskLists.some(
+        (list) => list.id === anotherList.id && list.taskCount === 1 && list.deletedBy?.id === owner.id
+      )
+    );
     assert.ok(!projectTrash.tasks.some((trashTask) => trashTask.id === taskDeletedWithList.id));
 
     await request<{ ok: boolean }>(
@@ -1195,7 +1209,11 @@ describe("V0 HTTP integration", () => {
     const trashAfterTaskDelete = (await request<ProjectTrashResponse>("GET", `/api/v1/projects/${project.id}/trash`, {
       token: owner.token
     })).data;
-    assert.ok(trashAfterTaskDelete.tasks.some((trashTask) => trashTask.id === dueSoonTask.id));
+    assert.ok(
+      trashAfterTaskDelete.tasks.some(
+        (trashTask) => trashTask.id === dueSoonTask.id && trashTask.deletedBy?.id === owner.id
+      )
+    );
     await request<{ ok: boolean }>("PATCH", `/api/v1/tasks/${dueSoonTask.id}/restore`, {
       token: owner.token
     });

@@ -10,6 +10,10 @@ function formatDeletedAt(value: string | null) {
   return value ? formatCalendarDate(value) : "未知时间";
 }
 
+function formatDeletedBy(user: { name: string } | null) {
+  return user?.name ?? "未知成员";
+}
+
 export function ProjectTrashPage() {
   const { projectId } = useParams();
   const location = useLocation();
@@ -120,7 +124,7 @@ export function ProjectTrashPage() {
               <div className="trash-row-main">
                 <strong>{list.name}</strong>
                 <span>
-                  {list.taskCount} 个任务 · 删除于 {formatDeletedAt(list.deletedAt)}
+                  {list.taskCount} 个任务 · 删除人：{formatDeletedBy(list.deletedBy)} · 删除于 {formatDeletedAt(list.deletedAt)}
                 </span>
               </div>
               <div className="segmented-actions compact-actions">
@@ -168,7 +172,7 @@ export function ProjectTrashPage() {
                 <strong>{task.title}</strong>
                 <span>
                   {task.taskList.name}
-                  {task.parent ? ` · 父任务：${task.parent.title}` : ""} · 删除于 {formatDeletedAt(task.deletedAt)}
+                  {task.parent ? ` · 父任务：${task.parent.title}` : ""} · 删除人：{formatDeletedBy(task.deletedBy)} · 删除于 {formatDeletedAt(task.deletedAt)}
                 </span>
               </div>
               <div className="segmented-actions compact-actions">

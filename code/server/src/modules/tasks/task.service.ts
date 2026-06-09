@@ -51,6 +51,12 @@ function toTrashTask(task: {
   id: string;
   title: string;
   deletedAt: Date | null;
+  deletedBy?: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl: string | null;
+  } | null;
   taskList: {
     id: string;
     name: string;
@@ -66,6 +72,7 @@ function toTrashTask(task: {
     id: task.id,
     title: task.title,
     deletedAt: task.deletedAt,
+    deletedBy: task.deletedBy ?? null,
     taskList: task.taskList,
     parent: task.parent ?? null
   };
@@ -859,7 +866,8 @@ export async function deleteTaskList(
         },
         data: {
           deletedAt,
-          deletedWithTaskListId: taskListId
+          deletedWithTaskListId: taskListId,
+          deletedById: userId
         }
       });
     }
@@ -869,7 +877,8 @@ export async function deleteTaskList(
         id: taskListId
       },
       data: {
-        deletedAt
+        deletedAt,
+        deletedById: userId
       }
     });
   });
@@ -902,6 +911,14 @@ export async function listProjectTrash(userId: string, projectId: string) {
       }
     },
     include: {
+      deletedBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatarUrl: true
+        }
+      },
       _count: {
         select: {
           tasks: {
@@ -938,6 +955,14 @@ export async function listProjectTrash(userId: string, projectId: string) {
           deletedAt: true
         }
       },
+      deletedBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatarUrl: true
+        }
+      },
       parent: {
         select: {
           id: true,
@@ -956,6 +981,7 @@ export async function listProjectTrash(userId: string, projectId: string) {
       id: taskList.id,
       name: taskList.name,
       deletedAt: taskList.deletedAt,
+      deletedBy: taskList.deletedBy,
       taskCount: taskList._count.tasks
     })),
     tasks: tasks.map(toTrashTask)
@@ -995,7 +1021,8 @@ export async function restoreTaskList(userId: string, projectId: string, taskLis
         id: taskListId
       },
       data: {
-        deletedAt: null
+        deletedAt: null,
+        deletedById: null
       }
     });
 
@@ -1006,7 +1033,8 @@ export async function restoreTaskList(userId: string, projectId: string, taskLis
       },
       data: {
         deletedAt: null,
-        deletedWithTaskListId: null
+        deletedWithTaskListId: null,
+        deletedById: null
       }
     });
   });
@@ -1135,7 +1163,8 @@ export async function restoreTask(userId: string, taskId: string) {
       id: taskId
     },
     data: {
-      deletedAt: null
+      deletedAt: null,
+      deletedById: null
     }
   });
 
@@ -1605,7 +1634,8 @@ export async function deleteTask(userId: string, taskId: string) {
     },
     data: {
       deletedAt: new Date(),
-      deletedWithTaskListId: null
+      deletedWithTaskListId: null,
+      deletedById: userId
     }
   });
 

@@ -188,12 +188,14 @@ export type ProjectTrash = {
     id: string;
     name: string;
     deletedAt: string | null;
+    deletedBy: Pick<User, "id" | "name" | "email" | "avatarUrl"> | null;
     taskCount: number;
   }>;
   tasks: Array<{
     id: string;
     title: string;
     deletedAt: string | null;
+    deletedBy: Pick<User, "id" | "name" | "email" | "avatarUrl"> | null;
     taskList: {
       id: string;
       name: string;

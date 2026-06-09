@@ -132,49 +132,6 @@ async function ensureMigrationTable(prisma) {
   `);
 }
 
-async function tableExists(prisma, tableName) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT to_regclass($1)::text AS "tableName"`,
-    `"${tableName}"`
-  );
-
-  return Boolean(rows[0]?.tableName);
-}
-
-async function columnExists(prisma, tableName, columnName) {
-  const rows = await prisma.$queryRawUnsafe(
-    `
-      SELECT 1
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = $1
-        AND column_name = $2
-      LIMIT 1
-    `,
-    tableName,
-    columnName
-  );
-
-  return rows.length > 0;
-}
-
-async function enumValueExists(prisma, typeName, enumValue) {
-  const rows = await prisma.$queryRawUnsafe(
-    `
-      SELECT 1
-      FROM pg_type type
-      JOIN pg_enum enum_value ON enum_value.enumtypid = type.oid
-      WHERE type.typname = $1
-        AND enum_value.enumlabel = $2
-      LIMIT 1
-    `,
-    typeName,
-    enumValue
-  );
-
-  return rows.length > 0;
-}
-
 async function getAppliedMigrations(prisma) {
   const rows = await prisma.$queryRawUnsafe(`SELECT "name" FROM "_tower_sql_migrations"`);
   return new Set(rows.map((row) => row.name));
@@ -191,32 +148,6 @@ async function markMigrationApplied(prisma, migrationDir) {
   );
 }
 
-async function bootstrapExistingDevelopmentDatabase(prisma, migrationDirs, appliedMigrations) {
-  if (appliedMigrations.size > 0 || !(await tableExists(prisma, "User"))) {
-    return;
-  }
-
-  const existingMigrationChecks = {
-    "20260606000100_init": () => tableExists(prisma, "User"),
-    "20260606000300_task_change_notifications": () =>
-      enumValueExists(prisma, "NotificationType", "TASK_STATUS_CHANGED"),
-    "20260607000100_task_commented_notifications": () =>
-      enumValueExists(prisma, "NotificationType", "TASK_COMMENTED"),
-    "20260608000100_activity_log": () => tableExists(prisma, "ActivityLog"),
-    "20260609000100_project_trash": () => columnExists(prisma, "TaskList", "deletedAt")
-  };
-
-  for (const migrationDir of migrationDirs) {
-    const hasMigrationEffect = await existingMigrationChecks[migrationDir]?.();
-
-    if (hasMigrationEffect) {
-      await markMigrationApplied(prisma, migrationDir);
-      appliedMigrations.add(migrationDir);
-      console.log(`Marking existing migration ${migrationDir} as applied`);
-    }
-  }
-}
-
 async function main() {
   const prisma = new PrismaClient();
 
@@ -226,7 +157,6 @@ async function main() {
       .filter((name) => existsSync(join(migrationsRoot, name, "migration.sql")))
       .sort();
     const appliedMigrations = await getAppliedMigrations(prisma);
-    await bootstrapExistingDevelopmentDatabase(prisma, migrationDirs, appliedMigrations);
 
     for (const migrationDir of migrationDirs) {
       if (appliedMigrations.has(migrationDir)) {

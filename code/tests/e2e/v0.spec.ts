@@ -417,6 +417,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/trash$`));
   await expect(page.getByRole("heading", { name: "已删除清单" })).toBeVisible();
   await expect(page.getByText(deleteListName)).toBeVisible();
+  await expect(page.getByText(/删除人：E2E Owner/)).toBeVisible();
   page.once("dialog", async (dialog) => {
     expect(dialog.message()).toContain(`确认恢复清单“${deleteListName}”`);
     expect(dialog.message()).toContain("并恢复其中 1 个任务");
