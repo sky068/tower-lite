@@ -3,6 +3,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi, userApi } from "../../lib/api";
+import { formatCalendarDate } from "../../lib/dateTime";
 import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
 import type { MyTask } from "../../types/api";
 
@@ -17,6 +18,14 @@ const taskStatusTabs = [
   { value: "DONE", label: "已完成" },
   { value: "ALL", label: "全部" }
 ] as const;
+
+function formatCompletedByName(completedBy: MyTask["completedBy"]) {
+  if (!completedBy) {
+    return "未知成员";
+  }
+
+  return completedBy.isRemoved ? `${completedBy.name}(已移除)` : completedBy.name;
+}
 
 function MyTaskLink({
   task,
@@ -37,6 +46,9 @@ function MyTaskLink({
     depth === 1 ? "child" : null,
     isContextOnly ? "context" : null
   ].filter(Boolean).join(" ");
+  const completionText = task.completedAt
+    ? `${formatCompletedByName(task.completedBy)} ${formatCalendarDate(task.completedAt)}完成`
+    : null;
 
   return (
     <Link
@@ -52,6 +64,7 @@ function MyTaskLink({
           {task.project.name} / {task.taskList.name}
         </span>
       </div>
+      {completionText ? <span className="task-completion-meta">{completionText}</span> : null}
       <span className={getPriorityClassName(task.priority)}>
         {getPriorityLabel(task.priority)}
       </span>

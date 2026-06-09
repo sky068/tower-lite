@@ -35,16 +35,17 @@ npm run prisma:migrate
 npm run prisma:seed
 ```
 
-本项目的 `prisma:migrate` 使用本仓库的 SQL 迁移脚本执行 `server/prisma/migrations/*/migration.sql`，避开本机 Prisma schema engine 的兼容性问题。如果需要清空开发数据，可以使用 Docker 初始化 SQL 路径：
+本项目仍处于开发阶段，不保留旧数据兼容路径。数据库结构变化后，直接清空开发数据库并重新执行迁移和 seed：
 
 ```bash
 npm run docker:reset
 npm run doctor
 npm run prisma:generate
+npm run prisma:migrate
 npm run prisma:seed
 ```
 
-`docker:reset` 会删除当前 Docker 里的本项目开发数据库卷，并执行挂载到 `docker-entrypoint-initdb.d` 的 SQL 迁移重新初始化 PostgreSQL。
+`docker:reset` 只负责删除并重建 PostgreSQL / Redis 数据卷；`prisma:migrate` 会按顺序执行仓库内的 SQL 迁移文件，要求目标数据库为空。
 
 演示账号：
 
@@ -310,7 +311,7 @@ V0.3 增加团队和项目的操作日志，用于管理者回溯关键操作：
 - 在任务详情里添加评论
 - 评论作者可以删除自己的评论
 - 在任务详情里移动任务到其他列
-- 在任务详情里一键标记任务为已完成，并显示完成时间
+- 在任务详情里一键标记任务为已完成；任务条会显示完成人和完成时间，如今天、昨天或具体日期
 - 删除仍有子任务的父任务会被后端拒绝，避免产生孤立子任务
 - 拖拽任务到同列或其他列，更新排序和状态
 - 创建、重命名、删除、排序自定义看板列表；默认的待处理、进行中、已完成列表不允许改名、排序或删除，自定义列表删除非空时需要明确选择任务迁移目标
@@ -328,8 +329,8 @@ V0.3 增加团队和项目的操作日志，用于管理者回溯关键操作：
 
 ## 当前环境备注
 
-- 本项目仍处于开发阶段，数据库结构变更优先使用 `npm run docker:reset` 清空开发数据并重新初始化，不保留旧 schema 兼容路径。
-- Prisma CLI 的部分迁移命令在本机曾触发 schema engine 错误；因此 `npm run prisma:migrate` 已改为执行仓库内 SQL 迁移文件，真实数据库联调建议优先使用 Docker 初始化 SQL 路径。
+- 本项目仍处于开发阶段，数据库结构变更优先使用 `npm run docker:reset` 清空开发数据，再执行 `npm run prisma:migrate` 和 `npm run prisma:seed`，不保留旧 schema 兼容路径。
+- Prisma CLI 的部分迁移命令在本机曾触发 schema engine 错误；因此 `npm run prisma:migrate` 已改为直接按顺序执行仓库内 SQL 迁移文件。
 - `npm run test`、`npm run typecheck`、`npm run build` 和 `npm run check:v0` 已通过。
 - `npm run test:integration` 会连接本地 PostgreSQL，运行前需要先确保 `npm run doctor` 的数据库检查通过。
 - `npm run test:e2e` 会通过 Playwright 自动启动后端和前端，并用 Chromium 跑浏览器验收；首次运行前如果提示缺少浏览器，请执行 `npx playwright install chromium`。

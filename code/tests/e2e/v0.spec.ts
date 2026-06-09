@@ -289,6 +289,9 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const doneColumn = boardColumn(page, "已完成");
   await page.getByRole("button", { name: new RegExp(taskTitle) }).dragTo(doneColumn);
   await expect(doneColumn.getByRole("button", { name: new RegExp(taskTitle) })).toBeVisible();
+  await expect(
+    doneColumn.getByRole("button", { name: new RegExp(`${escapeRegExp(owner.name)}.*今天完成`) })
+  ).toBeVisible();
 
   const editorContext = await browser.newContext();
   const editorPage = await editorContext.newPage();

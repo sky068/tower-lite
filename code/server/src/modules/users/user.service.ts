@@ -119,6 +119,7 @@ export async function listMyTasks(userId: string) {
     include: {
       project: true,
       taskList: true,
+      completedBy: true,
       parent: {
         select: {
           id: true,
@@ -155,6 +156,7 @@ export async function listMyTasks(userId: string) {
         include: {
           project: true,
           taskList: true,
+          completedBy: true,
           parent: {
             select: {
               id: true,
@@ -172,6 +174,13 @@ export async function listMyTasks(userId: string) {
     priority: task.priority,
     dueDate: task.dueDate,
     completedAt: task.completedAt,
+    completedBy: task.completedBy
+      ? {
+          id: task.completedBy.id,
+          name: task.completedBy.name,
+          avatarUrl: task.completedBy.avatarUrl
+        }
+      : null,
     parentId: task.parentId,
     isAssignedToMe: assignedTaskIdSet.has(task.id),
     parentTask: task.parent

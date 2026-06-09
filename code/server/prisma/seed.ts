@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { config } from "dotenv";
 import { resolve } from "node:path";
 import { Prisma, PrismaClient, ProjectRole, TaskListType, TeamRole } from "@prisma/client";
+import { createDefaultTaskLists } from "../src/modules/projects/default-task-lists.js";
 
 config();
 config({ path: resolve(process.cwd(), "../.env") });
@@ -12,281 +13,102 @@ const demoIds = {
   user: "00000000-0000-4000-8000-000000000001",
   teammate: "00000000-0000-4000-8000-000000000008",
   team: "00000000-0000-4000-8000-000000000002",
-  project: "00000000-0000-4000-8000-000000000003",
-  todoList: "00000000-0000-4000-8000-000000000004",
-  doingList: "00000000-0000-4000-8000-000000000005",
-  doneList: "00000000-0000-4000-8000-000000000006",
   task: "00000000-0000-4000-8000-000000000007"
 };
 
 async function main() {
   const passwordHash = await bcrypt.hash("password123", 12);
 
-  const existingDemoUser = await prisma.user.findUnique({
-    where: {
-      email: "demo@tower.local"
-    }
-  });
-
-  const user = existingDemoUser
-    ? await prisma.user.update({
-        where: {
-          id: existingDemoUser.id
-        },
-        data: {
-          name: "Demo User",
-          passwordHash,
-          deletedAt: null
-        }
-      })
-    : await prisma.user.create({
-        data: {
-          id: demoIds.user,
-          email: "demo@tower.local",
-          name: "Demo User",
-          passwordHash
-        }
-      });
-
-  await prisma.user.update({
-    where: {
-      id: user.id
-    },
+  const user = await prisma.user.create({
     data: {
+      id: demoIds.user,
       email: "demo@tower.local",
       name: "Demo User",
-      passwordHash,
-      deletedAt: null
+      passwordHash
     }
   });
 
-  const existingTeammate = await prisma.user.findUnique({
-    where: {
-      email: "teammate@tower.local"
+  const teammate = await prisma.user.create({
+    data: {
+      id: demoIds.teammate,
+      email: "teammate@tower.local",
+      name: "Teammate User",
+      passwordHash
     }
   });
 
-  const teammate = existingTeammate
-    ? await prisma.user.update({
-        where: {
-          id: existingTeammate.id
-        },
-        data: {
-          name: "Teammate User",
-          passwordHash,
-          deletedAt: null
-        }
-      })
-    : await prisma.user.create({
-        data: {
-          id: demoIds.teammate,
-          email: "teammate@tower.local",
-          name: "Teammate User",
-          passwordHash
-        }
-      });
-
-  const team = await prisma.team.upsert({
-    where: {
-      id: demoIds.team
-    },
-    update: {
-      name: "Demo Team",
-      deletedAt: null
-    },
-    create: {
+  const team = await prisma.team.create({
+    data: {
       id: demoIds.team,
       name: "Demo Team",
       members: {
-        create: {
-          userId: user.id,
-          role: TeamRole.OWNER
-        }
+        create: [
+          {
+            userId: user.id,
+            role: TeamRole.OWNER
+          },
+          {
+            userId: teammate.id,
+            role: TeamRole.MEMBER
+          }
+        ]
       }
     }
   });
 
-  await prisma.teamMember.upsert({
-    where: {
-      userId_teamId: {
-        userId: user.id,
-        teamId: team.id
-      }
-    },
-    update: {
-      role: TeamRole.OWNER
-    },
-    create: {
-      userId: user.id,
-      teamId: team.id,
-      role: TeamRole.OWNER
-    }
-  });
-
-  await prisma.teamMember.upsert({
-    where: {
-      userId_teamId: {
-        userId: teammate.id,
-        teamId: team.id
-      }
-    },
-    update: {
-      role: TeamRole.MEMBER
-    },
-    create: {
-      userId: teammate.id,
-      teamId: team.id,
-      role: TeamRole.MEMBER
-    }
-  });
-
-  const project = await prisma.project.upsert({
-    where: {
-      id: demoIds.project
-    },
-    update: {
-      name: "Demo Project",
-      description: "V0 demo workspace",
-      deletedAt: null,
-      status: "ACTIVE"
-    },
-    create: {
-      id: demoIds.project,
+  const project = await prisma.project.create({
+    data: {
       name: "Demo Project",
       description: "V0 demo workspace",
       teamId: team.id,
       createdById: user.id,
       members: {
-        create: {
-          userId: user.id,
-          role: ProjectRole.OWNER
-        }
-      },
-      taskLists: {
         create: [
           {
-            id: demoIds.todoList,
-            name: "待处理",
-            type: TaskListType.TODO,
-            sortKey: new Prisma.Decimal(1000)
+            userId: user.id,
+            role: ProjectRole.OWNER
           },
           {
-            id: demoIds.doingList,
-            name: "进行中",
-            type: TaskListType.IN_PROGRESS,
-            sortKey: new Prisma.Decimal(2000)
-          },
-          {
-            id: demoIds.doneList,
-            name: "已完成",
-            type: TaskListType.DONE,
-            sortKey: new Prisma.Decimal(3000)
+            userId: teammate.id,
+            role: ProjectRole.EDITOR
           }
         ]
-      }
-    },
-    include: {
-      taskLists: true
-    }
-  });
-
-  await prisma.projectMember.upsert({
-    where: {
-      projectId_userId: {
-        projectId: project.id,
-        userId: user.id
-      }
-    },
-    update: {
-      role: ProjectRole.OWNER
-    },
-    create: {
-      projectId: project.id,
-      userId: user.id,
-      role: ProjectRole.OWNER
-    }
-  });
-
-  await prisma.projectMember.upsert({
-    where: {
-      projectId_userId: {
-        projectId: project.id,
-        userId: teammate.id
-      }
-    },
-    update: {
-      role: ProjectRole.EDITOR
-    },
-    create: {
-      projectId: project.id,
-      userId: teammate.id,
-      role: ProjectRole.EDITOR
-    }
-  });
-
-  const taskLists = [
-    { id: demoIds.todoList, name: "待处理", type: TaskListType.TODO, sortKey: "1000" },
-    { id: demoIds.doingList, name: "进行中", type: TaskListType.IN_PROGRESS, sortKey: "2000" },
-    { id: demoIds.doneList, name: "已完成", type: TaskListType.DONE, sortKey: "3000" }
-  ];
-
-  for (const list of taskLists) {
-    await prisma.taskList.upsert({
-      where: {
-        id: list.id
       },
-      update: {
-        name: list.name,
-        type: list.type,
-        sortKey: new Prisma.Decimal(list.sortKey)
-      },
-      create: {
-        id: list.id,
-        name: list.name,
-        type: list.type,
-        sortKey: new Prisma.Decimal(list.sortKey),
-        projectId: project.id
+      taskLists: {
+        create: createDefaultTaskLists()
       }
-    });
-  }
+    }
+  });
 
-  const task = await prisma.task.upsert({
+  const todoList = await prisma.taskList.findFirstOrThrow({
     where: {
-      id: demoIds.task
-    },
-    update: {
-      title: "体验 V0 看板",
-      description: "打开任务详情，试试评论、标签和一层子任务。",
-      priority: "HIGH",
       projectId: project.id,
-      taskListId: demoIds.todoList,
-      creatorId: user.id,
-      sortKey: new Prisma.Decimal(1000),
-      deletedAt: null
-    },
-    create: {
+      type: TaskListType.TODO
+    }
+  });
+
+  await prisma.task.create({
+    data: {
       id: demoIds.task,
       title: "体验 V0 看板",
       description: "打开任务详情，试试评论、标签和一层子任务。",
       priority: "HIGH",
       projectId: project.id,
-      taskListId: demoIds.todoList,
+      taskListId: todoList.id,
       creatorId: user.id,
-      sortKey: new Prisma.Decimal(1000)
+      sortKey: new Prisma.Decimal(1000),
+      assignees: {
+        create: [
+          {
+            userId: user.id
+          },
+          {
+            userId: teammate.id
+          }
+        ]
+      }
     }
   });
-
-  await prisma.$executeRaw`
-    INSERT INTO "TaskAssignee" ("taskId", "userId")
-    VALUES (${task.id}, ${user.id})
-    ON CONFLICT DO NOTHING
-  `;
-
-  await prisma.$executeRaw`
-    INSERT INTO "TaskAssignee" ("taskId", "userId")
-    VALUES (${task.id}, ${teammate.id})
-    ON CONFLICT DO NOTHING
-  `;
 
   console.log("Seed completed");
   console.log("Login: demo@tower.local / password123");

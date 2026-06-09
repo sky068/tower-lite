@@ -58,6 +58,12 @@ function toTask(task: {
   creatorId: string;
   parentId: string | null;
   completedAt: Date | null;
+  completedBy?: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    isRemoved?: boolean;
+  } | null;
   createdAt: Date;
   updatedAt: Date;
   assignees?: Array<{
@@ -93,6 +99,14 @@ function toTask(task: {
     creatorId: task.creatorId,
     parentId: task.parentId,
     completedAt: task.completedAt,
+    completedBy: task.completedBy
+      ? {
+          id: task.completedBy.id,
+          name: task.completedBy.name,
+          avatarUrl: task.completedBy.avatarUrl,
+          isRemoved: task.completedBy.isRemoved
+        }
+      : null,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     assignees:
@@ -463,6 +477,7 @@ export async function listProjectTaskLists(userId: string, projectId: string) {
               tag: true
             }
           },
+          completedBy: true,
           _count: {
             select: {
               subTasks: {
@@ -621,7 +636,8 @@ export async function deleteTaskList(
         },
         data: {
           taskListId: input.targetTaskListId,
-          completedAt: targetTaskList.type === TaskListType.DONE ? new Date() : null
+          completedAt: targetTaskList.type === TaskListType.DONE ? new Date() : null,
+          completedById: targetTaskList.type === TaskListType.DONE ? userId : null
         }
       });
     }
@@ -723,6 +739,7 @@ export async function createTask(userId: string, projectId: string, input: Creat
       creatorId: userId,
       parentId: input.parentId,
       completedAt: taskList.type === TaskListType.DONE ? new Date() : null,
+      completedById: taskList.type === TaskListType.DONE ? userId : null,
       sortKey: await getNextSortKey(input.taskListId),
       tags: {
         create: input.tagIds.map((tagId) => ({
@@ -774,6 +791,9 @@ export async function getTask(userId: string, taskId: string) {
         where: {
           deletedAt: null
         },
+        include: {
+          completedBy: true
+        },
         orderBy: {
           sortKey: "asc"
         }
@@ -793,7 +813,8 @@ export async function getTask(userId: string, taskId: string) {
         include: {
           tag: true
         }
-      }
+      },
+      completedBy: true
     }
   });
 
@@ -948,7 +969,11 @@ export async function moveTask(userId: string, taskId: string, input: MoveTaskIn
       completedAt:
         targetList.type === TaskListType.DONE
           ? task.completedAt ?? new Date()
-          : null
+          : null,
+      completedById: targetList.type === TaskListType.DONE ? task.completedById ?? userId : null
+    },
+    include: {
+      completedBy: true
     }
   });
 

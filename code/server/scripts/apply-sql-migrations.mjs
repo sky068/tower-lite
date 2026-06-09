@@ -123,15 +123,6 @@ async function executeSqlFile(prisma, filePath) {
   }
 }
 
-async function relationExists(prisma, relationName) {
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT to_regclass($1) AS "name"`,
-    relationName
-  );
-
-  return Boolean(rows[0]?.name);
-}
-
 async function main() {
   const prisma = new PrismaClient();
 
@@ -139,24 +130,8 @@ async function main() {
     const migrationDirs = readdirSync(migrationsRoot)
       .filter((name) => existsSync(join(migrationsRoot, name, "migration.sql")))
       .sort();
-    const initMigration = migrationDirs.find((name) => name.endsWith("_init"));
-    const hasUserTable = await relationExists(prisma, "\"User\"");
-
-    if (!hasUserTable) {
-      if (!initMigration) {
-        throw new Error("Initial migration not found.");
-      }
-
-      console.log(`Applying ${initMigration}`);
-      await executeSqlFile(prisma, join(migrationsRoot, initMigration, "migration.sql"));
-    } else {
-      console.log("Initial schema already exists.");
-    }
 
     for (const migrationDir of migrationDirs) {
-      if (migrationDir === initMigration) {
-        continue;
-      }
 
       console.log(`Applying ${migrationDir}`);
       await executeSqlFile(prisma, join(migrationsRoot, migrationDir, "migration.sql"));

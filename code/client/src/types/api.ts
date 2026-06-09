@@ -67,6 +67,7 @@ export type Task = {
   creatorId: string;
   parentId: string | null;
   completedAt: string | null;
+  completedBy: Pick<User, "id" | "name" | "avatarUrl"> | null;
   createdAt: string;
   updatedAt: string;
   assignees?: Array<Pick<User, "id" | "name" | "avatarUrl"> & { isRemoved?: boolean }>;
@@ -108,6 +109,7 @@ export type MyTask = {
   priority: Task["priority"];
   dueDate: string | null;
   completedAt: string | null;
+  completedBy: (Pick<User, "id" | "name" | "avatarUrl"> & { isRemoved?: boolean }) | null;
   parentId: string | null;
   isAssignedToMe: boolean;
   parentTask: {

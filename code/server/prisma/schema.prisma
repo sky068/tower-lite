@@ -26,6 +26,7 @@ model User {
   invitationsSent     Invitation[]   @relation("InvitationInviter")
   taskAssignments     TaskAssignee[]
   createdTasks        Task[]         @relation("TaskCreator")
+  completedTasks      Task[]         @relation("TaskCompleter")
   comments            Comment[]
   refreshTokens       RefreshToken[]
   notifications       Notification[] @relation("NotificationRecipient")
@@ -213,7 +214,8 @@ model Task {
   projectId    String
   creatorId    String
   parentId     String?
-  completedAt  DateTime?
+  completedAt   DateTime?
+  completedById String?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   deletedAt    DateTime?
@@ -221,6 +223,7 @@ model Task {
   taskList     TaskList         @relation(fields: [taskListId], references: [id])
   project      Project          @relation(fields: [projectId], references: [id])
   creator      User             @relation("TaskCreator", fields: [creatorId], references: [id])
+  completedBy  User?            @relation("TaskCompleter", fields: [completedById], references: [id])
   parent       Task?            @relation("SubTasks", fields: [parentId], references: [id])
   subTasks     Task[]           @relation("SubTasks")
   assignees    TaskAssignee[]

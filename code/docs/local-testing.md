@@ -81,7 +81,7 @@ npm run prisma:migrate
 npm run prisma:seed
 ```
 
-`prisma:migrate` 会执行仓库内的 SQL 迁移文件，不依赖 Prisma schema engine；如果数据库是空库，会先执行初始建表 SQL，再执行后续增量 SQL。
+`prisma:migrate` 会执行仓库内的 SQL 迁移文件，不依赖 Prisma schema engine；当前开发阶段要求目标数据库为空，不做旧 schema 兼容。
 
 也可以一条命令完成 Docker 启动、迁移和 seed：
 
@@ -104,9 +104,11 @@ demo@tower.local / password123
 teammate@tower.local / password123
 ```
 
-如果 demo 登录提示密码错误，通常是当前数据库没有执行 seed，重新运行：
+如果 demo 登录提示密码错误，通常是当前数据库不是干净的开发库。直接重置并重新初始化：
 
 ```bash
+npm run docker:reset
+npm run prisma:migrate
 npm run prisma:seed
 ```
 
@@ -296,6 +298,8 @@ npm run prisma:migrate
 处理：
 
 ```bash
+npm run docker:reset
+npm run prisma:migrate
 npm run prisma:seed
 ```
 

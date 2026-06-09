@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
+import { formatCalendarDate } from "../../lib/dateTime";
 import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { useAuthStore } from "../../stores/authStore";
@@ -17,6 +18,10 @@ function formatDate(value: string | null) {
 
 function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
   return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+}
+
+function formatCompletedByName(completedBy: { name: string } | null) {
+  return completedBy?.name ?? "";
 }
 
 export function ProjectBoardPage() {
@@ -680,6 +685,13 @@ export function ProjectBoardPage() {
                   )}
                   {formatDate(task.dueDate) ? <span>截止 {formatDate(task.dueDate)}</span> : null}
                   {task.subTaskCount ? <span>{task.subTaskCount} 子任务</span> : null}
+                  {task.completedAt ? (
+                    <span>
+                      {[formatCompletedByName(task.completedBy), `${formatCalendarDate(task.completedAt)}完成`]
+                        .filter(Boolean)
+                        .join(" ")}
+                    </span>
+                  ) : null}
                 </div>
                 {task.tags && task.tags.length > 0 ? (
                   <div className="task-card-tags">

@@ -1,9 +1,10 @@
-import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskListType } from "@prisma/client";
+import { DeliveryChannel, NotificationType, ProjectRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
 import { publishProjectEvent, publishTeamEvent, publishToUser } from "../realtime/realtime.service.js";
 import { requireTeamMember, requireTeamOwner } from "../teams/team.policy.js";
+import { createDefaultTaskLists } from "./default-task-lists.js";
 import { requireProjectAccess, requireProjectManager } from "./project.policy.js";
 import type {
   AddProjectMemberInput,
@@ -11,12 +12,6 @@ import type {
   UpdateProjectInput,
   UpdateProjectMemberRoleInput
 } from "./project.schema.js";
-
-const defaultTaskLists = [
-  { name: "待处理", type: TaskListType.TODO, sortKey: new Prisma.Decimal(1000) },
-  { name: "进行中", type: TaskListType.IN_PROGRESS, sortKey: new Prisma.Decimal(2000) },
-  { name: "已完成", type: TaskListType.DONE, sortKey: new Prisma.Decimal(3000) }
-];
 
 function toProjectSummary(project: {
   id: string;
@@ -109,7 +104,7 @@ export async function createProject(userId: string, teamId: string, input: Creat
         }
       },
       taskLists: {
-        create: defaultTaskLists
+        create: createDefaultTaskLists()
       }
     }
   });

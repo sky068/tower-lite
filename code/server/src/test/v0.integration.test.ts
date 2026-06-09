@@ -58,6 +58,10 @@ type TaskResponse = {
   taskListId: string;
   parentId: string | null;
   completedAt: string | null;
+  completedBy: {
+    id: string;
+    name: string;
+  } | null;
   assignees?: Array<{
     user: {
       id: string;
@@ -71,6 +75,11 @@ type MyTaskResponse = {
   id: string;
   title: string;
   parentId: string | null;
+  completedAt: string | null;
+  completedBy: {
+    id: string;
+    name: string;
+  } | null;
   taskList: {
     id: string;
     name: string;
@@ -149,61 +158,6 @@ const emailDomain = `${runId}.integration.test`;
 let server: Server | null = null;
 let baseUrl = "";
 let databaseConnected = false;
-
-async function ensureActivityLogSchema() {
-  await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "ActivityLog" (
-      "id" TEXT NOT NULL,
-      "action" TEXT NOT NULL,
-      "targetType" TEXT NOT NULL,
-      "targetId" TEXT,
-      "metadata" JSONB,
-      "actorId" TEXT,
-      "teamId" TEXT NOT NULL,
-      "projectId" TEXT,
-      "taskId" TEXT,
-      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT "ActivityLog_pkey" PRIMARY KEY ("id")
-    )
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE INDEX IF NOT EXISTS "ActivityLog_teamId_createdAt_idx" ON "ActivityLog"("teamId", "createdAt")
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE INDEX IF NOT EXISTS "ActivityLog_projectId_createdAt_idx" ON "ActivityLog"("projectId", "createdAt")
-  `);
-  await prisma.$executeRawUnsafe(`
-    CREATE INDEX IF NOT EXISTS "ActivityLog_taskId_createdAt_idx" ON "ActivityLog"("taskId", "createdAt")
-  `);
-  await prisma.$executeRawUnsafe(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ActivityLog_actorId_fkey'
-      ) THEN
-        ALTER TABLE "ActivityLog"
-          ADD CONSTRAINT "ActivityLog_actorId_fkey"
-          FOREIGN KEY ("actorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-      END IF;
-
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ActivityLog_teamId_fkey'
-      ) THEN
-        ALTER TABLE "ActivityLog"
-          ADD CONSTRAINT "ActivityLog_teamId_fkey"
-          FOREIGN KEY ("teamId") REFERENCES "Team"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-      END IF;
-
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'ActivityLog_projectId_fkey'
-      ) THEN
-        ALTER TABLE "ActivityLog"
-          ADD CONSTRAINT "ActivityLog_projectId_fkey"
-          FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-      END IF;
-    END $$
-  `);
-}
 
 async function cleanupRunData() {
   const users = await prisma.user.findMany({
@@ -462,7 +416,6 @@ before(async () => {
   await prisma.$connect();
   await prisma.$queryRaw`SELECT 1`;
   databaseConnected = true;
-  await ensureActivityLogSchema();
   await cleanupRunData();
   server = await listen(createApp());
   const address = server.address();
@@ -970,6 +923,14 @@ describe("V0 HTTP integration", () => {
       }
     })).data;
     assert.equal(movedTask.completedAt !== null, true);
+    assert.equal(movedTask.completedBy?.id, owner.id);
+    const editorCompletedTasks = (await request<MyTaskResponse[]>("GET", "/api/v1/users/me/tasks", {
+      token: editor.token
+    })).data;
+    const editorCompletedTask = editorCompletedTasks.find((item) => item.id === task.id);
+    assert.ok(editorCompletedTask);
+    assert.equal(editorCompletedTask.completedAt !== null, true);
+    assert.equal(editorCompletedTask.completedBy?.id, owner.id);
 
     const editorNotificationsAfterMove = (await request<NotificationResponse[]>(
       "GET",

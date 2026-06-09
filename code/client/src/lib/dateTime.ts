@@ -22,3 +22,21 @@ export function formatRelativeTime(value: string) {
 
   return new Date(value).toLocaleDateString();
 }
+
+export function formatCalendarDate(value: string) {
+  const date = new Date(value);
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const diffDays = Math.round((startOfDate - startOfToday) / 86_400_000);
+
+  if (diffDays === 0) {
+    return "今天";
+  }
+
+  if (diffDays === -1) {
+    return "昨天";
+  }
+
+  return date.toLocaleDateString();
+}

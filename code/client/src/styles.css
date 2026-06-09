@@ -676,6 +676,20 @@ input[type="date"]:not(:disabled) {
   line-height: 1.35;
 }
 
+.task-tree-row .task-completion-meta {
+  flex: 0 0 auto;
+  max-width: 180px;
+  margin-right: 8px;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-tree-row .priority-chip {
+  margin-right: 8px;
+}
+
 .task-tree-row.context {
   border-style: dashed;
   background: #f8fafc;
