@@ -300,12 +300,19 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const assignedFirstLevelLinks = myTasksPanel.getByRole("link", {
     name: new RegExp(`^${escapeRegExp(subTaskTitle)}\\b`)
   });
-  await expect(assignedFirstLevelLinks).toHaveCount(2);
+  await expect(assignedFirstLevelLinks).toHaveCount(1);
   await expect(assignedFirstLevelLinks.first()).toBeVisible();
   await expect(
     myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(secondLevelSubTaskTitle)}\\b`) })
   ).toHaveCount(1);
-  await myTasksPanel.locator("select").selectOption("ALL");
+  await myTasksPanel.getByRole("tab", { name: "已完成" }).click();
+  await expect(
+    myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(taskTitle)}\\b`) }).first()
+  ).toBeVisible();
+  await expect(
+    myTasksPanel.getByRole("link", { name: new RegExp(`^${escapeRegExp(subTaskTitle)}\\b`) }).first()
+  ).toBeVisible();
+  await myTasksPanel.getByRole("tab", { name: "全部" }).click();
   const myTaskLink = myTasksPanel
     .getByRole("link", { name: new RegExp(`^${escapeRegExp(taskTitle)}\\b`) })
     .first();

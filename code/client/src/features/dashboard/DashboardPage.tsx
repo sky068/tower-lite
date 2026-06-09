@@ -12,6 +12,12 @@ type MyTaskTreeNode = {
   children: MyTask[];
 };
 
+const taskStatusTabs = [
+  { value: "OPEN", label: "未完成" },
+  { value: "DONE", label: "已完成" },
+  { value: "ALL", label: "全部" }
+] as const;
+
 function MyTaskLink({
   task,
   depth,
@@ -92,13 +98,21 @@ export function DashboardPage() {
   const myTaskDisplay = useMemo(() => {
     const keyword = taskSearch.trim().toLowerCase();
     const tasks = myTasksQuery.data ?? [];
+    const taskMap = new Map(tasks.map((task) => [task.id, task]));
     const visibleAssignedTaskIds = new Set<string>();
 
-    const visibleAssignedTasks = tasks.filter((task) => {
-      const matchesStatus =
+    function matchesTreeStatus(task: MyTask) {
+      const parentTask = task.parentId ? taskMap.get(task.parentId) : null;
+      const isCompletedBySelfOrParent = Boolean(task.completedAt || parentTask?.completedAt);
+
+      return (
         taskStatusFilter === "ALL" ||
-        (taskStatusFilter === "OPEN" && !task.completedAt) ||
-        (taskStatusFilter === "DONE" && Boolean(task.completedAt));
+        (taskStatusFilter === "OPEN" && !isCompletedBySelfOrParent) ||
+        (taskStatusFilter === "DONE" && isCompletedBySelfOrParent)
+      );
+    }
+
+    const visibleAssignedTasks = tasks.filter((task) => {
       const matchesKeyword =
         !keyword ||
         task.title.toLowerCase().includes(keyword) ||
@@ -106,7 +120,7 @@ export function DashboardPage() {
         task.project.name.toLowerCase().includes(keyword) ||
         task.taskList.name.toLowerCase().includes(keyword);
 
-      return task.isAssignedToMe && matchesStatus && matchesKeyword;
+      return task.isAssignedToMe && matchesTreeStatus(task) && matchesKeyword;
     });
 
     for (const task of visibleAssignedTasks) {
@@ -276,15 +290,20 @@ export function DashboardPage() {
         <section className="panel dashboard-scroll-panel dashboard-task-panel">
           <div className="panel-title-row">
             <h2>我的任务</h2>
-            <select
-              className="compact-select"
-              value={taskStatusFilter}
-              onChange={(event) => setTaskStatusFilter(event.target.value as typeof taskStatusFilter)}
-            >
-              <option value="OPEN">未完成</option>
-              <option value="DONE">已完成</option>
-              <option value="ALL">全部</option>
-            </select>
+            <div className="status-tabs" role="tablist" aria-label="我的任务筛选">
+              {taskStatusTabs.map((tab) => (
+                <button
+                  className={taskStatusFilter === tab.value ? "active" : ""}
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={taskStatusFilter === tab.value}
+                  onClick={() => setTaskStatusFilter(tab.value)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
           <input
             className="filter-input"

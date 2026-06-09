@@ -11,6 +11,11 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
 }
@@ -444,6 +449,7 @@ input[type="date"]:not(:disabled) {
   display: grid;
   align-content: start;
   gap: 14px;
+  min-width: 0;
   padding: 16px;
 }
 
@@ -472,6 +478,40 @@ input[type="date"]:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.status-tabs {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.status-tabs button {
+  display: grid;
+  width: 72px;
+  min-height: 34px;
+  place-items: center;
+  border: 0;
+  border-right: 1px solid #e2e8f0;
+  background: transparent;
+  color: #334155;
+  padding: 0;
+}
+
+.status-tabs button:last-child {
+  border-right: 0;
+}
+
+.status-tabs button.active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.status-tabs button:not(.active):hover {
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .compact-form {
@@ -660,6 +700,7 @@ input[type="date"]:not(:disabled) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   min-height: 44px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -734,6 +775,7 @@ input[type="date"]:not(:disabled) {
   display: grid;
   flex: 1;
   gap: 2px;
+  min-width: 0;
   border: 0;
   background: transparent;
   color: inherit;
