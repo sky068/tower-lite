@@ -429,6 +429,10 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const myTasksPanel = editorPage.locator("section.panel").filter({
     has: editorPage.getByRole("heading", { name: "我的任务" })
   }).first();
+  const myTaskProjectFilter = myTasksPanel.getByLabel("我的任务项目筛选");
+  await expect(myTaskProjectFilter).toHaveValue("ALL");
+  await expect(myTaskProjectFilter.getByRole("option", { name: `E2E Project ${runId}` })).toHaveCount(1);
+  await myTaskProjectFilter.selectOption({ label: `E2E Project ${runId}` });
   const assignedFirstLevelLinks = myTasksPanel.getByRole("link", {
     name: new RegExp(`^${escapeRegExp(subTaskTitle)}\\b`)
   });

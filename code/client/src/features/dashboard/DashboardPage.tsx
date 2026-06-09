@@ -80,6 +80,7 @@ export function DashboardPage() {
   const [projectName, setProjectName] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [taskSearch, setTaskSearch] = useState("");
+  const [taskProjectFilter, setTaskProjectFilter] = useState("ALL");
   const [taskStatusFilter, setTaskStatusFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
 
   const teamsQuery = useQuery({
@@ -107,6 +108,19 @@ export function DashboardPage() {
   );
   const canCreateProject = activeTeam?.role === "OWNER";
   const canManageActiveTeamProjects = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
+  const myTaskProjects = useMemo(() => {
+    const projects = new Map<string, string>();
+
+    for (const task of myTasksQuery.data ?? []) {
+      if (task.isAssignedToMe) {
+        projects.set(task.project.id, task.project.name);
+      }
+    }
+
+    return Array.from(projects, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name, "zh-CN")
+    );
+  }, [myTasksQuery.data]);
 
   const myTaskDisplay = useMemo(() => {
     const keyword = taskSearch.trim().toLowerCase();
@@ -132,8 +146,9 @@ export function DashboardPage() {
         task.parentTask?.title.toLowerCase().includes(keyword) ||
         task.project.name.toLowerCase().includes(keyword) ||
         task.taskList.name.toLowerCase().includes(keyword);
+      const matchesProject = taskProjectFilter === "ALL" || task.project.id === taskProjectFilter;
 
-      return task.isAssignedToMe && matchesTreeStatus(task) && matchesKeyword;
+      return task.isAssignedToMe && matchesTreeStatus(task) && matchesKeyword && matchesProject;
     });
 
     for (const task of visibleAssignedTasks) {
@@ -153,7 +168,7 @@ export function DashboardPage() {
       ),
       visibleAssignedTasks
     };
-  }, [myTasksQuery.data, taskSearch, taskStatusFilter]);
+  }, [myTasksQuery.data, taskProjectFilter, taskSearch, taskStatusFilter]);
 
   const myTaskTree = useMemo(() => {
     const taskMap = new Map(myTaskDisplay.tasks.map((task) => [task.id, task]));
@@ -298,19 +313,34 @@ export function DashboardPage() {
         <section className="panel dashboard-scroll-panel dashboard-task-panel">
           <div className="panel-title-row">
             <h2>我的任务</h2>
-            <div className="status-tabs" role="tablist" aria-label="我的任务筛选">
-              {taskStatusTabs.map((tab) => (
-                <button
-                  className={taskStatusFilter === tab.value ? "active" : ""}
-                  key={tab.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={taskStatusFilter === tab.value}
-                  onClick={() => setTaskStatusFilter(tab.value)}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="panel-title-actions">
+              <select
+                className="project-filter-select"
+                aria-label="我的任务项目筛选"
+                value={taskProjectFilter}
+                onChange={(event) => setTaskProjectFilter(event.target.value)}
+              >
+                <option value="ALL">全部项目</option>
+                {myTaskProjects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              <div className="status-tabs" role="tablist" aria-label="我的任务状态筛选">
+                {taskStatusTabs.map((tab) => (
+                  <button
+                    className={taskStatusFilter === tab.value ? "active" : ""}
+                    key={tab.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={taskStatusFilter === tab.value}
+                    onClick={() => setTaskStatusFilter(tab.value)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <input

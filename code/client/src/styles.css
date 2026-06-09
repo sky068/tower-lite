@@ -848,6 +848,16 @@ input[type="date"]:not(:disabled) {
   gap: 8px;
 }
 
+.project-filter-select {
+  min-width: 140px;
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  padding: 0 10px;
+}
+
 .status-tabs {
   display: inline-flex;
   overflow: hidden;
