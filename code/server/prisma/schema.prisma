@@ -188,11 +188,11 @@ model TaskList {
   projectId String
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
 
   project   Project      @relation(fields: [projectId], references: [id])
   tasks     Task[]
 
-  @@unique([projectId, name])
   @@index([projectId, sortKey])
 }
 
@@ -211,6 +211,7 @@ model Task {
   parentId     String?
   completedAt   DateTime?
   completedById String?
+  deletedWithTaskListId String?
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   deletedAt    DateTime?

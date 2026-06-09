@@ -8,6 +8,7 @@ import { ProjectTaskListPage } from "../features/board/ProjectTaskListPage";
 import { RequireAuth } from "../features/auth/RequireAuth";
 import { TeamSettingsPage } from "../features/team/TeamSettingsPage";
 import { ProjectSettingsPage } from "../features/project/ProjectSettingsPage";
+import { ProjectTrashPage } from "../features/project/ProjectTrashPage";
 import { TaskModalRoute, TaskPage } from "../features/task/TaskPage";
 import { AcceptInvitationPage } from "../features/invitation/AcceptInvitationPage";
 
@@ -54,6 +55,10 @@ const routes = [
       {
         path: "/projects/:projectId/settings",
         element: <ProjectSettingsPage />
+      },
+      {
+        path: "/projects/:projectId/trash",
+        element: <ProjectTrashPage />
       },
       {
         path: "/invitations/accept",

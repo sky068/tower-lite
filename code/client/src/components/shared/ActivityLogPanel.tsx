@@ -21,12 +21,16 @@ const actionLabels: Record<string, string> = {
   "task_list.created": "创建任务清单",
   "task_list.updated": "更新任务清单",
   "task_list.deleted": "删除任务清单",
+  "task_list.restored": "恢复任务清单",
+  "task_list.purged": "彻底删除任务清单",
   "task_list.reordered": "调整清单排序",
   "task.created": "创建任务",
   "task.updated": "更新任务",
   "task.moved": "移动任务",
   "task.status_changed": "修改任务状态",
   "task.deleted": "删除任务",
+  "task.restored": "恢复任务",
+  "task.purged": "彻底删除任务",
   "comment.created": "新增评论",
   "comment.deleted": "删除评论"
 };

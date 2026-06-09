@@ -475,8 +475,8 @@ export function ProjectBoardPage() {
 
     const confirmMessage =
       list.tasks.length > 0
-        ? `清单「${list.name}」中还有 ${list.tasks.length} 个任务。确认删除清单并删除这些任务？`
-        : `确认删除清单「${list.name}」？`;
+        ? `清单「${list.name}」中还有 ${list.tasks.length} 个任务。确认将清单和这些任务移入回收站？`
+        : `确认将清单「${list.name}」移入回收站？`;
 
     if (window.confirm(confirmMessage)) {
       deleteListMutation.mutate(listId);
@@ -520,9 +520,9 @@ export function ProjectBoardPage() {
             </Link>
           ) : null}
           {projectPermissions.canManageProject ? (
-            <button type="button" disabled>
+            <Link to={`/projects/${projectId}/trash`}>
               回收站
-            </button>
+            </Link>
           ) : null}
         </nav>
       </div>

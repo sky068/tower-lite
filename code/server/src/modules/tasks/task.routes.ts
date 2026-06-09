@@ -11,11 +11,16 @@ import {
   deleteTask,
   deleteTaskList,
   getTask,
+  listProjectTrash,
   listComments,
   listProjectTaskListView,
   listProjectTaskLists,
   moveTask,
+  purgeTask,
+  purgeTaskList,
   reorderTaskLists,
+  restoreTask,
+  restoreTaskList,
   updateTask,
   updateTaskList
 } from "./task.service.js";
@@ -29,6 +34,7 @@ import {
   reorderTaskListsSchema,
   taskCommentParamsSchema,
   taskListIdParamsSchema,
+  taskListTrashParamsSchema,
   taskIdParamsSchema,
   updateTaskListSchema,
   updateTaskSchema
@@ -98,6 +104,33 @@ taskRoutes.delete(
 );
 
 taskRoutes.get(
+  "/projects/:projectId/trash",
+  validate("params", projectIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await listProjectTrash(getCurrentUserId(req), req.params.projectId);
+    return sendData(req, res, data);
+  })
+);
+
+taskRoutes.patch(
+  "/projects/:projectId/trash/lists/:listId/restore",
+  validate("params", taskListTrashParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await restoreTaskList(getCurrentUserId(req), req.params.projectId, req.params.listId);
+    return sendData(req, res, data);
+  })
+);
+
+taskRoutes.delete(
+  "/projects/:projectId/trash/lists/:listId",
+  validate("params", taskListTrashParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await purgeTaskList(getCurrentUserId(req), req.params.projectId, req.params.listId);
+    return sendData(req, res, data);
+  })
+);
+
+taskRoutes.get(
   "/projects/:projectId/tasks",
   validate("params", projectIdParamsSchema),
   asyncHandler(async (req, res) => {
@@ -140,6 +173,24 @@ taskRoutes.delete(
   validate("params", taskIdParamsSchema),
   asyncHandler(async (req, res) => {
     const data = await deleteTask(getCurrentUserId(req), req.params.taskId);
+    return sendData(req, res, data);
+  })
+);
+
+taskRoutes.patch(
+  "/tasks/:taskId/restore",
+  validate("params", taskIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await restoreTask(getCurrentUserId(req), req.params.taskId);
+    return sendData(req, res, data);
+  })
+);
+
+taskRoutes.delete(
+  "/tasks/:taskId/purge",
+  validate("params", taskIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await purgeTask(getCurrentUserId(req), req.params.taskId);
     return sendData(req, res, data);
   })
 );

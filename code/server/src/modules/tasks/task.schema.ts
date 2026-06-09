@@ -25,6 +25,11 @@ export const taskListIdParamsSchema = z.object({
   listId: z.string().uuid()
 });
 
+export const taskListTrashParamsSchema = z.object({
+  projectId: z.string().uuid(),
+  listId: z.string().uuid()
+});
+
 export const updateTaskListSchema = z.object({
   name: taskListNameSchema
 });

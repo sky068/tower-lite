@@ -248,7 +248,10 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
     "href",
     `/projects/${projectId}/settings`
   );
-  await expect(projectMenu.getByRole("button", { name: "回收站" })).toBeDisabled();
+  await expect(projectMenu.getByRole("link", { name: "回收站" })).toHaveAttribute(
+    "href",
+    `/projects/${projectId}/trash`
+  );
   await projectMenu.getByRole("link", { name: "设置" }).click();
   await expect(page.getByRole("heading", { name: "项目设置" })).toBeVisible();
   await page.getByRole("button", { name: `← 返回 E2E Project ${runId}` }).click();
@@ -403,13 +406,26 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const deleteColumn = boardColumn(page, deleteListName);
   await expect(deleteColumn.getByRole("button", { name: new RegExp(deletedWithListTaskTitle) })).toBeVisible();
   page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("确认删除清单并删除这些任务");
+    expect(dialog.message()).toContain("确认将清单和这些任务移入回收站");
     await dialog.accept();
   });
   await deleteColumn.getByRole("button", { name: `${deleteListName}清单菜单` }).click();
   await deleteColumn.getByRole("button", { name: "删除清单" }).click();
   await expect(page.getByRole("heading", { name: deleteListName })).toHaveCount(0);
   await expect(page.getByRole("button", { name: new RegExp(deletedWithListTaskTitle) })).toHaveCount(0);
+  await projectMenu.getByRole("link", { name: "回收站" }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/trash$`));
+  await expect(page.getByRole("heading", { name: "已删除清单" })).toBeVisible();
+  await expect(page.getByText(deleteListName)).toBeVisible();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain(`确认恢复清单“${deleteListName}”`);
+    expect(dialog.message()).toContain("并恢复其中 1 个任务");
+    await dialog.accept();
+  });
+  await page.getByRole("button", { name: "恢复" }).first().click();
+  await expect(page.getByText(deleteListName)).toHaveCount(0);
+  await page.getByRole("link", { name: "看板" }).click();
+  await expect(boardColumn(page, deleteListName).getByRole("button", { name: new RegExp(deletedWithListTaskTitle) })).toBeVisible();
 
   await customColumn.getByRole("button", { name: new RegExp(taskTitle) }).click();
   await expect(detail).toBeVisible();

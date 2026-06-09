@@ -34,6 +34,7 @@ function toTaskList(taskList: {
   name: string;
   isDefault: boolean;
   sortKey: Prisma.Decimal;
+  deletedAt?: Date | null;
   tasks?: Array<ReturnType<typeof toTask>>;
 }) {
   return {
@@ -41,7 +42,32 @@ function toTaskList(taskList: {
     name: taskList.name,
     isDefault: taskList.isDefault,
     sortKey: taskList.sortKey.toString(),
+    deletedAt: taskList.deletedAt ?? null,
     tasks: taskList.tasks ?? []
+  };
+}
+
+function toTrashTask(task: {
+  id: string;
+  title: string;
+  deletedAt: Date | null;
+  taskList: {
+    id: string;
+    name: string;
+    deletedAt: Date | null;
+  };
+  parent?: {
+    id: string;
+    title: string;
+    deletedAt: Date | null;
+  } | null;
+}) {
+  return {
+    id: task.id,
+    title: task.title,
+    deletedAt: task.deletedAt,
+    taskList: task.taskList,
+    parent: task.parent ?? null
   };
 }
 
@@ -141,7 +167,8 @@ async function assertTaskListInProject(taskListId: string, projectId: string) {
   const taskList = await prisma.taskList.findFirst({
     where: {
       id: taskListId,
-      projectId
+      projectId,
+      deletedAt: null
     }
   });
 
@@ -156,7 +183,8 @@ async function assertTaskListNameUnique(projectId: string, name: string, taskLis
   const existingTaskList = await prisma.taskList.findFirst({
     where: {
       projectId,
-      name
+      name,
+      deletedAt: null
     },
     select: {
       id: true
@@ -169,7 +197,8 @@ async function assertTaskListNameUnique(projectId: string, name: string, taskLis
 async function getOrCreateDefaultTaskList(projectId: string) {
   const existingList = await prisma.taskList.findFirst({
     where: {
-      projectId
+      projectId,
+      deletedAt: null
     },
     orderBy: {
       sortKey: "asc"
@@ -531,7 +560,8 @@ export async function listProjectTaskLists(userId: string, projectId: string) {
 
   const lists = await prisma.taskList.findMany({
     where: {
-      projectId
+      projectId,
+      deletedAt: null
     },
     include: {
       tasks: {
@@ -582,7 +612,8 @@ export async function listProjectTaskListView(userId: string, projectId: string)
 
   const lists = await prisma.taskList.findMany({
     where: {
-      projectId
+      projectId,
+      deletedAt: null
     },
     include: {
       tasks: {
@@ -629,11 +660,13 @@ export async function listProjectTaskListView(userId: string, projectId: string)
 
 export async function createTaskList(userId: string, projectId: string, input: CreateTaskListInput) {
   const { project } = await requireProjectManager(userId, projectId);
+  assertProjectActive(project);
   await assertTaskListNameUnique(projectId, input.name);
 
   const lastList = await prisma.taskList.findFirst({
     where: {
-      projectId
+      projectId,
+      deletedAt: null
     },
     orderBy: {
       sortKey: "desc"
@@ -671,6 +704,7 @@ export async function updateTaskList(
   input: UpdateTaskListInput
 ) {
   const { project } = await requireProjectManager(userId, projectId);
+  assertProjectActive(project);
   const taskList = await assertTaskListInProject(taskListId, projectId);
   assertTaskListEditable(taskList);
   await assertTaskListNameUnique(projectId, input.name, taskListId);
@@ -701,12 +735,13 @@ export async function updateTaskList(
   return toTaskList(updatedTaskList);
 }
 
-async function getTaskListTaskIdsWithDescendants(taskListId: string) {
+async function getTaskListTaskIdsWithDescendants(taskListId: string, includeDeleted = false) {
   const taskIds = new Set(
     (
       await prisma.task.findMany({
         where: {
-          taskListId
+          taskListId,
+          ...(includeDeleted ? {} : { deletedAt: null })
         },
         select: {
           id: true
@@ -719,6 +754,7 @@ async function getTaskListTaskIdsWithDescendants(taskListId: string) {
   while (frontier.length > 0) {
     const children = await prisma.task.findMany({
       where: {
+        ...(includeDeleted ? {} : { deletedAt: null }),
         parentId: {
           in: frontier
         }
@@ -806,17 +842,34 @@ export async function deleteTaskList(
   _input: DeleteTaskListInput
 ) {
   const { project } = await requireProjectManager(userId, projectId);
+  assertProjectActive(project);
   const taskList = await assertTaskListInProject(taskListId, projectId);
   assertTaskListDeletable(taskList);
 
   const taskIds = await getTaskListTaskIdsWithDescendants(taskListId);
+  const deletedAt = new Date();
 
   await prisma.$transaction(async (tx) => {
-    await deleteTasksByIds(tx, taskIds);
+    if (taskIds.length > 0) {
+      await tx.task.updateMany({
+        where: {
+          id: {
+            in: taskIds
+          }
+        },
+        data: {
+          deletedAt,
+          deletedWithTaskListId: taskListId
+        }
+      });
+    }
 
-    await tx.taskList.delete({
+    await tx.taskList.update({
       where: {
         id: taskListId
+      },
+      data: {
+        deletedAt
       }
     });
   });
@@ -838,16 +891,323 @@ export async function deleteTaskList(
   return { ok: true };
 }
 
+export async function listProjectTrash(userId: string, projectId: string) {
+  await requireProjectManager(userId, projectId);
+
+  const taskLists = await prisma.taskList.findMany({
+    where: {
+      projectId,
+      deletedAt: {
+        not: null
+      }
+    },
+    include: {
+      _count: {
+        select: {
+          tasks: {
+            where: {
+              deletedWithTaskListId: {
+                not: null
+              }
+            }
+          }
+        }
+      }
+    },
+    orderBy: {
+      deletedAt: "desc"
+    }
+  });
+
+  const tasks = await prisma.task.findMany({
+    where: {
+      projectId,
+      deletedAt: {
+        not: null
+      },
+      deletedWithTaskListId: null,
+      taskList: {
+        deletedAt: null
+      }
+    },
+    include: {
+      taskList: {
+        select: {
+          id: true,
+          name: true,
+          deletedAt: true
+        }
+      },
+      parent: {
+        select: {
+          id: true,
+          title: true,
+          deletedAt: true
+        }
+      }
+    },
+    orderBy: {
+      deletedAt: "desc"
+    }
+  });
+
+  return {
+    taskLists: taskLists.map((taskList) => ({
+      id: taskList.id,
+      name: taskList.name,
+      deletedAt: taskList.deletedAt,
+      taskCount: taskList._count.tasks
+    })),
+    tasks: tasks.map(toTrashTask)
+  };
+}
+
+export async function restoreTaskList(userId: string, projectId: string, taskListId: string) {
+  const { project } = await requireProjectManager(userId, projectId);
+  assertProjectActive(project);
+
+  const taskList = await prisma.taskList.findFirst({
+    where: {
+      id: taskListId,
+      projectId,
+      deletedAt: {
+        not: null
+      }
+    }
+  });
+
+  if (!taskList) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Task list not found in trash", 404);
+  }
+
+  await assertTaskListNameUnique(projectId, taskList.name, taskListId);
+
+  const restoredTaskCount = await prisma.task.count({
+    where: {
+      taskListId,
+      deletedWithTaskListId: taskListId
+    }
+  });
+
+  await prisma.$transaction(async (tx) => {
+    await tx.taskList.update({
+      where: {
+        id: taskListId
+      },
+      data: {
+        deletedAt: null
+      }
+    });
+
+    await tx.task.updateMany({
+      where: {
+        taskListId,
+        deletedWithTaskListId: taskListId
+      },
+      data: {
+        deletedAt: null,
+        deletedWithTaskListId: null
+      }
+    });
+  });
+
+  await publishProjectEvent(projectId, { type: "task.changed", projectId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "task_list.restored",
+    targetType: "task_list",
+    targetId: taskListId,
+    metadata: {
+      name: taskList.name,
+      restoredTaskCount
+    }
+  });
+
+  return { ok: true };
+}
+
+export async function purgeTaskList(userId: string, projectId: string, taskListId: string) {
+  const { project } = await requireProjectManager(userId, projectId);
+  assertProjectActive(project);
+
+  const taskList = await prisma.taskList.findFirst({
+    where: {
+      id: taskListId,
+      projectId,
+      deletedAt: {
+        not: null
+      }
+    }
+  });
+
+  if (!taskList) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Task list not found in trash", 404);
+  }
+
+  const taskIds = await getTaskListTaskIdsWithDescendants(taskListId, true);
+
+  await prisma.$transaction(async (tx) => {
+    await deleteTasksByIds(tx, taskIds);
+    await tx.taskList.delete({
+      where: {
+        id: taskListId
+      }
+    });
+  });
+
+  await publishProjectEvent(projectId, { type: "task.changed", projectId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "task_list.purged",
+    targetType: "task_list",
+    targetId: taskListId,
+    metadata: {
+      name: taskList.name,
+      purgedTaskCount: taskIds.length
+    }
+  });
+
+  return { ok: true };
+}
+
+async function getTaskIdsWithDescendants(taskId: string) {
+  const taskIds = new Set([taskId]);
+  let frontier = [taskId];
+
+  while (frontier.length > 0) {
+    const children = await prisma.task.findMany({
+      where: {
+        parentId: {
+          in: frontier
+        }
+      },
+      select: {
+        id: true
+      }
+    });
+    const nextFrontier = children
+      .map((task) => task.id)
+      .filter((childTaskId) => !taskIds.has(childTaskId));
+
+    nextFrontier.forEach((childTaskId) => taskIds.add(childTaskId));
+    frontier = nextFrontier;
+  }
+
+  return [...taskIds];
+}
+
+export async function restoreTask(userId: string, taskId: string) {
+  const task = await prisma.task.findFirst({
+    where: {
+      id: taskId,
+      deletedAt: {
+        not: null
+      },
+      deletedWithTaskListId: null
+    },
+    include: {
+      taskList: true,
+      parent: true
+    }
+  });
+
+  if (!task) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Task not found in trash", 404);
+  }
+
+  const { project } = await requireProjectManager(userId, task.projectId);
+  assertProjectActive(project);
+
+  if (task.taskList.deletedAt) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Task list must be restored first", 422);
+  }
+
+  if (task.parent?.deletedAt) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Parent task must be restored first", 422);
+  }
+
+  await prisma.task.update({
+    where: {
+      id: taskId
+    },
+    data: {
+      deletedAt: null
+    }
+  });
+
+  await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId: task.projectId,
+    taskId,
+    action: "task.restored",
+    targetType: "task",
+    targetId: taskId,
+    metadata: {
+      title: task.title
+    }
+  });
+
+  return { ok: true };
+}
+
+export async function purgeTask(userId: string, taskId: string) {
+  const task = await prisma.task.findFirst({
+    where: {
+      id: taskId,
+      deletedAt: {
+        not: null
+      }
+    }
+  });
+
+  if (!task) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Task not found in trash", 404);
+  }
+
+  const { project } = await requireProjectManager(userId, task.projectId);
+  assertProjectActive(project);
+  const taskIds = await getTaskIdsWithDescendants(taskId);
+
+  await prisma.$transaction(async (tx) => {
+    await deleteTasksByIds(tx, taskIds);
+  });
+
+  await publishProjectEvent(task.projectId, { type: "task.changed", projectId: task.projectId, taskId });
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId: task.projectId,
+    taskId,
+    action: "task.purged",
+    targetType: "task",
+    targetId: taskId,
+    metadata: {
+      title: task.title,
+      purgedTaskCount: taskIds.length
+    }
+  });
+
+  return { ok: true };
+}
+
 export async function reorderTaskLists(
   userId: string,
   projectId: string,
   input: ReorderTaskListsInput
 ) {
   const { project } = await requireProjectManager(userId, projectId);
+  assertProjectActive(project);
 
   const taskLists = await prisma.taskList.findMany({
     where: {
       projectId,
+      deletedAt: null,
       id: {
         in: input.items.map((item) => item.id)
       }
@@ -1244,7 +1604,8 @@ export async function deleteTask(userId: string, taskId: string) {
       id: taskId
     },
     data: {
-      deletedAt: new Date()
+      deletedAt: new Date(),
+      deletedWithTaskListId: null
     }
   });
 

@@ -1128,6 +1128,41 @@ input[type="date"]:not(:disabled) {
   background: #eff6ff;
 }
 
+.trash-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.trash-row-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.trash-row-main strong {
+  color: #0f172a;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.trash-row-main span {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.compact-actions {
+  justify-content: flex-end;
+}
+
 .notification-center-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -53,6 +53,24 @@ type TaskListResponse = {
   tasks: TaskResponse[];
 };
 
+type ProjectTrashResponse = {
+  taskLists: Array<{
+    id: string;
+    name: string;
+    taskCount: number;
+    deletedAt: string | null;
+  }>;
+  tasks: Array<{
+    id: string;
+    title: string;
+    deletedAt: string | null;
+    taskList: {
+      id: string;
+      name: string;
+    };
+  }>;
+};
+
 type TaskResponse = {
   id: string;
   title: string;
@@ -891,6 +909,49 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 404
     });
+    let projectTrash = (await request<ProjectTrashResponse>("GET", `/api/v1/projects/${project.id}/trash`, {
+      token: owner.token
+    })).data;
+    assert.ok(projectTrash.taskLists.some((list) => list.id === anotherList.id && list.taskCount === 1));
+    assert.ok(!projectTrash.tasks.some((trashTask) => trashTask.id === taskDeletedWithList.id));
+
+    await request<{ ok: boolean }>(
+      "PATCH",
+      `/api/v1/projects/${project.id}/trash/lists/${anotherList.id}/restore`,
+      {
+        token: owner.token
+      }
+    );
+    const restoredListTask = (await request<TaskResponse>("GET", `/api/v1/tasks/${taskDeletedWithList.id}`, {
+      token: owner.token
+    })).data;
+    assert.equal(restoredListTask.id, taskDeletedWithList.id);
+
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${project.id}/lists/${anotherList.id}`, {
+      token: owner.token
+    });
+    await request<TaskListResponse>("POST", `/api/v1/projects/${project.id}/lists`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: "测试清单"
+      }
+    });
+    await request<{ ok: boolean }>(
+      "PATCH",
+      `/api/v1/projects/${project.id}/trash/lists/${anotherList.id}/restore`,
+      {
+        token: owner.token,
+        expectedStatus: 422
+      }
+    );
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${project.id}/trash/lists/${anotherList.id}`, {
+      token: owner.token
+    });
+    projectTrash = (await request<ProjectTrashResponse>("GET", `/api/v1/projects/${project.id}/trash`, {
+      token: owner.token
+    })).data;
+    assert.ok(!projectTrash.taskLists.some((list) => list.id === anotherList.id));
 
     await request<TaskListResponse>("POST", `/api/v1/projects/${project.id}/lists`, {
       token: editor.token,
@@ -1131,6 +1192,27 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 404
     });
+    const trashAfterTaskDelete = (await request<ProjectTrashResponse>("GET", `/api/v1/projects/${project.id}/trash`, {
+      token: owner.token
+    })).data;
+    assert.ok(trashAfterTaskDelete.tasks.some((trashTask) => trashTask.id === dueSoonTask.id));
+    await request<{ ok: boolean }>("PATCH", `/api/v1/tasks/${dueSoonTask.id}/restore`, {
+      token: owner.token
+    });
+    const restoredDueSoonTask = (await request<TaskResponse>("GET", `/api/v1/tasks/${dueSoonTask.id}`, {
+      token: owner.token
+    })).data;
+    assert.equal(restoredDueSoonTask.id, dueSoonTask.id);
+    await request<{ ok: boolean }>("DELETE", `/api/v1/tasks/${dueSoonTask.id}`, {
+      token: owner.token
+    });
+    await request<{ ok: boolean }>("DELETE", `/api/v1/tasks/${dueSoonTask.id}/purge`, {
+      token: owner.token
+    });
+    const trashAfterTaskPurge = (await request<ProjectTrashResponse>("GET", `/api/v1/projects/${project.id}/trash`, {
+      token: owner.token
+    })).data;
+    assert.ok(!trashAfterTaskPurge.tasks.some((trashTask) => trashTask.id === dueSoonTask.id));
 
     await request<{ id: string }>("POST", `/api/v1/tasks/${task.id}/comments`, {
       token: editor.token,
@@ -1183,6 +1265,10 @@ describe("V0 HTTP integration", () => {
     assert.ok(projectActivity.some((log) => log.action === "task.created" && log.taskId === task.id));
     assert.ok(projectActivity.some((log) => log.action === "task.status_changed" && log.taskId === task.id));
     assert.ok(projectActivity.some((log) => log.action === "task.deleted" && log.taskId === dueSoonTask.id));
+    assert.ok(projectActivity.some((log) => log.action === "task.restored" && log.taskId === dueSoonTask.id));
+    assert.ok(projectActivity.some((log) => log.action === "task.purged" && log.taskId === dueSoonTask.id));
+    assert.ok(projectActivity.some((log) => log.action === "task_list.restored" && log.targetId === anotherList.id));
+    assert.ok(projectActivity.some((log) => log.action === "task_list.purged" && log.targetId === anotherList.id));
     assert.ok(projectActivity.some((log) => log.action === "comment.created" && log.taskId === task.id));
 
     await request<ActivityLogResponse[]>("GET", `/api/v1/projects/${project.id}/activity`, {

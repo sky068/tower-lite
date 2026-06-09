@@ -438,9 +438,9 @@ export function ProjectTaskListPage() {
             </Link>
           ) : null}
           {projectPermissions.canManageProject ? (
-            <button type="button" disabled>
+            <Link to={`/projects/${projectId}/trash`}>
               回收站
-            </button>
+            </Link>
           ) : null}
         </nav>
       </div>

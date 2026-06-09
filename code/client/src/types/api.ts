@@ -51,6 +51,7 @@ export type TaskList = {
   name: string;
   isDefault: boolean;
   sortKey: string;
+  deletedAt: string | null;
   tasks: Task[];
 };
 
@@ -180,4 +181,28 @@ export type ActivityLog = {
     id: string;
     name: string;
   } | null;
+};
+
+export type ProjectTrash = {
+  taskLists: Array<{
+    id: string;
+    name: string;
+    deletedAt: string | null;
+    taskCount: number;
+  }>;
+  tasks: Array<{
+    id: string;
+    title: string;
+    deletedAt: string | null;
+    taskList: {
+      id: string;
+      name: string;
+      deletedAt: string | null;
+    };
+    parent: {
+      id: string;
+      title: string;
+      deletedAt: string | null;
+    } | null;
+  }>;
 };

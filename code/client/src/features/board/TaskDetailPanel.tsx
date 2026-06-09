@@ -419,7 +419,7 @@ export function TaskDetailPanel({
   function handleDeleteTask() {
     const taskTitle = task?.title ? `「${task.title}」` : "这个任务";
 
-    if (!readOnly && window.confirm(`确认删除任务${taskTitle}？此操作不可恢复。`)) {
+    if (!readOnly && window.confirm(`确认将任务${taskTitle}移入回收站？`)) {
       deleteTaskMutation.mutate();
     }
   }

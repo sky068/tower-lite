@@ -7,6 +7,16 @@ type AuthRedirectState = {
   from?: Location;
 };
 
+function getPostAuthRedirect(location: Location) {
+  const redirectLocation = (location.state as AuthRedirectState | null)?.from;
+
+  if (redirectLocation?.pathname === "/invitations/accept") {
+    return `${redirectLocation.pathname}${redirectLocation.search}${redirectLocation.hash}`;
+  }
+
+  return "/dashboard";
+}
+
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -16,10 +26,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const redirectLocation = (location.state as AuthRedirectState | null)?.from;
-  const redirectTo = redirectLocation
-    ? `${redirectLocation.pathname}${redirectLocation.search}${redirectLocation.hash}`
-    : "/dashboard";
+  const redirectTo = getPostAuthRedirect(location);
 
   if (accessToken) {
     return <Navigate to={redirectTo} replace />;
