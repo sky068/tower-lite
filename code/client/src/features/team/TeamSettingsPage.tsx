@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { MutationError } from "../../components/shared/MutationError";
+import { UserAvatar } from "../../components/shared/UserAvatar";
 import { activityApi, invitationApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { useAuthStore } from "../../stores/authStore";
@@ -255,8 +256,9 @@ export function TeamSettingsPage() {
         <MutationError error={updateRoleMutation.error ?? removeMemberMutation.error} />
         <div className="list settings-scroll-list">
           {(membersQuery.data ?? []).map((member) => (
-            <div className="member-row" key={member.user.id}>
-              <div>
+            <div className="member-row member-person-row" key={member.user.id}>
+              <UserAvatar user={member.user} size="md" />
+              <div className="member-info">
                 <strong>{member.user.name}</strong>
                 <span>{member.user.email}</span>
               </div>

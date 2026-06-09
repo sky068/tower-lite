@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
+import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
 import { formatCalendarDate } from "../../lib/dateTime";
@@ -18,6 +19,15 @@ function formatDate(value: string | null) {
 
 function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
   return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+}
+
+function AssigneeChip({ assignee }: { assignee: { name: string; avatarUrl: string | null; isRemoved?: boolean } }) {
+  return (
+    <span className="assignee-chip">
+      <UserAvatar user={assignee} size="xs" />
+      <span>{formatAssigneeName(assignee)}</span>
+    </span>
+  );
 }
 
 function formatCompletedByName(completedBy: { name: string } | null) {
@@ -679,7 +689,11 @@ export function ProjectBoardPage() {
                 </div>
                 <div className="task-card-meta">
                   {task.assignees && task.assignees.length > 0 ? (
-                    <span>{task.assignees.map(formatAssigneeName).join(", ")}</span>
+                    <div className="assignee-chip-list">
+                      {task.assignees.map((assignee) => (
+                        <AssigneeChip assignee={assignee} key={assignee.id} />
+                      ))}
+                    </div>
                   ) : (
                     <span>未分配</span>
                   )}
@@ -759,6 +773,7 @@ export function ProjectBoardPage() {
                           toggleNewTaskAssignee(member.user.id, event.target.checked)
                         }
                       />
+                      <UserAvatar user={member.user} size="xs" />
                       <span>{member.user.name}</span>
                     </label>
                   ))}

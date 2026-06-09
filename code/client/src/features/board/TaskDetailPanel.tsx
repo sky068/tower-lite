@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../../components/shared/MutationError";
+import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
@@ -20,6 +21,15 @@ type TaskDetailPanelProps = {
 
 function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
   return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+}
+
+function AssigneeChip({ assignee }: { assignee: { name: string; avatarUrl: string | null; isRemoved?: boolean } }) {
+  return (
+    <span className="assignee-chip">
+      <UserAvatar user={assignee} size="xs" />
+      <span>{formatAssigneeName(assignee)}</span>
+    </span>
+  );
 }
 
 export function TaskDetailPanel({
@@ -161,6 +171,14 @@ export function TaskDetailPanel({
       .map(formatAssigneeName);
 
     return [...memberNames, ...removedNames];
+  }, [assigneeIds, membersQuery.data, removedAssignees]);
+  const taskAssigneeSummaryItems = useMemo(() => {
+    const activeAssignees = (membersQuery.data ?? [])
+      .filter((member) => assigneeIds.includes(member.user.id))
+      .map((member) => member.user);
+    const removedItems = removedAssignees.filter((assignee) => assigneeIds.includes(assignee.id));
+
+    return [...activeAssignees, ...removedItems];
   }, [assigneeIds, membersQuery.data, removedAssignees]);
   const subTaskAssigneeSummary = useMemo(() => {
     const members = membersQuery.data ?? [];
@@ -543,7 +561,15 @@ export function TaskDetailPanel({
                           taskAssigneeNames.length > 0 ? taskAssigneeNames.join(", ") : "未分配"
                         }
                       >
-                        {taskAssigneeNames.length > 0 ? taskAssigneeNames.join(", ") : "未分配"}
+                        {taskAssigneeSummaryItems.length > 0 ? (
+                          <span className="assignee-summary-list">
+                            {taskAssigneeSummaryItems.map((assignee) => (
+                              <AssigneeChip assignee={assignee} key={assignee.id} />
+                            ))}
+                          </span>
+                        ) : (
+                          "未分配"
+                        )}
                       </div>
                       {!readOnly ? (
                         <button
@@ -568,12 +594,14 @@ export function TaskDetailPanel({
                                 toggleTaskAssignee(member.user.id, event.target.checked)
                               }
                             />
+                            <UserAvatar user={member.user} size="xs" />
                             <span>{member.user.name}</span>
                           </label>
                         ))}
                         {removedAssignees.map((assignee) => (
                           <label className="checkbox-row disabled" key={assignee.id}>
                             <input type="checkbox" checked disabled />
+                            <UserAvatar user={assignee} size="xs" />
                             <span>{formatAssigneeName(assignee)}</span>
                           </label>
                         ))}
@@ -659,7 +687,13 @@ export function TaskDetailPanel({
                 <span>负责人</span>
                 <strong>
                   {task.assignees && task.assignees.length > 0
-                    ? task.assignees.map(formatAssigneeName).join(", ")
+                    ? (
+                        <span className="assignee-chip-list">
+                          {task.assignees.map((assignee) => (
+                            <AssigneeChip assignee={assignee} key={assignee.id} />
+                          ))}
+                        </span>
+                      )
                     : "未分配"}
                 </strong>
               </div>
@@ -842,6 +876,7 @@ export function TaskDetailPanel({
                                 toggleSubTaskAssignee(member.user.id, event.target.checked)
                               }
                             />
+                            <UserAvatar user={member.user} size="xs" />
                             <span>{member.user.name}</span>
                           </label>
                         ))}
@@ -905,7 +940,13 @@ export function TaskDetailPanel({
                       <span>
                         负责人：
                         {subTask.assignees && subTask.assignees.length > 0
-                          ? subTask.assignees.map(formatAssigneeName).join(", ")
+                          ? (
+                              <span className="assignee-chip-list inline">
+                                {subTask.assignees.map((assignee) => (
+                                  <AssigneeChip assignee={assignee} key={assignee.id} />
+                                ))}
+                              </span>
+                            )
                           : "未分配"}
                       </span>
                     </button>

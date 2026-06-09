@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { MutationError } from "../../components/shared/MutationError";
+import { UserAvatar } from "../../components/shared/UserAvatar";
 import { activityApi, invitationApi, projectApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { getProjectPermissions } from "../../lib/permissions";
@@ -316,8 +317,9 @@ export function ProjectSettingsPage() {
         <MutationError error={updateRoleMutation.error ?? removeMemberMutation.error} />
         <div className="list settings-scroll-list">
           {(membersQuery.data ?? []).map((member) => (
-            <div className="member-row" key={member.user.id}>
-              <div>
+            <div className="member-row member-person-row" key={member.user.id}>
+              <UserAvatar user={member.user} size="md" />
+              <div className="member-info">
                 <strong>{member.user.name}</strong>
                 <span>{member.user.email}</span>
               </div>

@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, ListChecks, LogOut, Settings, Trash2, Upload, UserRound, X } from "lucide-react";
+import { Bell, ListChecks, LogOut, Settings, Trash2, Upload, X } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FormEvent, type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../shared/MutationError";
+import { UserAvatar } from "../shared/UserAvatar";
 import { authApi, userApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
 import { useRealtimeEvents } from "../../lib/realtime";
@@ -22,14 +23,6 @@ const realtimeStatusLabels = {
 
 const maxAvatarFileSize = 200 * 1024;
 const allowedAvatarMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-
-function UserAvatar({ user, size = 18 }: { user: { name: string; avatarUrl: string | null } | null | undefined; size?: number }) {
-  return user?.avatarUrl ? (
-    <img src={user.avatarUrl} alt={user.name} />
-  ) : (
-    <UserRound size={size} aria-hidden="true" />
-  );
-}
 
 export function AppShell() {
   const queryClient = useQueryClient();
@@ -359,13 +352,13 @@ export function AppShell() {
                 type="button"
                 onClick={() => setIsUserMenuOpen((current) => !current)}
               >
-                <UserAvatar user={user} />
+                <UserAvatar user={user} size="lg" />
               </button>
               {isUserMenuOpen ? (
                 <section className="user-popover" aria-label="用户菜单">
                   <header className="user-popover-header">
                     <div className="user-popover-avatar">
-                      <UserAvatar user={user} size={22} />
+                      <UserAvatar user={user} size="lg" />
                     </div>
                     <div>
                       <strong>{user?.name}</strong>
@@ -420,7 +413,7 @@ export function AppShell() {
                     <div className="avatar-preview" aria-label="当前头像">
                       <UserAvatar
                         user={profileAvatarUrl ? { name: profileName.trim() || "用户", avatarUrl: profileAvatarUrl } : null}
-                        size={28}
+                        size="xl"
                       />
                     </div>
                     <div className="avatar-editor-actions">
