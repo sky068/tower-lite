@@ -736,7 +736,7 @@ Authorization: Bearer <access_token>
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/users/me` | 当前用户信息 |
-| PATCH | `/users/me` | 更新昵称、头像 |
+| PATCH | `/users/me` | 更新昵称、头像；头像支持图片 URL 或前端上传后生成的图片 data URL |
 | GET | `/users/me/tasks` | 我的任务 |
 | GET | `/users/me/notifications` | 通知列表 |
 | PATCH | `/users/me/notifications/:id/read` | 标记已读 |
@@ -1116,7 +1116,7 @@ NODE_ENV=
 ### E2E 测试
 
 - E2E 使用 Playwright，通过 `npm run test:e2e` 运行；该命令自动启动后端和前端，并连接本地 PostgreSQL。
-- 已覆盖：用户登录、进入项目看板、默认三列展示、通过新建任务弹窗创建任务、指定负责人、打开任务详情弹窗、创建两级子任务、任务详情评论、拖拽任务到已完成列、负责人登录后在工作台看到“我的任务”、已完成任务信息和分配通知、通过 WebSocket 收到评论通知、EDITOR 看不到添加列表入口、VIEWER 看不到新建任务入口。
+- 已覆盖：用户登录、账号资料和自定义头像上传、进入项目看板、默认三列展示、通过新建任务弹窗创建任务、指定负责人、打开任务详情弹窗、创建两级子任务、任务详情评论、拖拽任务到已完成列、负责人登录后在工作台看到“我的任务”、已完成任务信息和分配通知、通过 WebSocket 收到评论通知、EDITOR 看不到添加列表入口、VIEWER 看不到新建任务入口。
 - `npm run test:acceptance` 串联后端集成测试和前端 E2E，用于 V0 自动验收。
 - 后续可继续补充：任务详情字段编辑保存、通知已读、项目归档只读。
 

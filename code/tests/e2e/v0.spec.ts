@@ -364,7 +364,14 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const accountSettings = page.getByRole("region", { name: "账号设置" });
   await expect(accountSettings).toBeVisible();
   await accountSettings.getByLabel("名字").fill("E2E Captain");
-  await accountSettings.getByLabel("头像 URL").fill("https://example.com/avatar.png");
+  await accountSettings.getByLabel("上传头像").setInputFiles({
+    name: "avatar.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+      "base64"
+    )
+  });
   const profileResponsePromise = page.waitForResponse((response) =>
     response.url().includes("/api/v1/users/me/profile")
   );

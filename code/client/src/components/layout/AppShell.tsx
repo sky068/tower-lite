@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, ListChecks, LogOut, Settings, X } from "lucide-react";
+import { Bell, ListChecks, LogOut, Settings, Trash2, Upload, UserRound, X } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../shared/MutationError";
 import { authApi, userApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
@@ -20,8 +20,15 @@ const realtimeStatusLabels = {
   reconnecting: "实时连接重连中"
 };
 
-function getInitials(name: string) {
-  return name.trim().slice(0, 2).toUpperCase();
+const maxAvatarFileSize = 200 * 1024;
+const allowedAvatarMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+function UserAvatar({ user, size = 18 }: { user: { name: string; avatarUrl: string | null } | null | undefined; size?: number }) {
+  return user?.avatarUrl ? (
+    <img src={user.avatarUrl} alt={user.name} />
+  ) : (
+    <UserRound size={size} aria-hidden="true" />
+  );
 }
 
 export function AppShell() {
@@ -36,6 +43,7 @@ export function AppShell() {
   const [notificationCenterFilter, setNotificationCenterFilter] = useState<"ALL" | "UNREAD">("ALL");
   const [profileName, setProfileName] = useState(user?.name ?? "");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(user?.avatarUrl ?? "");
+  const [profileAvatarError, setProfileAvatarError] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -180,6 +188,7 @@ export function AppShell() {
     setIsAccountSettingsOpen(true);
     setProfileName(user?.name ?? "");
     setProfileAvatarUrl(user?.avatarUrl ?? "");
+    setProfileAvatarError("");
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
@@ -191,10 +200,48 @@ export function AppShell() {
   function handleUpdateProfile(event: FormEvent) {
     event.preventDefault();
 
-    if (profileName.trim()) {
+    if (profileName.trim() && !profileAvatarError) {
       setProfileSaved(false);
       updateProfileMutation.mutate();
     }
+  }
+
+  function handleAvatarFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    if (!allowedAvatarMimeTypes.has(file.type)) {
+      setProfileAvatarError("头像仅支持 PNG、JPG、WebP 或 GIF。");
+      return;
+    }
+
+    if (file.size > maxAvatarFileSize) {
+      setProfileAvatarError("头像图片不能超过 200KB。");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setProfileAvatarUrl(reader.result);
+        setProfileAvatarError("");
+        setProfileSaved(false);
+      }
+    };
+    reader.onerror = () => {
+      setProfileAvatarError("头像读取失败，请重新选择图片。");
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleClearAvatar() {
+    setProfileAvatarUrl("");
+    setProfileAvatarError("");
+    setProfileSaved(false);
   }
 
   function handleUpdatePassword(event: FormEvent) {
@@ -312,21 +359,13 @@ export function AppShell() {
                 type="button"
                 onClick={() => setIsUserMenuOpen((current) => !current)}
               >
-                {user?.avatarUrl ? (
-                  <img src={user.avatarUrl} alt={user.name} />
-                ) : (
-                  <span>{user ? getInitials(user.name) : "我"}</span>
-                )}
+                <UserAvatar user={user} />
               </button>
               {isUserMenuOpen ? (
                 <section className="user-popover" aria-label="用户菜单">
                   <header className="user-popover-header">
                     <div className="user-popover-avatar">
-                      {user?.avatarUrl ? (
-                        <img src={user.avatarUrl} alt={user.name} />
-                      ) : (
-                        <span>{user ? getInitials(user.name) : "我"}</span>
-                      )}
+                      <UserAvatar user={user} size={22} />
                     </div>
                     <div>
                       <strong>{user?.name}</strong>
@@ -377,17 +416,34 @@ export function AppShell() {
                       required
                     />
                   </label>
-                  <label>
-                    头像 URL
-                    <input
-                      value={profileAvatarUrl}
-                      onChange={(event) => {
-                        setProfileAvatarUrl(event.target.value);
-                        setProfileSaved(false);
-                      }}
-                      placeholder="https://example.com/avatar.png"
-                    />
-                  </label>
+                  <div className="avatar-editor">
+                    <div className="avatar-preview" aria-label="当前头像">
+                      <UserAvatar
+                        user={profileAvatarUrl ? { name: profileName.trim() || "用户", avatarUrl: profileAvatarUrl } : null}
+                        size={28}
+                      />
+                    </div>
+                    <div className="avatar-editor-actions">
+                      <label className="secondary-inline-button avatar-upload-button">
+                        <Upload size={16} aria-hidden="true" />
+                        <span>上传头像</span>
+                        <input
+                          aria-label="上传头像"
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          onChange={handleAvatarFileChange}
+                        />
+                      </label>
+                      {profileAvatarUrl ? (
+                        <button className="secondary-inline-button" type="button" onClick={handleClearAvatar}>
+                          <Trash2 size={16} aria-hidden="true" />
+                          <span>恢复默认头像</span>
+                        </button>
+                      ) : null}
+                    </div>
+                    <span className="muted">支持 PNG、JPG、WebP 或 GIF，最大 200KB。</span>
+                    {profileAvatarError ? <span className="form-error inline-error">{profileAvatarError}</span> : null}
+                  </div>
                   <button type="submit" disabled={updateProfileMutation.isPending || !profileName.trim()}>
                     保存资料
                   </button>

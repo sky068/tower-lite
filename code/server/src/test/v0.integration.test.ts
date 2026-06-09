@@ -445,11 +445,20 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       body: {
         name: "Updated Owner",
-        avatarUrl: "https://example.com/avatar.png"
+        avatarUrl: "data:image/png;base64,iVBORw0KGgo="
       }
     })).data;
     assert.equal(updatedOwner.name, "Updated Owner");
-    assert.equal(updatedOwner.avatarUrl, "https://example.com/avatar.png");
+    assert.equal(updatedOwner.avatarUrl, "data:image/png;base64,iVBORw0KGgo=");
+
+    await request<AuthResponse["user"]>("PATCH", "/api/v1/users/me/profile", {
+      token: owner.token,
+      expectedStatus: 400,
+      body: {
+        name: "Updated Owner",
+        avatarUrl: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
+      }
+    });
 
     await request<{ ok: boolean }>("PATCH", "/api/v1/users/me/password", {
       token: owner.token,

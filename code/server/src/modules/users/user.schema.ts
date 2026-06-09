@@ -7,7 +7,14 @@ export const notificationIdParamsSchema = z.object({
 const nullableAvatarUrlSchema = z
   .string()
   .trim()
-  .max(500)
+  .max(300_000)
+  .refine(
+    (value) =>
+      value.length === 0 ||
+      /^https?:\/\/.+/i.test(value) ||
+      /^data:image\/(png|jpeg|jpg|webp|gif);base64,[a-z0-9+/=]+$/i.test(value),
+    "Avatar must be an image URL or data URL"
+  )
   .transform((value) => (value.length === 0 ? null : value))
   .nullable()
   .optional();
