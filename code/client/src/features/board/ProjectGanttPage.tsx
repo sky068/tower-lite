@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import type { CSSProperties } from "react";
-import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { CSSProperties, MouseEvent, PointerEvent } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
@@ -26,6 +26,27 @@ type GanttFilters = {
 
 type GanttZoom = "DAY" | "WEEK" | "MONTH" | "QUARTER";
 
+type GanttDragMode = "MOVE" | "START" | "END";
+
+type DragState = {
+  task: GanttTask;
+  mode: GanttDragMode;
+  startClientX: number;
+  unitPx: number;
+  previewDeltaUnits: number;
+  deltaUnits: number;
+  minDeltaUnits: number;
+  maxDeltaUnits: number;
+  hasMoved: boolean;
+};
+
+type UpdateTaskDatesInput = {
+  task: GanttTask;
+  startDate: Date;
+  dueDate: Date;
+  previousLists?: TaskList[];
+};
+
 const GANTT_ZOOM_OPTIONS: Array<{ value: GanttZoom; label: string; unitWidth: number }> = [
   { value: "DAY", label: "天", unitWidth: 46 },
   { value: "WEEK", label: "周", unitWidth: 72 },
@@ -41,6 +62,17 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function diffDays(start: Date, end: Date) {
+  return Math.round((startOfDay(end).getTime() - startOfDay(start).getTime()) / 86_400_000);
+}
+
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function startOfWeek(date: Date) {
@@ -252,8 +284,8 @@ function buildTimeline(tasks: GanttTask[], zoom: GanttZoom) {
     return null;
   }
 
-  const min = startOfUnit(new Date(Math.min(...dates.map((date) => date.getTime()))), zoom);
-  const max = startOfUnit(new Date(Math.max(...dates.map((date) => date.getTime()))), zoom);
+  const min = addUnit(startOfUnit(new Date(Math.min(...dates.map((date) => date.getTime()))), zoom), zoom, -1);
+  const max = addUnit(startOfUnit(new Date(Math.max(...dates.map((date) => date.getTime()))), zoom), zoom, 1);
   const unitCount = Math.max(diffUnits(min, max, zoom) + 1, 1);
   const units = Array.from({ length: unitCount }, (_, index) => addUnit(min, zoom, index));
 
@@ -264,16 +296,35 @@ function buildTimeline(tasks: GanttTask[], zoom: GanttZoom) {
   };
 }
 
+function updateTaskDatesInLists(lists: TaskList[] | undefined, taskId: string, startDate: string, dueDate: string) {
+  return lists?.map((list) => ({
+    ...list,
+    tasks: list.tasks.map((task) =>
+      task.id === taskId
+        ? {
+            ...task,
+            startDate,
+            dueDate
+          }
+        : task
+    )
+  }));
+}
+
 export function ProjectGanttPage() {
   const { projectId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
   const [taskSearch, setTaskSearch] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("ALL");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [completionFilter, setCompletionFilter] = useState<"OPEN" | "DONE" | "ALL">("ALL");
   const [zoom, setZoom] = useState<GanttZoom>("DAY");
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const dragStateRef = useRef<DragState | null>(null);
+  const suppressClickTaskIdRef = useRef<string | null>(null);
 
   const listsQuery = useQuery({
     queryKey: ["project-task-list", projectId],
@@ -318,7 +369,42 @@ export function ProjectGanttPage() {
   const scheduledTasks = filteredTasks.filter((task) => getTaskStart(task) && getTaskEnd(task));
   const unscheduledTasks = filteredTasks.filter((task) => !getTaskStart(task) || !getTaskEnd(task));
   const isArchived = projectQuery.data?.status === "ARCHIVED";
+  const canReschedule = projectPermissions.canEditProject && !isArchived;
   const unitWidth = GANTT_ZOOM_OPTIONS.find((option) => option.value === zoom)?.unitWidth ?? 72;
+
+  const updateTaskDatesMutation = useMutation({
+    mutationFn: (input: UpdateTaskDatesInput) =>
+      boardApi.updateTask(input.task.id, {
+        startDate: formatDateInputValue(input.startDate),
+        dueDate: formatDateInputValue(input.dueDate)
+      }),
+    onMutate: async (input) => {
+      const queryKey = ["project-task-list", projectId];
+      const startDate = formatDateInputValue(input.startDate);
+      const dueDate = formatDateInputValue(input.dueDate);
+
+      await queryClient.cancelQueries({ queryKey });
+
+      const previousLists = input.previousLists ?? queryClient.getQueryData<TaskList[]>(queryKey);
+
+      queryClient.setQueryData<TaskList[]>(queryKey, (current) =>
+        updateTaskDatesInLists(current, input.task.id, startDate, dueDate)
+      );
+
+      return { previousLists };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previousLists) {
+        queryClient.setQueryData(["project-task-list", projectId], context.previousLists);
+      }
+    },
+    onSettled: (_data, _error, input) => {
+      void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["task", input.task.id] });
+      void queryClient.invalidateQueries({ queryKey: ["my-tasks"] });
+    }
+  });
 
   function openTask(taskId: string) {
     navigate(`/tasks/${taskId}`, {
@@ -327,6 +413,160 @@ export function ProjectGanttPage() {
         returnTo: location.pathname
       }
     });
+  }
+
+  function handleTaskBarPointerDown(
+    event: PointerEvent<HTMLButtonElement>,
+    task: GanttTask,
+    left: number,
+    width: number
+  ) {
+    if (!canReschedule || !timeline || event.button !== 0) {
+      return;
+    }
+
+    const track = event.currentTarget.parentElement;
+
+    if (!track) {
+      return;
+    }
+
+    const target = event.target as HTMLElement;
+    const resizeHandle = target.closest<HTMLElement>(".gantt-resize-handle");
+    const mode: GanttDragMode =
+      resizeHandle?.dataset.edge === "left" ? "START" : resizeHandle?.dataset.edge === "right" ? "END" : "MOVE";
+    const unitPx = track.getBoundingClientRect().width / timeline.unitCount;
+    const minDeltaUnits = mode === "END" ? 1 - width : 1 - left;
+    const maxDeltaUnits = mode === "START" ? width - 1 : timeline.unitCount - left - width + 1;
+
+    const nextState = {
+      task,
+      mode,
+      startClientX: event.clientX,
+      unitPx,
+      previewDeltaUnits: 0,
+      deltaUnits: 0,
+      minDeltaUnits,
+      maxDeltaUnits,
+      hasMoved: false
+    };
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStateRef.current = nextState;
+    setDragState(nextState);
+  }
+
+  function handleTaskBarPointerMove(event: PointerEvent<HTMLButtonElement>, taskId: string) {
+    setDragState((current) => {
+      if (!current || current.task.id !== taskId) {
+        return current;
+      }
+
+      const rawDeltaUnits = (event.clientX - current.startClientX) / current.unitPx;
+      const previewDeltaUnits = Math.min(Math.max(rawDeltaUnits, current.minDeltaUnits), current.maxDeltaUnits);
+      const deltaUnits = Math.min(Math.max(Math.round(rawDeltaUnits), current.minDeltaUnits), current.maxDeltaUnits);
+      const hasMoved = current.hasMoved || Math.abs(event.clientX - current.startClientX) > 4;
+
+      if (
+        previewDeltaUnits === current.previewDeltaUnits &&
+        deltaUnits === current.deltaUnits &&
+        hasMoved === current.hasMoved
+      ) {
+        return current;
+      }
+
+      const nextState = {
+        ...current,
+        previewDeltaUnits,
+        deltaUnits,
+        hasMoved
+      };
+
+      dragStateRef.current = nextState;
+      return nextState;
+    });
+  }
+
+  function finishTaskBarDrag(event: PointerEvent<HTMLButtonElement>, taskId: string) {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    const current = dragStateRef.current;
+
+    if (!current || current.task.id !== taskId) {
+      return;
+    }
+
+    if (current.hasMoved) {
+      suppressClickTaskIdRef.current = taskId;
+      window.setTimeout(() => {
+        if (suppressClickTaskIdRef.current === taskId) {
+          suppressClickTaskIdRef.current = null;
+        }
+      }, 0);
+    }
+
+    if (current.deltaUnits === 0) {
+      dragStateRef.current = null;
+      setDragState(null);
+      return;
+    }
+
+    const originalStart = getTaskStart(current.task);
+    const originalEnd = getTaskEnd(current.task);
+
+    if (!originalStart || !originalEnd) {
+      dragStateRef.current = null;
+      setDragState(null);
+      return;
+    }
+
+    const durationDays = diffDays(originalStart, originalEnd);
+    const normalizedStart = startOfUnit(originalStart, zoom);
+    const normalizedEnd = startOfUnit(originalEnd, zoom);
+    let nextStart = originalStart;
+    let nextEnd = originalEnd;
+
+    if (current.mode === "MOVE") {
+      nextStart = addUnit(normalizedStart, zoom, current.deltaUnits);
+      nextEnd = addDays(nextStart, durationDays);
+    } else if (current.mode === "START") {
+      nextStart = addUnit(normalizedStart, zoom, current.deltaUnits);
+    } else {
+      nextEnd = addUnit(normalizedEnd, zoom, current.deltaUnits);
+    }
+
+    const queryKey = ["project-task-list", projectId];
+    const startDate = formatDateInputValue(nextStart);
+    const dueDate = formatDateInputValue(nextEnd);
+    const previousLists = queryClient.getQueryData<TaskList[]>(queryKey);
+
+    queryClient.setQueryData<TaskList[]>(queryKey, (cachedLists) =>
+      updateTaskDatesInLists(cachedLists, current.task.id, startDate, dueDate)
+    );
+
+    dragStateRef.current = null;
+    setDragState(null);
+
+    updateTaskDatesMutation.mutate({
+      task: current.task,
+      startDate: nextStart,
+      dueDate: nextEnd,
+      previousLists
+    });
+  }
+
+  function handleTaskBarClick(event: MouseEvent<HTMLButtonElement>, taskId: string) {
+    const target = event.target as HTMLElement;
+
+    if (target.closest(".gantt-resize-handle") || suppressClickTaskIdRef.current === taskId) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    openTask(taskId);
   }
 
   if (projectQuery.error) {
@@ -404,7 +644,7 @@ export function ProjectGanttPage() {
           ))}
         </div>
       </section>
-      <MutationError error={listsQuery.error} />
+      <MutationError error={listsQuery.error ?? updateTaskDatesMutation.error} />
       {!listsQuery.isLoading && allTasks.length > 0 && filteredTasks.length === 0 ? (
         <section className="notice-panel">当前筛选条件隐藏了所有任务，可以清空筛选条件查看。</section>
       ) : null}
@@ -438,6 +678,17 @@ export function ProjectGanttPage() {
                 const end = getTaskEnd(task)!;
                 const left = diffUnits(timeline.start, start, zoom) + 1;
                 const width = Math.max(diffUnits(start, end, zoom) + 1, 1);
+                const taskDragState = dragState?.task.id === task.id ? dragState : null;
+                const previewLeft =
+                  taskDragState?.mode === "MOVE" || taskDragState?.mode === "START"
+                    ? left + taskDragState.previewDeltaUnits
+                    : left;
+                const previewWidth =
+                  taskDragState?.mode === "START"
+                    ? width - taskDragState.previewDeltaUnits
+                    : taskDragState?.mode === "END"
+                      ? width + taskDragState.previewDeltaUnits
+                      : width;
 
                 return (
                   <div className="gantt-row" key={task.id}>
@@ -454,13 +705,33 @@ export function ProjectGanttPage() {
                       <button
                         className={`gantt-bar ${getPriorityClassName(task.priority)} ${
                           task.status === "DONE" ? "done" : ""
+                        } ${dragState?.task.id === task.id ? "dragging" : ""
                         }`}
                         type="button"
-                        style={{ "--gantt-left": left, "--gantt-width": width } as CSSProperties}
+                        data-reschedulable={canReschedule ? "true" : "false"}
+                        style={
+                          {
+                            "--gantt-left": left,
+                            "--gantt-width": width,
+                            "--gantt-preview-left": previewLeft,
+                            "--gantt-preview-width": previewWidth
+                          } as CSSProperties
+                        }
                         title={`${task.title} · ${formatTaskDateRange(task)} · ${getPriorityLabel(task.priority)}`}
-                        onClick={() => openTask(task.id)}
+                        aria-label={`${task.title} 排期 ${formatTaskDateRange(task)}`}
+                        onClick={(event) => handleTaskBarClick(event, task.id)}
+                        onPointerCancel={(event) => finishTaskBarDrag(event, task.id)}
+                        onPointerDown={(event) => handleTaskBarPointerDown(event, task, left, width)}
+                        onPointerMove={(event) => handleTaskBarPointerMove(event, task.id)}
+                        onPointerUp={(event) => finishTaskBarDrag(event, task.id)}
                       >
-                        <span>{task.title}</span>
+                        {canReschedule ? (
+                          <span className="gantt-resize-handle left" data-edge="left" aria-hidden="true" />
+                        ) : null}
+                        <span className="gantt-bar-label">{task.title}</span>
+                        {canReschedule ? (
+                          <span className="gantt-resize-handle right" data-edge="right" aria-hidden="true" />
+                        ) : null}
                       </button>
                     </div>
                   </div>

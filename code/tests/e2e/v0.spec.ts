@@ -451,6 +451,10 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   );
   await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
   await expect(page.getByRole("button", { name: new RegExp(taskTitle) }).first()).toBeVisible();
+  const ganttBar = page.getByRole("button", { name: new RegExp(`${escapeRegExp(taskTitle)} 排期`) });
+  await expect(ganttBar).toHaveAttribute("data-reschedulable", "true");
+  await expect(ganttBar.locator(".gantt-resize-handle.left")).toHaveCount(1);
+  await expect(ganttBar.locator(".gantt-resize-handle.right")).toHaveCount(1);
   const ganttZoom = page.getByRole("region", { name: "甘特图缩放" });
   await expect(ganttZoom.getByRole("button", { name: "天" })).toHaveAttribute("aria-pressed", "true");
   await ganttZoom.getByRole("button", { name: "周" }).click();

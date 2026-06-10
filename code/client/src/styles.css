@@ -929,7 +929,7 @@ input[type="date"]:not(:disabled) {
 }
 
 .gantt-task-title span,
-.gantt-bar span {
+.gantt-bar-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -956,8 +956,10 @@ input[type="date"]:not(:disabled) {
 .gantt-bar {
   position: absolute;
   top: 9px;
-  left: calc((var(--gantt-left) - 1) * 100% / var(--gantt-units) + 4px);
-  width: calc(var(--gantt-width) * 100% / var(--gantt-units) - 8px);
+  left: calc((var(--gantt-preview-left, var(--gantt-left)) - 1) * 100% / var(--gantt-units) + 4px);
+  display: flex;
+  align-items: center;
+  width: calc(var(--gantt-preview-width, var(--gantt-width)) * 100% / var(--gantt-units) - 8px);
   min-width: 34px;
   max-width: calc(100% - 8px);
   height: 26px;
@@ -967,11 +969,62 @@ input[type="date"]:not(:disabled) {
   color: #ffffff;
   padding: 0 10px;
   text-align: left;
+  transform: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.gantt-bar[data-reschedulable="true"] {
+  cursor: grab;
+  padding: 0 14px;
+}
+
+.gantt-bar[data-reschedulable="true"]:active,
+.gantt-bar.dragging {
+  cursor: grabbing;
+}
+
+.gantt-bar.dragging {
+  z-index: 3;
+  box-shadow: 0 8px 18px rgb(15 23 42 / 18%);
 }
 
 .gantt-bar.done {
   opacity: 0.64;
   text-decoration: line-through;
+}
+
+.gantt-resize-handle {
+  position: absolute;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  width: 12px;
+  height: 100%;
+  place-items: center;
+  cursor: ew-resize;
+}
+
+.gantt-resize-handle.left {
+  left: 0;
+}
+
+.gantt-resize-handle.right {
+  right: 0;
+}
+
+.gantt-resize-handle::after {
+  width: 2px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 72%);
+  content: "";
+}
+
+.gantt-bar-label {
+  min-width: 0;
+  width: 100%;
+  pointer-events: none;
 }
 
 .gantt-unscheduled {
