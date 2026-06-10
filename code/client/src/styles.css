@@ -1271,6 +1271,20 @@ input[type="date"]:not(:disabled) {
   color: #64748b;
 }
 
+.default-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-left: 8px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1;
+  padding: 3px 7px;
+}
+
 .row-main {
   display: grid;
   flex: 1;

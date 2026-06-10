@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { projectApi, teamApi, userApi } from "../../lib/api";
@@ -18,6 +18,30 @@ const taskStatusTabs = [
   { value: "DONE", label: "已完成" },
   { value: "ALL", label: "全部" }
 ] as const;
+
+const defaultTeamStorageKey = "tower.dashboard.defaultTeamId";
+const defaultProjectStorageKey = "tower.dashboard.defaultProjects";
+
+function readStoredDefaultTeamId() {
+  return localStorage.getItem(defaultTeamStorageKey);
+}
+
+function readStoredDefaultProjects() {
+  try {
+    return JSON.parse(localStorage.getItem(defaultProjectStorageKey) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredDefaultProject(teamId: string, projectId: string) {
+  const nextDefaults = {
+    ...readStoredDefaultProjects(),
+    [teamId]: projectId
+  };
+  localStorage.setItem(defaultProjectStorageKey, JSON.stringify(nextDefaults));
+  return nextDefaults;
+}
 
 function formatCompletedByName(completedBy: MyTask["completedBy"]) {
   if (!completedBy) {
@@ -82,7 +106,8 @@ export function DashboardPage() {
   const location = useLocation();
   const [teamName, setTeamName] = useState("");
   const [projectName, setProjectName] = useState("");
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => readStoredDefaultTeamId());
+  const [defaultProjects, setDefaultProjects] = useState<Record<string, string>>(() => readStoredDefaultProjects());
   const [taskSearch, setTaskSearch] = useState("");
   const [taskProjectFilter, setTaskProjectFilter] = useState("ALL");
   const [taskStatusFilter, setTaskStatusFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
@@ -94,7 +119,12 @@ export function DashboardPage() {
   });
 
   const teams = teamsQuery.data ?? [];
-  const activeTeamId = selectedTeamId ?? teams[0]?.id ?? null;
+  const activeTeamId =
+    teams.length === 0
+      ? null
+      : selectedTeamId && teams.some((team) => team.id === selectedTeamId)
+        ? selectedTeamId
+        : teams[0].id;
 
   const projectsQuery = useQuery({
     queryKey: ["projects", activeTeamId],
@@ -111,6 +141,8 @@ export function DashboardPage() {
     () => teams.find((team) => team.id === activeTeamId) ?? null,
     [activeTeamId, teams]
   );
+  const projects = projectsQuery.data ?? [];
+  const defaultProjectId = activeTeamId ? defaultProjects[activeTeamId] ?? projects[0]?.id ?? null : null;
   const canCreateProject = activeTeam?.role === "OWNER";
   const canManageActiveTeamProjects = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
   const projectTrashQuery = useQuery({
@@ -212,15 +244,18 @@ export function DashboardPage() {
     mutationFn: teamApi.create,
     onSuccess: (team) => {
       setTeamName("");
-      setSelectedTeamId(team.id);
+      selectTeam(team.id);
       void queryClient.invalidateQueries({ queryKey: ["teams"] });
     }
   });
 
   const createProjectMutation = useMutation({
     mutationFn: (name: string) => projectApi.create(activeTeamId!, { name }),
-    onSuccess: () => {
+    onSuccess: (project) => {
       setProjectName("");
+      if (activeTeamId) {
+        setDefaultProjects(writeStoredDefaultProject(activeTeamId, project.id));
+      }
       void queryClient.invalidateQueries({ queryKey: ["projects", activeTeamId] });
     }
   });
@@ -244,6 +279,47 @@ export function DashboardPage() {
     event.preventDefault();
     createTeamMutation.mutate({ name: teamName });
   }
+
+  function selectTeam(teamId: string) {
+    setSelectedTeamId(teamId);
+    localStorage.setItem(defaultTeamStorageKey, teamId);
+  }
+
+  function selectProject(projectId: string) {
+    if (!activeTeamId) {
+      return;
+    }
+
+    setDefaultProjects(writeStoredDefaultProject(activeTeamId, projectId));
+  }
+
+  useEffect(() => {
+    if (teamsQuery.isLoading) {
+      return;
+    }
+
+    if (teams.length === 0) {
+      setSelectedTeamId(null);
+      localStorage.removeItem(defaultTeamStorageKey);
+      return;
+    }
+
+    if (activeTeamId && selectedTeamId !== activeTeamId) {
+      selectTeam(activeTeamId);
+    }
+  }, [activeTeamId, selectedTeamId, teams, teamsQuery.isLoading]);
+
+  useEffect(() => {
+    if (!activeTeamId || projectsQuery.isLoading || projects.length === 0) {
+      return;
+    }
+
+    const storedProjectId = defaultProjects[activeTeamId];
+
+    if (!storedProjectId || !projects.some((project) => project.id === storedProjectId)) {
+      setDefaultProjects(writeStoredDefaultProject(activeTeamId, projects[0].id));
+    }
+  }, [activeTeamId, defaultProjects, projects, projectsQuery.isLoading]);
 
   function handleCreateProject(event: FormEvent) {
     event.preventDefault();
@@ -287,9 +363,12 @@ export function DashboardPage() {
             {teamsQuery.isLoading ? <span className="muted">团队加载中...</span> : null}
             {teams.map((team) => (
               <div className={team.id === activeTeamId ? "list-row selected" : "list-row"} key={team.id}>
-                <button className="row-main" type="button" onClick={() => setSelectedTeamId(team.id)}>
+                <button className="row-main" type="button" onClick={() => selectTeam(team.id)}>
                   <strong>{team.name}</strong>
-                  <span>{team.role}</span>
+                  <span>
+                    {team.role}
+                    {team.id === activeTeamId ? <i className="default-badge">默认</i> : null}
+                  </span>
                 </button>
                 {team.role === "OWNER" ? (
                   <Link className="mini-link" to={`/teams/${team.id}/settings`}>
@@ -323,14 +402,17 @@ export function DashboardPage() {
           <MutationError error={createProjectMutation.error} />
           <div className="list dashboard-compact-scroll-list">
             {projectsQuery.isLoading ? <span className="muted">项目加载中...</span> : null}
-            {(projectsQuery.data ?? []).map((project) => (
-              <div className="list-row" key={project.id}>
-                <Link className="row-main" to={`/projects/${project.id}/board`}>
+            {projects.map((project) => (
+              <div className={project.id === defaultProjectId ? "list-row selected" : "list-row"} key={project.id}>
+                <Link className="row-main" to={`/projects/${project.id}/board`} onClick={() => selectProject(project.id)}>
                   <strong>{project.name}</strong>
-                  <span>{project.status}</span>
+                  <span>
+                    {project.status}
+                    {project.id === defaultProjectId ? <i className="default-badge">默认</i> : null}
+                  </span>
                 </Link>
                 <div className="row-actions">
-                  <Link className="mini-link" to={`/projects/${project.id}/board`}>
+                  <Link className="mini-link" to={`/projects/${project.id}/board`} onClick={() => selectProject(project.id)}>
                     看板
                   </Link>
                 </div>
