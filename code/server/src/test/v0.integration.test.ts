@@ -3,6 +3,7 @@ import { after, before, describe, it } from "node:test";
 import type { Server } from "node:http";
 import { Prisma } from "@prisma/client";
 import { createApp } from "../app.js";
+import { env } from "../config/env.js";
 import { runDueReminderScan } from "../jobs/due-reminder.js";
 import { prisma } from "../lib/prisma.js";
 
@@ -35,6 +36,28 @@ type CurrentUserResponse = AuthResponse["user"] & {
 type FeishuAuthorizeResponse = {
   configured: boolean;
   authorizeUrl: string | null;
+};
+
+type FeishuWebhookResponse = {
+  ok: boolean;
+  duplicate: boolean;
+  eventId: string;
+  eventType: string;
+};
+
+type FeishuDeliveryResponse = {
+  id: string;
+  status: string;
+  attemptCount: number;
+  lastError: string | null;
+  notification: {
+    id: string;
+    type: string;
+  };
+  recipient: {
+    id: string;
+    feishuBound: boolean;
+  };
 };
 
 type TeamResponse = {
@@ -261,6 +284,13 @@ async function cleanupRunData() {
   const teamIds = teamRows.map((team) => team.id);
 
   await prisma.$transaction([
+    prisma.feishuEvent.deleteMany({
+      where: {
+        eventId: {
+          contains: runId
+        }
+      }
+    }),
     prisma.notificationDelivery.deleteMany({
       where: {
         notification: {
@@ -533,6 +563,72 @@ describe("V0 HTTP integration", () => {
         state: "fake-state"
       }
     });
+    const feishuWebhookToken = env.FEISHU_VERIFICATION_TOKEN || "integration-token";
+    const feishuChallengeResponse = await fetch(`${baseUrl}/api/v1/feishu/webhook`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        type: "url_verification",
+        token: feishuWebhookToken,
+        challenge: `challenge-${runId}`
+      })
+    });
+    const feishuChallenge = await feishuChallengeResponse.json() as { challenge?: string; error?: { message?: string } };
+    assert.equal(feishuChallengeResponse.status, 200, feishuChallenge.error?.message);
+    assert.equal(feishuChallenge.challenge, `challenge-${runId}`);
+
+    const feishuWebhookEvent = (await request<FeishuWebhookResponse>("POST", "/api/v1/feishu/webhook", {
+      body: {
+        schema: "2.0",
+        header: {
+          event_id: `feishu-event-${runId}`,
+          event_type: "im.message.receive_v1",
+          token: feishuWebhookToken
+        },
+        event: {
+          message: {
+            message_id: `message-${runId}`
+          }
+        }
+      }
+    })).data;
+    assert.equal(feishuWebhookEvent.ok, true);
+    assert.equal(feishuWebhookEvent.duplicate, false);
+    assert.equal(feishuWebhookEvent.eventType, "im.message.receive_v1");
+
+    const duplicateFeishuWebhookEvent = (await request<FeishuWebhookResponse>("POST", "/api/v1/feishu/webhook", {
+      body: {
+        schema: "2.0",
+        header: {
+          event_id: `feishu-event-${runId}`,
+          event_type: "im.message.receive_v1",
+          token: feishuWebhookToken
+        },
+        event: {
+          message: {
+            message_id: `message-${runId}`
+          }
+        }
+      }
+    })).data;
+    assert.equal(duplicateFeishuWebhookEvent.duplicate, true);
+
+    if (env.FEISHU_VERIFICATION_TOKEN) {
+      await request<FeishuWebhookResponse>("POST", "/api/v1/feishu/webhook", {
+        expectedStatus: 401,
+        body: {
+          schema: "2.0",
+          header: {
+            event_id: `feishu-event-invalid-${runId}`,
+            event_type: "im.message.receive_v1",
+            token: "invalid-token"
+          },
+          event: {}
+        }
+      });
+    }
 
     const updatedOwner = (await request<AuthResponse["user"]>("PATCH", "/api/v1/users/me/profile", {
       token: owner.token,
@@ -1224,6 +1320,25 @@ describe("V0 HTTP integration", () => {
       }
     });
     assert.equal(feishuDelivery?.status, "PENDING");
+
+    const feishuDeliveries = (await request<FeishuDeliveryResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/feishu-deliveries`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(feishuDeliveries.some((delivery) => delivery.id === feishuDelivery?.id));
+    assert.ok(feishuDeliveries.some((delivery) => delivery.recipient.id === editor.id && delivery.recipient.feishuBound));
+
+    await request<FeishuDeliveryResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/feishu-deliveries`,
+      {
+        token: editor.token,
+        expectedStatus: 403
+      }
+    );
 
     const ownerNotificationsAfterAssign = (await request<NotificationResponse[]>(
       "GET",

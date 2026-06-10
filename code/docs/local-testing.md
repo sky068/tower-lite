@@ -266,13 +266,38 @@ http://localhost:5173/auth/feishu/callback
 contact:user.email:readonly
 ```
 
-5. 如果后台提示需要发布版本，则进入 `版本管理与发布` 提交发布，并等待企业管理员审核通过。权限或回调地址变更未发布时，真实登录可能仍然拿不到邮箱或直接回调失败。
-6. 在本地项目根目录的 `.env` 文件中配置：
+5. 如需验证飞书消息通知，在应用后台的 `权限管理` 中搜索并开通应用身份发消息权限，三者开通任一即可，推荐使用：
+
+```text
+im:message:send
+```
+
+可选权限：
+
+```text
+im:message
+im:message:send_as_bot
+```
+
+6. 在应用后台启用机器人能力。飞书消息通知使用应用机器人身份发送，如果没有启用机器人，投递会失败并提示 `Bot ability is not activated`。
+
+7. 如需验证飞书事件回调，在应用后台的事件订阅或回调配置中填写请求地址：
+
+```text
+http://localhost:4000/api/v1/feishu/webhook
+```
+
+本地开发机通常没有公网地址，飞书无法直接访问 `localhost`。要从飞书后台真实触发回调，需要使用内网穿透工具把本地 `4000` 端口暴露成 HTTPS 地址，再把该 HTTPS 地址填到飞书后台。
+
+8. 如果后台提示需要发布版本，则进入 `版本管理与发布` 提交发布，并等待企业管理员审核通过。权限、机器人能力或回调地址变更未发布时，真实登录可能仍然拿不到邮箱，消息通知也可能因权限不足或机器人未启用而发送失败。
+9. 在本地项目根目录的 `.env` 文件中配置：
 
 ```bash
 FEISHU_APP_ID="cli_xxx"
 FEISHU_APP_SECRET="xxx"
 APP_BASE_URL="http://localhost:5173"
+FEISHU_ENCRYPT_KEY=""
+FEISHU_VERIFICATION_TOKEN=""
 ```
 
 `.env` 文件路径是：
@@ -281,14 +306,16 @@ APP_BASE_URL="http://localhost:5173"
 /Users/skyxu/workspace/my/tower/code/.env
 ```
 
-7. 重启服务让环境变量生效：
+`FEISHU_VERIFICATION_TOKEN` 和 `FEISHU_ENCRYPT_KEY` 来自飞书应用后台的事件订阅配置；如果暂时只验证登录，可以先留空。
+
+10. 重启服务让环境变量生效：
 
 ```bash
 npm run dev:down
 npm run dev:up
 ```
 
-8. 打开登录页，点击 `使用飞书登录`。如果能跳转到飞书授权页并回到 `/auth/feishu/callback`，说明回调地址配置正确。
+11. 打开登录页，点击 `使用飞书登录`。如果能跳转到飞书授权页并回到 `/auth/feishu/callback`，说明登录回调地址配置正确。
 
 如果飞书授权后仍不返回邮箱，系统会使用 `${open_id}@feishu.local` 作为本地兜底邮箱，确保开发阶段可以先登录验证。用户登录后可以在右上角头像菜单的账号设置里把临时邮箱改为真实邮箱，便于后续接受按邮箱发出的邀请。
 
@@ -297,7 +324,18 @@ npm run dev:up
 - 点击 `使用飞书登录` 提示未配置：检查 `.env` 是否包含 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`，并确认已重启后端。
 - 飞书提示回调地址不合法：确认开放平台配置的重定向 URL 和 `APP_BASE_URL` 拼出的地址完全一致。
 - 登录后邮箱是 `open_id@feishu.local`：说明飞书没有返回邮箱；检查邮箱权限是否开通、版本是否发布并审核通过。
+- 飞书投递失败并提示缺少机器人发消息权限：检查是否已开通 `im:message:send`，并确认应用版本已发布且企业管理员已审核生效。
+- 飞书投递失败并提示机器人能力未启用：检查应用后台是否已启用机器人，并确认应用版本已发布且企业管理员已审核生效。
 - 本地前端端口不是 `5173`：需要同步修改 `APP_BASE_URL` 和飞书开放平台的重定向 URL，例如 `http://localhost:5174/auth/feishu/callback`。
+- 飞书事件订阅验证失败：确认 webhook 地址能被飞书公网访问，并检查 `FEISHU_VERIFICATION_TOKEN`、`FEISHU_ENCRYPT_KEY` 是否和飞书后台一致。
+
+飞书投递排查接口：
+
+```text
+GET /api/v1/projects/:projectId/feishu-deliveries
+```
+
+该接口仅项目管理员可访问，返回最近 100 条飞书投递状态、重试次数、失败原因、通知内容和接收人绑定状态。
 
 V0 自动验收，串联后端集成测试和前端 E2E：
 

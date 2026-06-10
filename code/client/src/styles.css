@@ -1057,6 +1057,10 @@ input[type="date"]:not(:disabled) {
   scrollbar-width: none;
 }
 
+.delivery-scroll-list {
+  max-height: min(334px, 50vh);
+}
+
 .dashboard-scroll-list:hover,
 .dashboard-scroll-list:focus-within,
 .dashboard-compact-scroll-list:hover,
@@ -2547,6 +2551,33 @@ select[multiple] {
 .activity-meta {
   justify-items: end;
   text-align: right;
+}
+
+.delivery-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.delivery-row div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.delivery-row strong,
+.delivery-row span {
+  overflow-wrap: anywhere;
+}
+
+.delivery-row time {
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .danger-button,

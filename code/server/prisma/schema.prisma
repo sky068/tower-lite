@@ -393,6 +393,18 @@ model NotificationDelivery {
   @@index([notificationId, channel])
 }
 
+model FeishuEvent {
+  id          String   @id @default(uuid())
+  eventId     String   @unique
+  eventType   String
+  payload     Json
+  status      String   @default("RECEIVED")
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+
+  @@index([eventType, receivedAt])
+}
+
 enum DeliveryChannel {
   IN_APP
   FEISHU

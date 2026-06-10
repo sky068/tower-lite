@@ -148,6 +148,28 @@ export type Notification = {
   createdAt: string;
 };
 
+export type FeishuDelivery = {
+  id: string;
+  status: "PENDING" | "SENT" | "FAILED" | "SKIPPED";
+  attemptCount: number;
+  lastError: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  notification: {
+    id: string;
+    type: string;
+    title: string;
+    content: string;
+    link: string | null;
+    taskId: string | null;
+    createdAt: string;
+  };
+  recipient: Pick<User, "id" | "name" | "email" | "avatarUrl"> & {
+    feishuBound: boolean;
+  };
+};
+
 export type Invitation = {
   id: string;
   email: string;

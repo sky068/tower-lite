@@ -361,16 +361,43 @@ http://localhost:5173/auth/feishu/callback
 contact:user.email:readonly
 ```
 
-4. 如有权限或回调地址变更，发布新版本并等待企业管理员审核通过。
-5. 在 `/Users/skyxu/workspace/my/tower/code/.env` 中配置：
+4. 如需验证飞书消息通知，在权限管理中开通应用身份发消息权限，三者开通任一即可，推荐使用：
+
+```text
+im:message:send
+```
+
+可选权限：
+
+```text
+im:message
+im:message:send_as_bot
+```
+
+5. 在应用后台启用机器人能力。飞书消息通知使用应用机器人身份发送，如果没有启用机器人，投递会失败并提示 `Bot ability is not activated`。
+
+6. 如需验证事件回调，在飞书事件订阅中配置 webhook：
+
+```text
+http://localhost:4000/api/v1/feishu/webhook
+```
+
+飞书无法直接访问本机 `localhost`；真实回调验证需要用内网穿透工具把本地 `4000` 端口暴露为 HTTPS 地址。
+
+7. 如有权限、机器人能力或回调地址变更，发布新版本并等待企业管理员审核通过。
+8. 在 `/Users/skyxu/workspace/my/tower/code/.env` 中配置：
 
 ```bash
 FEISHU_APP_ID="cli_xxx"
 FEISHU_APP_SECRET="xxx"
 APP_BASE_URL="http://localhost:5173"
+FEISHU_ENCRYPT_KEY=""
+FEISHU_VERIFICATION_TOKEN=""
 ```
 
-6. 重启服务：
+`FEISHU_ENCRYPT_KEY` 和 `FEISHU_VERIFICATION_TOKEN` 来自飞书事件订阅配置；只验证登录时可以留空。
+
+9. 重启服务：
 
 ```bash
 npm run dev:down
@@ -378,6 +405,12 @@ npm run dev:up
 ```
 
 如果飞书没有返回邮箱，系统仍允许登录，并使用 `${open_id}@feishu.local` 作为临时邮箱；用户之后可在账号设置中改成真实邮箱。
+
+飞书事件回调地址为 `POST /api/v1/feishu/webhook`，支持 URL verification challenge、token 校验、加密 payload 解密和事件幂等记录。项目管理员可通过 `GET /api/v1/projects/:projectId/feishu-deliveries` 查看最近 100 条飞书通知投递状态、重试次数和失败原因。
+
+如果投递失败原因显示“飞书应用缺少机器人发消息权限”，说明应用尚未开通应用身份发消息权限；在飞书开放平台开通 `im:message:send` 后，需要发布版本并等待企业管理员审核生效，再重启后端服务验证。
+
+如果投递失败原因显示“飞书应用尚未启用机器人能力”，说明应用后台没有开启机器人；启用机器人能力、发布版本并审核生效后，再重启后端服务验证。
 
 ## 当前前端已接入流程
 

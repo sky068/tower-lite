@@ -957,15 +957,16 @@ Authorization: Bearer <access_token>
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | POST | `/feishu/webhook` | 飞书事件回调 |
-| POST | `/feishu/bind` | 绑定飞书账号 |
-| DELETE | `/feishu/bind` | 解绑飞书账号 |
-| POST | `/feishu/notify/test` | 开发环境测试通知 |
+| GET | `/projects/:projectId/feishu-deliveries` | 项目飞书通知投递排查 |
 
 要求：
 
-- `/feishu/notify/test` 仅开发环境可用。
+- 飞书账号绑定由 OAuth 登录自动完成，不提供手动绑定和解绑入口。
 - 回调接口必须处理飞书 challenge。
+- 回调接口必须支持 `FEISHU_VERIFICATION_TOKEN` 校验。
+- 回调接口配置 `FEISHU_ENCRYPT_KEY` 后必须支持加密 payload 解密。
 - 所有回调事件必须通过事件 ID 做幂等。
+- 飞书投递排查接口仅项目管理员可访问。
 
 ## 8. 前端结构
 
@@ -1033,16 +1034,41 @@ http://localhost:5173/auth/feishu/callback
 contact:user.email:readonly
 ```
 
-4. 权限或回调地址变更后，需要发布版本并等待企业管理员审核通过。
-5. 在本地 `/Users/skyxu/workspace/my/tower/code/.env` 中配置：
+4. 如需验证飞书消息通知，在权限管理中开通应用身份发消息权限，三者开通任一即可，推荐使用：
+
+```text
+im:message:send
+```
+
+可选权限：
+
+```text
+im:message
+im:message:send_as_bot
+```
+
+5. 在应用后台启用机器人能力。飞书消息通知使用应用机器人身份发送，如果没有启用机器人，投递会失败并提示 `Bot ability is not activated`。
+
+6. 如需验证飞书事件回调，在事件订阅中配置 webhook 地址。真实回调需要把本地 API 端口通过内网穿透暴露成 HTTPS 地址：
+
+```text
+https://your-tunnel.example.com/api/v1/feishu/webhook
+```
+
+7. 权限、机器人能力或回调地址变更后，需要发布版本并等待企业管理员审核通过。
+8. 在本地 `/Users/skyxu/workspace/my/tower/code/.env` 中配置：
 
 ```bash
 FEISHU_APP_ID="cli_xxx"
 FEISHU_APP_SECRET="xxx"
 APP_BASE_URL="http://localhost:5173"
+FEISHU_ENCRYPT_KEY=""
+FEISHU_VERIFICATION_TOKEN=""
 ```
 
 如果飞书没有返回邮箱，系统使用 `${open_id}@feishu.local` 作为本地临时邮箱，仍允许用户登录；用户可在账号设置中改为真实邮箱。
+
+V1.0 后端需要提供 `POST /api/v1/feishu/webhook`，支持飞书 challenge、token 校验、加密 payload 解密和事件幂等记录；同时提供项目级飞书投递排查能力，便于查看投递状态、失败原因和重试次数。
 
 ### 关键页面验收
 
@@ -1261,7 +1287,7 @@ V0 完成标准：
 V1 完成标准：
 
 - 用户可以绑定飞书账号。
-- 任务分配、评论 @、截止提醒能发送飞书消息。
+- 任务分配、评论 @、截止提醒能发送飞书消息；飞书应用需要开通应用身份发消息权限，推荐 `im:message:send`，也可使用 `im:message` 或 `im:message:send_as_bot`。
 - 飞书发送失败会重试并记录失败原因。
 - 飞书回调接口具备验签和幂等处理。
 

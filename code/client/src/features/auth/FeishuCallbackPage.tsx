@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { authApi, getApiErrorMessage } from "../../lib/api";
 import { useAuthStore } from "../../stores/authStore";
@@ -9,6 +9,7 @@ export function FeishuCallbackPage() {
   const { accessToken, setSession } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [isHandling, setIsHandling] = useState(true);
+  const handledCallbackRef = useRef<string | null>(null);
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const feishuError = searchParams.get("error");
@@ -17,6 +18,12 @@ export function FeishuCallbackPage() {
     if (accessToken) {
       return;
     }
+
+    const callbackKey = `${code ?? ""}:${state ?? ""}:${feishuError ?? ""}`;
+    if (handledCallbackRef.current === callbackKey) {
+      return;
+    }
+    handledCallbackRef.current = callbackKey;
 
     async function handleCallback() {
       if (feishuError) {

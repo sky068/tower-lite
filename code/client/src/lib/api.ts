@@ -7,6 +7,7 @@ import type {
   AuthResponse,
   CurrentUser,
   Comment,
+  FeishuDelivery,
   Invitation,
   Member,
   MyTask,
@@ -368,6 +369,9 @@ export const projectApi = {
     projectRole: "OWNER" | "EDITOR" | "VIEWER";
   }) {
     return unwrap<Invitation>(api.post(`/projects/${projectId}/invitations`, input));
+  },
+  feishuDeliveries(projectId: string) {
+    return unwrap<FeishuDelivery[]>(api.get(`/projects/${projectId}/feishu-deliveries`));
   }
 };
 

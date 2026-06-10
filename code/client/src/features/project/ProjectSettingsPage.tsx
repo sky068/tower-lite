@@ -9,6 +9,14 @@ import { activityApi, invitationApi, projectApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
+import type { FeishuDelivery } from "../../types/api";
+
+const feishuDeliveryStatusLabels: Record<FeishuDelivery["status"], string> = {
+  PENDING: "待发送",
+  SENT: "已发送",
+  FAILED: "发送失败",
+  SKIPPED: "已跳过"
+};
 
 export function ProjectSettingsPage() {
   const { projectId } = useParams();
@@ -66,6 +74,11 @@ export function ProjectSettingsPage() {
   const activityQuery = useQuery({
     queryKey: ["project-activity", projectId],
     queryFn: () => activityApi.project(projectId!),
+    enabled: Boolean(projectId) && canManageProject
+  });
+  const feishuDeliveriesQuery = useQuery({
+    queryKey: ["project-feishu-deliveries", projectId],
+    queryFn: () => projectApi.feishuDeliveries(projectId!),
     enabled: Boolean(projectId) && canManageProject
   });
 
@@ -396,6 +409,34 @@ export function ProjectSettingsPage() {
           isLoading={activityQuery.isLoading}
           title="项目审计日志"
         />
+      ) : null}
+      {canManageProject ? (
+        <section className="panel">
+          <h2>飞书通知投递</h2>
+          <div className="list settings-scroll-list delivery-scroll-list">
+            {(feishuDeliveriesQuery.data ?? []).map((delivery) => (
+              <div className="delivery-row" key={delivery.id}>
+                <UserAvatar user={delivery.recipient} size="md" />
+                <div>
+                  <strong>{delivery.notification.title}</strong>
+                  <span>
+                    {delivery.recipient.name} / {feishuDeliveryStatusLabels[delivery.status]} / 重试{" "}
+                    {delivery.attemptCount} 次
+                  </span>
+                  {delivery.lastError ? <span className="error-text">{delivery.lastError}</span> : null}
+                </div>
+                <time dateTime={delivery.updatedAt}>
+                  {new Date(delivery.updatedAt).toLocaleString("zh-CN")}
+                </time>
+              </div>
+            ))}
+            {feishuDeliveriesQuery.isLoading ? <span className="muted">飞书投递记录加载中...</span> : null}
+            {!feishuDeliveriesQuery.isLoading && (feishuDeliveriesQuery.data ?? []).length === 0 ? (
+              <span className="muted">暂无飞书投递记录</span>
+            ) : null}
+          </div>
+          <MutationError error={feishuDeliveriesQuery.error} />
+        </section>
       ) : null}
       <section className="panel danger-zone">
         <h2>危险操作</h2>
