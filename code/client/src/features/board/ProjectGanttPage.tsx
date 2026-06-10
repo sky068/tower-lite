@@ -24,6 +24,15 @@ type GanttFilters = {
   completion: "OPEN" | "DONE" | "ALL";
 };
 
+type GanttZoom = "DAY" | "WEEK" | "MONTH" | "QUARTER";
+
+const GANTT_ZOOM_OPTIONS: Array<{ value: GanttZoom; label: string; unitWidth: number }> = [
+  { value: "DAY", label: "天", unitWidth: 46 },
+  { value: "WEEK", label: "周", unitWidth: 72 },
+  { value: "MONTH", label: "月", unitWidth: 96 },
+  { value: "QUARTER", label: "季度", unitWidth: 120 }
+];
+
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -34,8 +43,100 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
-function diffDays(start: Date, end: Date) {
-  return Math.round((startOfDay(end).getTime() - startOfDay(start).getTime()) / 86_400_000);
+function startOfWeek(date: Date) {
+  const day = date.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  return addDays(startOfDay(date), mondayOffset);
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function startOfQuarter(date: Date) {
+  return new Date(date.getFullYear(), Math.floor(date.getMonth() / 3) * 3, 1);
+}
+
+function addMonths(date: Date, months: number) {
+  return new Date(date.getFullYear(), date.getMonth() + months, 1);
+}
+
+function startOfUnit(date: Date, zoom: GanttZoom) {
+  if (zoom === "MONTH") {
+    return startOfMonth(date);
+  }
+
+  if (zoom === "QUARTER") {
+    return startOfQuarter(date);
+  }
+
+  if (zoom === "DAY") {
+    return startOfDay(date);
+  }
+
+  return startOfWeek(date);
+}
+
+function addUnit(date: Date, zoom: GanttZoom, count: number) {
+  if (zoom === "MONTH") {
+    return addMonths(date, count);
+  }
+
+  if (zoom === "QUARTER") {
+    return addMonths(date, count * 3);
+  }
+
+  if (zoom === "DAY") {
+    return addDays(date, count);
+  }
+
+  return addDays(date, count * 7);
+}
+
+function diffUnits(start: Date, end: Date, zoom: GanttZoom) {
+  const normalizedStart = startOfUnit(start, zoom);
+  const normalizedEnd = startOfUnit(end, zoom);
+
+  if (zoom === "MONTH") {
+    return (
+      (normalizedEnd.getFullYear() - normalizedStart.getFullYear()) * 12 +
+      normalizedEnd.getMonth() -
+      normalizedStart.getMonth()
+    );
+  }
+
+  if (zoom === "QUARTER") {
+    const startQuarter = normalizedStart.getFullYear() * 4 + Math.floor(normalizedStart.getMonth() / 3);
+    const endQuarter = normalizedEnd.getFullYear() * 4 + Math.floor(normalizedEnd.getMonth() / 3);
+    return endQuarter - startQuarter;
+  }
+
+  if (zoom === "DAY") {
+    return Math.round((normalizedEnd.getTime() - normalizedStart.getTime()) / 86_400_000);
+  }
+
+  return Math.round((normalizedEnd.getTime() - normalizedStart.getTime()) / 604_800_000);
+}
+
+function formatTimelineUnit(date: Date, zoom: GanttZoom) {
+  if (zoom === "DAY") {
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  }
+
+  if (zoom === "WEEK") {
+    const end = addDays(date, 6);
+    return `${date.getMonth() + 1}/${date.getDate()}-${end.getMonth() + 1}/${end.getDate()}`;
+  }
+
+  if (zoom === "MONTH") {
+    return `${date.getFullYear()}/${date.getMonth() + 1}`;
+  }
+
+  if (zoom === "QUARTER") {
+    return `${date.getFullYear()} Q${Math.floor(date.getMonth() / 3) + 1}`;
+  }
+
+  return formatCalendarDate(date.toISOString());
 }
 
 function getTaskStart(task: Task) {
@@ -144,22 +245,22 @@ function filterTasks(tasks: GanttTask[], filters: GanttFilters) {
   return tasks.filter((task) => includedTaskIds.has(task.id));
 }
 
-function buildTimeline(tasks: GanttTask[]) {
+function buildTimeline(tasks: GanttTask[], zoom: GanttZoom) {
   const dates = tasks.flatMap((task) => [getTaskStart(task), getTaskEnd(task)]).filter((date): date is Date => Boolean(date));
 
   if (dates.length === 0) {
     return null;
   }
 
-  const min = addDays(new Date(Math.min(...dates.map((date) => date.getTime()))), -1);
-  const max = addDays(new Date(Math.max(...dates.map((date) => date.getTime()))), 1);
-  const dayCount = Math.max(diffDays(min, max) + 1, 1);
-  const days = Array.from({ length: dayCount }, (_, index) => addDays(min, index));
+  const min = startOfUnit(new Date(Math.min(...dates.map((date) => date.getTime()))), zoom);
+  const max = startOfUnit(new Date(Math.max(...dates.map((date) => date.getTime()))), zoom);
+  const unitCount = Math.max(diffUnits(min, max, zoom) + 1, 1);
+  const units = Array.from({ length: unitCount }, (_, index) => addUnit(min, zoom, index));
 
   return {
     start: min,
-    dayCount,
-    days
+    unitCount,
+    units
   };
 }
 
@@ -172,6 +273,7 @@ export function ProjectGanttPage() {
   const [assigneeFilter, setAssigneeFilter] = useState("ALL");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [completionFilter, setCompletionFilter] = useState<"OPEN" | "DONE" | "ALL">("ALL");
+  const [zoom, setZoom] = useState<GanttZoom>("DAY");
 
   const listsQuery = useQuery({
     queryKey: ["project-task-list", projectId],
@@ -212,10 +314,11 @@ export function ProjectGanttPage() {
       }),
     [allTasks, assigneeFilter, completionFilter, priorityFilter, taskSearch]
   );
-  const timeline = useMemo(() => buildTimeline(filteredTasks), [filteredTasks]);
+  const timeline = useMemo(() => buildTimeline(filteredTasks, zoom), [filteredTasks, zoom]);
   const scheduledTasks = filteredTasks.filter((task) => getTaskStart(task) && getTaskEnd(task));
   const unscheduledTasks = filteredTasks.filter((task) => !getTaskStart(task) || !getTaskEnd(task));
   const isArchived = projectQuery.data?.status === "ARCHIVED";
+  const unitWidth = GANTT_ZOOM_OPTIONS.find((option) => option.value === zoom)?.unitWidth ?? 72;
 
   function openTask(taskId: string) {
     navigate(`/tasks/${taskId}`, {
@@ -285,6 +388,22 @@ export function ProjectGanttPage() {
           <option value="DONE">已完成</option>
         </select>
       </section>
+      <section className="gantt-toolbar" aria-label="甘特图缩放">
+        <span className="muted">缩放</span>
+        <div className="status-tabs">
+          {GANTT_ZOOM_OPTIONS.map((option) => (
+            <button
+              className={zoom === option.value ? "active" : ""}
+              type="button"
+              key={option.value}
+              aria-pressed={zoom === option.value}
+              onClick={() => setZoom(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </section>
       <MutationError error={listsQuery.error} />
       {!listsQuery.isLoading && allTasks.length > 0 && filteredTasks.length === 0 ? (
         <section className="notice-panel">当前筛选条件隐藏了所有任务，可以清空筛选条件查看。</section>
@@ -299,18 +418,26 @@ export function ProjectGanttPage() {
         ) : null}
         {timeline && scheduledTasks.length > 0 ? (
           <div className="gantt-scroll">
-            <div className="gantt-grid" style={{ "--gantt-days": timeline.dayCount } as CSSProperties}>
+            <div
+              className="gantt-grid"
+              style={
+                {
+                  "--gantt-units": timeline.unitCount,
+                  "--gantt-unit-width": `${unitWidth}px`
+                } as CSSProperties
+              }
+            >
               <div className="gantt-header gantt-task-column">任务</div>
               <div className="gantt-header gantt-date-column">
-                {timeline.days.map((day) => (
-                  <span key={day.toISOString()}>{formatCalendarDate(day.toISOString())}</span>
+                {timeline.units.map((unit) => (
+                  <span key={unit.toISOString()}>{formatTimelineUnit(unit, zoom)}</span>
                 ))}
               </div>
               {scheduledTasks.map((task) => {
                 const start = getTaskStart(task)!;
                 const end = getTaskEnd(task)!;
-                const left = diffDays(timeline.start, start) + 1;
-                const width = Math.max(diffDays(start, end) + 1, 1);
+                const left = diffUnits(timeline.start, start, zoom) + 1;
+                const width = Math.max(diffUnits(start, end, zoom) + 1, 1);
 
                 return (
                   <div className="gantt-row" key={task.id}>

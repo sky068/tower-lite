@@ -852,6 +852,12 @@ input[type="date"]:not(:disabled) {
   min-width: 0;
 }
 
+.gantt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .gantt-scroll {
   overflow: auto;
   border: 1px solid #e2e8f0;
@@ -861,7 +867,7 @@ input[type="date"]:not(:disabled) {
 
 .gantt-grid {
   display: grid;
-  min-width: max(980px, calc(var(--gantt-days) * 46px + 280px));
+  min-width: max(980px, calc(var(--gantt-units) * var(--gantt-unit-width) + 280px));
   grid-template-columns: 280px minmax(0, 1fr);
 }
 
@@ -887,12 +893,12 @@ input[type="date"]:not(:disabled) {
 
 .gantt-date-column {
   display: grid;
-  grid-template-columns: repeat(var(--gantt-days), minmax(46px, 1fr));
+  grid-template-columns: repeat(var(--gantt-units), minmax(var(--gantt-unit-width), 1fr));
 }
 
 .gantt-date-column span {
   display: grid;
-  min-width: 46px;
+  min-width: var(--gantt-unit-width);
   place-items: center;
   border-right: 1px solid #e2e8f0;
   white-space: nowrap;
@@ -941,17 +947,17 @@ input[type="date"]:not(:disabled) {
   background-image: repeating-linear-gradient(
     to right,
     transparent 0,
-    transparent calc(100% / var(--gantt-days) - 1px),
-    #f1f5f9 calc(100% / var(--gantt-days) - 1px),
-    #f1f5f9 calc(100% / var(--gantt-days))
+    transparent calc(100% / var(--gantt-units) - 1px),
+    #f1f5f9 calc(100% / var(--gantt-units) - 1px),
+    #f1f5f9 calc(100% / var(--gantt-units))
   );
 }
 
 .gantt-bar {
   position: absolute;
   top: 9px;
-  left: calc((var(--gantt-left) - 1) * 100% / var(--gantt-days) + 4px);
-  width: calc(var(--gantt-width) * 100% / var(--gantt-days) - 8px);
+  left: calc((var(--gantt-left) - 1) * 100% / var(--gantt-units) + 4px);
+  width: calc(var(--gantt-width) * 100% / var(--gantt-units) - 8px);
   min-width: 34px;
   max-width: calc(100% - 8px);
   height: 26px;

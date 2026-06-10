@@ -451,6 +451,15 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   );
   await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
   await expect(page.getByRole("button", { name: new RegExp(taskTitle) }).first()).toBeVisible();
+  const ganttZoom = page.getByRole("region", { name: "甘特图缩放" });
+  await expect(ganttZoom.getByRole("button", { name: "天" })).toHaveAttribute("aria-pressed", "true");
+  await ganttZoom.getByRole("button", { name: "周" }).click();
+  await expect(ganttZoom.getByRole("button", { name: "周" })).toHaveAttribute("aria-pressed", "true");
+  await ganttZoom.getByRole("button", { name: "月" }).click();
+  await expect(ganttZoom.getByRole("button", { name: "月" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
+  await ganttZoom.getByRole("button", { name: "季度" }).click();
+  await expect(ganttZoom.getByRole("button", { name: "季度" })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "看板" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
 
