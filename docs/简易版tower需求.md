@@ -1016,6 +1016,34 @@ src/
 /notifications
 ```
 
+### 飞书登录本地配置
+
+本地开发验证飞书登录时，需要在飞书开放平台创建企业自建应用：
+
+1. 在应用后台复制 `App ID` 和 `App Secret`。
+2. 在应用后台配置网页登录回调地址：
+
+```text
+http://localhost:5173/auth/feishu/callback
+```
+
+3. 在权限管理中开通用户邮箱读取权限：
+
+```text
+contact:user.email:readonly
+```
+
+4. 权限或回调地址变更后，需要发布版本并等待企业管理员审核通过。
+5. 在本地 `/Users/skyxu/workspace/my/tower/code/.env` 中配置：
+
+```bash
+FEISHU_APP_ID="cli_xxx"
+FEISHU_APP_SECRET="xxx"
+APP_BASE_URL="http://localhost:5173"
+```
+
+如果飞书没有返回邮箱，系统使用 `${open_id}@feishu.local` 作为本地临时邮箱，仍允许用户登录；用户可在账号设置中改为真实邮箱。
+
 ### 关键页面验收
 
 登录页：

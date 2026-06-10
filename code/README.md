@@ -344,6 +344,41 @@ V1.0 先接入飞书登录和飞书通知投递基础设施，事件回调验签
 - 飞书消息发送失败会记录 `lastError` 并增加 `attemptCount`，最多重试 3 次。
 - 未配置飞书应用密钥时不会启动飞书投递 worker，站内通知和 WebSocket 同步不受影响。
 
+### 飞书登录本地配置
+
+本地验证飞书登录时，需要在飞书开放平台创建企业自建应用，并完成以下配置：
+
+1. 在应用后台复制 `App ID` 和 `App Secret`。
+2. 配置网页登录回调地址：
+
+```text
+http://localhost:5173/auth/feishu/callback
+```
+
+3. 在权限管理中开通用户邮箱读取权限：
+
+```text
+contact:user.email:readonly
+```
+
+4. 如有权限或回调地址变更，发布新版本并等待企业管理员审核通过。
+5. 在 `/Users/skyxu/workspace/my/tower/code/.env` 中配置：
+
+```bash
+FEISHU_APP_ID="cli_xxx"
+FEISHU_APP_SECRET="xxx"
+APP_BASE_URL="http://localhost:5173"
+```
+
+6. 重启服务：
+
+```bash
+npm run dev:down
+npm run dev:up
+```
+
+如果飞书没有返回邮箱，系统仍允许登录，并使用 `${open_id}@feishu.local` 作为临时邮箱；用户之后可在账号设置中改成真实邮箱。
+
 ## 当前前端已接入流程
 
 - 注册账号
