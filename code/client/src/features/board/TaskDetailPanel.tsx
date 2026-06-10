@@ -1013,7 +1013,25 @@ export function TaskDetailPanel({
                       </option>
                     ))}
                   </select>
-                  <div className="assignee-dropdown" ref={subTaskAssigneeDropdownRef}>
+                  <input
+                    aria-label="子任务开始日期"
+                    type="date"
+                    value={subTaskStartDate}
+                    max={subTaskDueDate || undefined}
+                    onClick={(event) => openDateInputPicker(event.currentTarget)}
+                    onChange={(event) => setSubTaskStartDate(event.target.value)}
+                    disabled={!canCreateSubTask}
+                  />
+                  <input
+                    aria-label="子任务截止日期"
+                    type="date"
+                    value={subTaskDueDate}
+                    min={subTaskStartDate || undefined}
+                    onClick={(event) => openDateInputPicker(event.currentTarget)}
+                    onChange={(event) => setSubTaskDueDate(event.target.value)}
+                    disabled={!canCreateSubTask}
+                  />
+                  <div className="assignee-dropdown subtask-assignee-field" ref={subTaskAssigneeDropdownRef}>
                     <button
                       className="assignee-dropdown-trigger"
                       type="button"
@@ -1046,24 +1064,6 @@ export function TaskDetailPanel({
                       </div>
                     ) : null}
                   </div>
-                  <input
-                    aria-label="子任务开始日期"
-                    type="date"
-                    value={subTaskStartDate}
-                    max={subTaskDueDate || undefined}
-                    onClick={(event) => openDateInputPicker(event.currentTarget)}
-                    onChange={(event) => setSubTaskStartDate(event.target.value)}
-                    disabled={!canCreateSubTask}
-                  />
-                  <input
-                    aria-label="子任务截止日期"
-                    type="date"
-                    value={subTaskDueDate}
-                    min={subTaskStartDate || undefined}
-                    onClick={(event) => openDateInputPicker(event.currentTarget)}
-                    onChange={(event) => setSubTaskDueDate(event.target.value)}
-                    disabled={!canCreateSubTask}
-                  />
                   <button
                     type="submit"
                     disabled={!canCreateSubTask || createSubTaskMutation.isPending}

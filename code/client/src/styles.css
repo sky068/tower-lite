@@ -1121,6 +1121,10 @@ input[type="date"]:not(:disabled) {
   grid-column: 1 / -1;
 }
 
+.subtask-assignee-field {
+  grid-column: 1 / -1;
+}
+
 .compact-form input,
 .subtask-create-form input,
 .subtask-create-form select,
@@ -1134,7 +1138,7 @@ input[type="date"]:not(:disabled) {
 }
 
 .compact-form button,
-.subtask-create-form button {
+.subtask-create-form button:not(.assignee-dropdown-trigger) {
   min-height: 38px;
   border: 0;
   border-radius: 8px;
@@ -1154,10 +1158,15 @@ input[type="date"]:not(:disabled) {
   background: #f8fafc;
 }
 
-.subtask-create-form .secondary-inline-button {
-  border: 1px solid #cbd5e1;
-  background: #ffffff;
-  color: #334155;
+.subtask-create-form button.secondary-inline-button {
+  border: 0;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.subtask-create-form button.secondary-inline-button:hover:not(:disabled) {
+  background: #b91c1c;
+  color: #ffffff;
 }
 
 .assignee-dropdown {
