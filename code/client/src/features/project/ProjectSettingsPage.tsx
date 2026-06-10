@@ -18,6 +18,14 @@ const feishuDeliveryStatusLabels: Record<FeishuDelivery["status"], string> = {
   SKIPPED: "已跳过"
 };
 
+const feishuDeliveryStatusFilters = [
+  { value: "ALL", label: "全部" },
+  { value: "PENDING", label: "待发送" },
+  { value: "FAILED", label: "发送失败" },
+  { value: "SKIPPED", label: "已跳过" },
+  { value: "SENT", label: "已发送" }
+] as const;
+
 export function ProjectSettingsPage() {
   const { projectId } = useParams();
   const location = useLocation();
@@ -31,6 +39,8 @@ export function ProjectSettingsPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteTeamRole, setInviteTeamRole] = useState<"OWNER" | "ADMIN" | "MEMBER">("MEMBER");
   const [inviteProjectRole, setInviteProjectRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
+  const [feishuDeliveryStatusFilter, setFeishuDeliveryStatusFilter] =
+    useState<(typeof feishuDeliveryStatusFilters)[number]["value"]>("ALL");
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -81,6 +91,13 @@ export function ProjectSettingsPage() {
     queryFn: () => projectApi.feishuDeliveries(projectId!),
     enabled: Boolean(projectId) && canManageProject
   });
+  const filteredFeishuDeliveries = useMemo(
+    () =>
+      (feishuDeliveriesQuery.data ?? []).filter(
+        (delivery) => feishuDeliveryStatusFilter === "ALL" || delivery.status === feishuDeliveryStatusFilter
+      ),
+    [feishuDeliveriesQuery.data, feishuDeliveryStatusFilter]
+  );
 
   const updateProjectMutation = useMutation({
     mutationFn: () => projectApi.update(projectId!, { name, description }),
@@ -161,6 +178,12 @@ export function ProjectSettingsPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
+    }
+  });
+  const retryFeishuDeliveryMutation = useMutation({
+    mutationFn: (deliveryId: string) => projectApi.retryFeishuDelivery(projectId!, deliveryId),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project-feishu-deliveries", projectId] });
     }
   });
 
@@ -412,9 +435,25 @@ export function ProjectSettingsPage() {
       ) : null}
       {canManageProject ? (
         <section className="panel">
-          <h2>飞书通知投递</h2>
+          <div className="panel-title-row">
+            <h2>飞书通知投递</h2>
+            <select
+              className="project-filter-select"
+              aria-label="飞书投递状态筛选"
+              value={feishuDeliveryStatusFilter}
+              onChange={(event) =>
+                setFeishuDeliveryStatusFilter(event.target.value as typeof feishuDeliveryStatusFilter)
+              }
+            >
+              {feishuDeliveryStatusFilters.map((filter) => (
+                <option key={filter.value} value={filter.value}>
+                  {filter.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="list settings-scroll-list delivery-scroll-list">
-            {(feishuDeliveriesQuery.data ?? []).map((delivery) => (
+            {filteredFeishuDeliveries.map((delivery) => (
               <div className="delivery-row" key={delivery.id}>
                 <UserAvatar user={delivery.recipient} size="md" />
                 <div>
@@ -425,17 +464,29 @@ export function ProjectSettingsPage() {
                   </span>
                   {delivery.lastError ? <span className="error-text">{delivery.lastError}</span> : null}
                 </div>
-                <time dateTime={delivery.updatedAt}>
-                  {new Date(delivery.updatedAt).toLocaleString("zh-CN")}
-                </time>
+                <div className="delivery-actions">
+                  <time dateTime={delivery.updatedAt}>
+                    {new Date(delivery.updatedAt).toLocaleString("zh-CN")}
+                  </time>
+                  {delivery.canRetry ? (
+                    <button
+                      className="mini-button"
+                      type="button"
+                      disabled={retryFeishuDeliveryMutation.isPending}
+                      onClick={() => retryFeishuDeliveryMutation.mutate(delivery.id)}
+                    >
+                      重试
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ))}
             {feishuDeliveriesQuery.isLoading ? <span className="muted">飞书投递记录加载中...</span> : null}
-            {!feishuDeliveriesQuery.isLoading && (feishuDeliveriesQuery.data ?? []).length === 0 ? (
+            {!feishuDeliveriesQuery.isLoading && filteredFeishuDeliveries.length === 0 ? (
               <span className="muted">暂无飞书投递记录</span>
             ) : null}
           </div>
-          <MutationError error={feishuDeliveriesQuery.error} />
+          <MutationError error={feishuDeliveriesQuery.error ?? retryFeishuDeliveryMutation.error} />
         </section>
       ) : null}
       <section className="panel danger-zone">

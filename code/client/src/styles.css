@@ -2594,6 +2594,12 @@ select[multiple] {
   white-space: nowrap;
 }
 
+.delivery-actions {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
 .danger-button,
 .danger-zone .segmented-actions button:last-child {
   background: #dc2626;

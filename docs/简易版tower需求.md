@@ -958,6 +958,7 @@ Authorization: Bearer <access_token>
 |------|------|------|
 | POST | `/feishu/webhook` | 飞书事件回调 |
 | GET | `/projects/:projectId/feishu-deliveries` | 项目飞书通知投递排查 |
+| POST | `/projects/:projectId/feishu-deliveries/:deliveryId/retry` | 手动重试飞书通知投递 |
 
 要求：
 
@@ -967,6 +968,8 @@ Authorization: Bearer <access_token>
 - 回调接口配置 `FEISHU_ENCRYPT_KEY` 后必须支持加密 payload 解密。
 - 所有回调事件必须通过事件 ID 做幂等。
 - 飞书投递排查接口仅项目管理员可访问。
+- 飞书通知使用应用机器人卡片消息发送，卡片包含通知标题、正文和详情入口。
+- 飞书投递列表支持按状态筛选，未成功投递可以手动重试。
 
 ## 8. 前端结构
 

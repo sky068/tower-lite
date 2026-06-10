@@ -50,6 +50,7 @@ type FeishuDeliveryResponse = {
   status: string;
   attemptCount: number;
   lastError: string | null;
+  canRetry: boolean;
   notification: {
     id: string;
     type: string;
@@ -1330,6 +1331,7 @@ describe("V0 HTTP integration", () => {
     )).data;
     assert.ok(feishuDeliveries.some((delivery) => delivery.id === feishuDelivery?.id));
     assert.ok(feishuDeliveries.some((delivery) => delivery.recipient.id === editor.id && delivery.recipient.feishuBound));
+    assert.ok(feishuDeliveries.some((delivery) => delivery.id === feishuDelivery?.id && delivery.canRetry));
 
     await request<FeishuDeliveryResponse[]>(
       "GET",
@@ -1339,6 +1341,25 @@ describe("V0 HTTP integration", () => {
         expectedStatus: 403
       }
     );
+    await request<FeishuDeliveryResponse>(
+      "POST",
+      `/api/v1/projects/${project.id}/feishu-deliveries/${feishuDelivery!.id}/retry`,
+      {
+        token: editor.token,
+        expectedStatus: 403
+      }
+    );
+
+    if (!env.FEISHU_APP_ID || !env.FEISHU_APP_SECRET) {
+      await request<FeishuDeliveryResponse>(
+        "POST",
+        `/api/v1/projects/${project.id}/feishu-deliveries/${feishuDelivery!.id}/retry`,
+        {
+          token: owner.token,
+          expectedStatus: 422
+        }
+      );
+    }
 
     const ownerNotificationsAfterAssign = (await request<NotificationResponse[]>(
       "GET",

@@ -335,7 +335,13 @@ npm run dev:up
 GET /api/v1/projects/:projectId/feishu-deliveries
 ```
 
-该接口仅项目管理员可访问，返回最近 100 条飞书投递状态、重试次数、失败原因、通知内容和接收人绑定状态。
+该接口仅项目管理员可访问，返回最近 100 条飞书投递状态、重试次数、失败原因、通知内容和接收人绑定状态。项目设置页也提供状态筛选和手动重试；手动重试对应接口为：
+
+```text
+POST /api/v1/projects/:projectId/feishu-deliveries/:deliveryId/retry
+```
+
+飞书通知会以应用机器人卡片消息发送，卡片包含通知标题、正文和详情入口。
 
 V0 自动验收，串联后端集成测试和前端 E2E：
 

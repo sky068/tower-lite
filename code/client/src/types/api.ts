@@ -168,6 +168,7 @@ export type FeishuDelivery = {
   recipient: Pick<User, "id" | "name" | "email" | "avatarUrl"> & {
     feishuBound: boolean;
   };
+  canRetry: boolean;
 };
 
 export type Invitation = {

@@ -341,7 +341,9 @@ V1.0 先接入飞书登录和飞书通知投递基础设施，事件回调验签
 - 所有站内通知统一写入 `Notification`，并固定创建 `IN_APP/SENT` 投递记录。
 - 如果接收人已绑定飞书 `Open ID`，创建站内通知时会额外创建 `FEISHU/PENDING` 投递记录。
 - 后端启动时如果配置了 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`，会启动飞书投递 worker，定期发送待投递消息。
+- 飞书通知使用机器人卡片消息发送，卡片包含通知标题、正文和详情入口。
 - 飞书消息发送失败会记录 `lastError` 并增加 `attemptCount`，最多重试 3 次。
+- 项目设置中的飞书投递列表支持按状态筛选；失败、跳过或待发送记录可以由项目管理员手动重试。
 - 未配置飞书应用密钥时不会启动飞书投递 worker，站内通知和 WebSocket 同步不受影响。
 
 ### 飞书登录本地配置
@@ -406,7 +408,7 @@ npm run dev:up
 
 如果飞书没有返回邮箱，系统仍允许登录，并使用 `${open_id}@feishu.local` 作为临时邮箱；用户之后可在账号设置中改成真实邮箱。
 
-飞书事件回调地址为 `POST /api/v1/feishu/webhook`，支持 URL verification challenge、token 校验、加密 payload 解密和事件幂等记录。项目管理员可通过 `GET /api/v1/projects/:projectId/feishu-deliveries` 查看最近 100 条飞书通知投递状态、重试次数和失败原因。
+飞书事件回调地址为 `POST /api/v1/feishu/webhook`，支持 URL verification challenge、token 校验、加密 payload 解密和事件幂等记录。项目管理员可通过 `GET /api/v1/projects/:projectId/feishu-deliveries` 查看最近 100 条飞书通知投递状态、重试次数和失败原因，也可通过 `POST /api/v1/projects/:projectId/feishu-deliveries/:deliveryId/retry` 手动重试未成功投递。
 
 如果投递失败原因显示“飞书应用缺少机器人发消息权限”，说明应用尚未开通应用身份发消息权限；在飞书开放平台开通 `im:message:send` 后，需要发布版本并等待企业管理员审核生效，再重启后端服务验证。
 

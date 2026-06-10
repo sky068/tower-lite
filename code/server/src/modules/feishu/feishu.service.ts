@@ -99,18 +99,51 @@ function buildFeishuEventIdentity(payload: DecodedFeishuWebhook) {
   };
 }
 
-function buildNotificationText(notification: {
+function buildNotificationCard(notification: {
   title: string;
   content: string;
   link: string | null;
 }) {
-  const lines = [notification.title, notification.content];
+  const elements: Array<Record<string, unknown>> = [
+    {
+      tag: "div",
+      text: {
+        tag: "lark_md",
+        content: notification.content
+      }
+    }
+  ];
 
   if (notification.link) {
-    lines.push(`${env.APP_BASE_URL}${notification.link}`);
+    elements.push({
+      tag: "action",
+      actions: [
+        {
+          tag: "button",
+          text: {
+            tag: "plain_text",
+            content: "查看详情"
+          },
+          type: "primary",
+          url: `${env.APP_BASE_URL}${notification.link}`
+        }
+      ]
+    });
   }
 
-  return lines.join("\n");
+  return {
+    config: {
+      wide_screen_mode: true
+    },
+    header: {
+      template: "blue",
+      title: {
+        tag: "plain_text",
+        content: notification.title
+      }
+    },
+    elements
+  };
 }
 
 function normalizeFeishuApiError(message: string | undefined, fallback: string) {
@@ -168,7 +201,11 @@ async function getTenantAccessToken() {
   return cachedTenantAccessToken.token;
 }
 
-async function sendFeishuText(openId: string, text: string) {
+async function sendFeishuCard(openId: string, notification: {
+  title: string;
+  content: string;
+  link: string | null;
+}) {
   const tenantAccessToken = await getTenantAccessToken();
   const response = await fetch(`${FEISHU_API_ORIGIN}/open-apis/im/v1/messages?receive_id_type=open_id`, {
     method: "POST",
@@ -178,8 +215,8 @@ async function sendFeishuText(openId: string, text: string) {
     },
     body: JSON.stringify({
       receive_id: openId,
-      msg_type: "text",
-      content: JSON.stringify({ text })
+      msg_type: "interactive",
+      content: JSON.stringify(buildNotificationCard(notification))
     })
   });
   const data = await response.json() as {
@@ -190,6 +227,128 @@ async function sendFeishuText(openId: string, text: string) {
   if (!response.ok || data.code !== 0) {
     throw new Error(normalizeFeishuApiError(data.msg, `Feishu message request failed with ${response.status}`));
   }
+}
+
+type FeishuDeliveryWithNotification = Awaited<ReturnType<typeof findFeishuDeliveryForSend>>;
+type SerializableFeishuDelivery = {
+  id: string;
+  status: DeliveryStatus;
+  attemptCount: number;
+  lastError: string | null;
+  sentAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  notification: {
+    id: string;
+    type: string;
+    title: string;
+    content: string;
+    link: string | null;
+    taskId: string | null;
+    payload: unknown;
+    createdAt: Date;
+    recipient: {
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl: string | null;
+      feishuOpenId: string | null;
+    };
+  };
+};
+
+async function findFeishuDeliveryForSend(deliveryId: string) {
+  return prisma.notificationDelivery.findUnique({
+    where: {
+      id: deliveryId
+    },
+    include: {
+      notification: {
+        include: {
+          recipient: true
+        }
+      }
+    }
+  });
+}
+
+async function sendDelivery(delivery: NonNullable<FeishuDeliveryWithNotification>) {
+  const openId = delivery.notification.recipient.feishuOpenId;
+
+  if (!openId) {
+    return prisma.notificationDelivery.update({
+      where: {
+        id: delivery.id
+      },
+      data: {
+        status: DeliveryStatus.SKIPPED,
+        lastError: "Feishu account is not bound"
+      }
+    });
+  }
+
+  try {
+    await sendFeishuCard(openId, delivery.notification);
+    return prisma.notificationDelivery.update({
+      where: {
+        id: delivery.id
+      },
+      data: {
+        status: DeliveryStatus.SENT,
+        sentAt: new Date(),
+        lastError: null,
+        attemptCount: {
+          increment: 1
+        }
+      }
+    });
+  } catch (error) {
+    const attemptCount = delivery.attemptCount + 1;
+    const updatedDelivery = await prisma.notificationDelivery.update({
+      where: {
+        id: delivery.id
+      },
+      data: {
+        status: DeliveryStatus.FAILED,
+        attemptCount,
+        lastError: error instanceof Error ? error.message : "Unknown Feishu delivery error"
+      }
+    });
+    logger.warn({ err: error, deliveryId: delivery.id, attemptCount }, "Feishu delivery failed");
+    return updatedDelivery;
+  }
+}
+
+function serializeFeishuDelivery(delivery: SerializableFeishuDelivery) {
+  const payload = asRecord(delivery.notification.payload);
+
+  return {
+    id: delivery.id,
+    status: delivery.status,
+    attemptCount: delivery.attemptCount,
+    lastError: delivery.lastError,
+    sentAt: delivery.sentAt,
+    createdAt: delivery.createdAt,
+    updatedAt: delivery.updatedAt,
+    notification: {
+      id: delivery.notification.id,
+      type: delivery.notification.type,
+      title: delivery.notification.title,
+      content: delivery.notification.content,
+      link: delivery.notification.link,
+      taskId: delivery.notification.taskId,
+      payload,
+      createdAt: delivery.notification.createdAt
+    },
+    recipient: {
+      id: delivery.notification.recipient.id,
+      name: delivery.notification.recipient.name,
+      email: delivery.notification.recipient.email,
+      avatarUrl: delivery.notification.recipient.avatarUrl,
+      feishuBound: Boolean(delivery.notification.recipient.feishuOpenId)
+    },
+    canRetry: delivery.status !== DeliveryStatus.SENT
+  };
 }
 
 export async function runFeishuDeliveryScan() {
@@ -221,50 +380,7 @@ export async function runFeishuDeliveryScan() {
   });
 
   for (const delivery of deliveries) {
-    const openId = delivery.notification.recipient.feishuOpenId;
-
-    if (!openId) {
-      await prisma.notificationDelivery.update({
-        where: {
-          id: delivery.id
-        },
-        data: {
-          status: DeliveryStatus.SKIPPED,
-          lastError: "Feishu account is not bound"
-        }
-      });
-      continue;
-    }
-
-    try {
-      await sendFeishuText(openId, buildNotificationText(delivery.notification));
-      await prisma.notificationDelivery.update({
-        where: {
-          id: delivery.id
-        },
-        data: {
-          status: DeliveryStatus.SENT,
-          sentAt: new Date(),
-          lastError: null,
-          attemptCount: {
-            increment: 1
-          }
-        }
-      });
-    } catch (error) {
-      const attemptCount = delivery.attemptCount + 1;
-      await prisma.notificationDelivery.update({
-        where: {
-          id: delivery.id
-        },
-        data: {
-          status: DeliveryStatus.FAILED,
-          attemptCount,
-          lastError: error instanceof Error ? error.message : "Unknown Feishu delivery error"
-        }
-      });
-      logger.warn({ err: error, deliveryId: delivery.id, attemptCount }, "Feishu delivery failed");
-    }
+    await sendDelivery(delivery);
   }
 }
 
@@ -361,34 +477,48 @@ export async function listProjectFeishuDeliveries(userId: string, projectId: str
     take: 100
   });
 
-  return deliveries.map((delivery) => {
-    const payload = asRecord(delivery.notification.payload);
+  return deliveries.map(serializeFeishuDelivery);
+}
 
-    return {
-      id: delivery.id,
-      status: delivery.status,
-      attemptCount: delivery.attemptCount,
-      lastError: delivery.lastError,
-      sentAt: delivery.sentAt,
-      createdAt: delivery.createdAt,
-      updatedAt: delivery.updatedAt,
-      notification: {
-        id: delivery.notification.id,
-        type: delivery.notification.type,
-        title: delivery.notification.title,
-        content: delivery.notification.content,
-        link: delivery.notification.link,
-        taskId: delivery.notification.taskId,
-        payload,
-        createdAt: delivery.notification.createdAt
-      },
-      recipient: {
-        id: delivery.notification.recipient.id,
-        name: delivery.notification.recipient.name,
-        email: delivery.notification.recipient.email,
-        avatarUrl: delivery.notification.recipient.avatarUrl,
-        feishuBound: Boolean(delivery.notification.recipient.feishuOpenId)
-      }
-    };
+export async function retryProjectFeishuDelivery(userId: string, projectId: string, deliveryId: string) {
+  await requireProjectManager(userId, projectId);
+
+  if (!isFeishuConfigured()) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Feishu notification is not configured", 422);
+  }
+
+  const delivery = await findFeishuDeliveryForSend(deliveryId);
+
+  if (!delivery || delivery.channel !== DeliveryChannel.FEISHU || delivery.notification.projectId !== projectId) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Feishu delivery not found", 404);
+  }
+
+  if (delivery.status === DeliveryStatus.SENT) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Feishu delivery has already been sent", 422);
+  }
+
+  const retryableDelivery = {
+    ...delivery,
+    attemptCount: 0
+  };
+  await prisma.notificationDelivery.update({
+    where: {
+      id: delivery.id
+    },
+    data: {
+      status: DeliveryStatus.PENDING,
+      attemptCount: 0,
+      lastError: null
+    }
   });
+
+  await sendDelivery(retryableDelivery);
+
+  const updatedDelivery = await findFeishuDeliveryForSend(deliveryId);
+
+  if (!updatedDelivery) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Feishu delivery not found", 404);
+  }
+
+  return serializeFeishuDelivery(updatedDelivery);
 }
