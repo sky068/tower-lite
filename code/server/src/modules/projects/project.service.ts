@@ -135,7 +135,7 @@ export async function createProject(userId: string, teamId: string, input: Creat
       members: {
         create: {
           userId,
-          role: ProjectRole.OWNER
+          role: ProjectRole.ADMIN
         }
       }
     }
@@ -686,8 +686,8 @@ export async function updateProjectMemberRole(
     throw new AppError("RESOURCE_NOT_FOUND", "Project member not found", 404);
   }
 
-  if (member.role === ProjectRole.OWNER && input.role !== ProjectRole.OWNER) {
-    await assertProjectKeepsOwner(projectId);
+  if (member.role === ProjectRole.ADMIN && input.role !== ProjectRole.ADMIN) {
+    await assertProjectKeepsAdmin(projectId);
   }
 
   const updatedMember = await prisma.projectMember.update({
@@ -745,8 +745,8 @@ export async function removeProjectMember(userId: string, projectId: string, tar
     throw new AppError("RESOURCE_NOT_FOUND", "Project member not found", 404);
   }
 
-  if (member.role === ProjectRole.OWNER) {
-    await assertProjectKeepsOwner(projectId);
+  if (member.role === ProjectRole.ADMIN) {
+    await assertProjectKeepsAdmin(projectId);
   }
 
   await prisma.projectMember.delete({
@@ -773,15 +773,15 @@ export async function removeProjectMember(userId: string, projectId: string, tar
   return { ok: true };
 }
 
-async function assertProjectKeepsOwner(projectId: string) {
-  const ownerCount = await prisma.projectMember.count({
+async function assertProjectKeepsAdmin(projectId: string) {
+  const adminCount = await prisma.projectMember.count({
     where: {
       projectId,
-      role: ProjectRole.OWNER
+      role: ProjectRole.ADMIN
     }
   });
 
-  if (ownerCount <= 1) {
-    throw new AppError("BUSINESS_RULE_VIOLATION", "Project must keep at least one owner", 422);
+  if (adminCount <= 1) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Project must keep at least one admin", 422);
   }
 }

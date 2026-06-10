@@ -14,6 +14,6 @@ export type ApiErrorResponse = {
   requestId: string;
 };
 
-export type ProjectRole = "OWNER" | "EDITOR" | "VIEWER";
+export type ProjectRole = "ADMIN" | "EDITOR" | "VIEWER";
 export type TeamRole = "OWNER" | "ADMIN" | "MEMBER";
 export type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";

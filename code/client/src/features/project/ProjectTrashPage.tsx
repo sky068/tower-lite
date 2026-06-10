@@ -113,7 +113,7 @@ export function ProjectTrashPage() {
       </div>
 
       {!canManageProject ? (
-        <section className="notice-panel">只有项目 OWNER 或团队 OWNER / ADMIN 可以查看回收站。</section>
+        <section className="notice-panel">只有项目 ADMIN 或团队 OWNER / ADMIN 可以查看回收站。</section>
       ) : null}
       {isArchived ? (
         <section className="notice-panel">项目已归档，回收站只允许查看，不能恢复或彻底删除。</section>

@@ -65,7 +65,7 @@ async function main() {
         create: [
           {
             userId: user.id,
-            role: ProjectRole.OWNER
+            role: ProjectRole.ADMIN
           },
           {
             userId: teammate.id,

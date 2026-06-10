@@ -31,7 +31,7 @@ export type Team = {
 };
 
 export type TeamRole = "OWNER" | "ADMIN" | "MEMBER";
-export type ProjectRole = "OWNER" | "EDITOR" | "VIEWER";
+export type ProjectRole = "ADMIN" | "EDITOR" | "VIEWER";
 
 export type Member = {
   id: string;
@@ -176,7 +176,7 @@ export type Invitation = {
   token: string;
   status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED";
   teamRole: "OWNER" | "ADMIN" | "MEMBER" | null;
-  projectRole: "OWNER" | "EDITOR" | "VIEWER" | null;
+  projectRole: "ADMIN" | "EDITOR" | "VIEWER" | null;
   teamId: string;
   projectId: string | null;
   acceptPath: string;

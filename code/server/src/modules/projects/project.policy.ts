@@ -54,7 +54,7 @@ export async function requireProjectEditor(userId: string, projectId: string) {
   }
 
   if (
-    access.projectMember?.role !== ProjectRole.OWNER &&
+    access.projectMember?.role !== ProjectRole.ADMIN &&
     access.projectMember?.role !== ProjectRole.EDITOR
   ) {
     throw new AppError("FORBIDDEN", "Project edit permission is required", 403);
@@ -78,9 +78,9 @@ export async function requireActiveProjectEditor(userId: string, projectId: stri
 export async function requireProjectManager(userId: string, projectId: string) {
   const access = await requireProjectAccess(userId, projectId);
 
-  if (access.isTeamAdmin || access.projectMember?.role === ProjectRole.OWNER) {
+  if (access.isTeamAdmin || access.projectMember?.role === ProjectRole.ADMIN) {
     return access;
   }
 
-  throw new AppError("FORBIDDEN", "Project owner permission is required", 403);
+  throw new AppError("FORBIDDEN", "Project admin permission is required", 403);
 }

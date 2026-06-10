@@ -301,7 +301,7 @@ export async function removeTeamMember(userId: string, teamId: string, targetUse
     await assertTeamKeepsOwner(teamId);
   }
 
-  await assertTeamMemberRemovalKeepsProjectOwners(teamId, targetUserId);
+  await assertTeamMemberRemovalKeepsProjectAdmins(teamId, targetUserId);
 
   await prisma.$transaction(async (tx) => {
     await tx.projectMember.deleteMany({
@@ -366,21 +366,21 @@ async function assertTeamKeepsOwner(teamId: string) {
   }
 }
 
-async function assertTeamMemberRemovalKeepsProjectOwners(teamId: string, userId: string) {
-  const projectsWithoutOtherOwner = await prisma.project.findMany({
+async function assertTeamMemberRemovalKeepsProjectAdmins(teamId: string, userId: string) {
+  const projectsWithoutOtherAdmin = await prisma.project.findMany({
     where: {
       teamId,
       deletedAt: null,
       members: {
         some: {
           userId,
-          role: ProjectRole.OWNER
+          role: ProjectRole.ADMIN
         },
         none: {
           userId: {
             not: userId
           },
-          role: ProjectRole.OWNER
+          role: ProjectRole.ADMIN
         }
       }
     },
@@ -390,10 +390,10 @@ async function assertTeamMemberRemovalKeepsProjectOwners(teamId: string, userId:
     take: 1
   });
 
-  if (projectsWithoutOtherOwner.length > 0) {
+  if (projectsWithoutOtherAdmin.length > 0) {
     throw new AppError(
       "BUSINESS_RULE_VIOLATION",
-      `Project "${projectsWithoutOtherOwner[0].name}" must keep at least one owner`,
+      `Project "${projectsWithoutOtherAdmin[0].name}" must keep at least one admin`,
       422
     );
   }

@@ -1770,7 +1770,7 @@ export async function deleteComment(userId: string, taskId: string, commentId: s
   const canDelete =
     comment.authorId === userId ||
     access.isTeamAdmin ||
-    access.projectMember?.role === ProjectRole.OWNER;
+    access.projectMember?.role === ProjectRole.ADMIN;
 
   if (!canDelete) {
     throw new AppError("FORBIDDEN", "Comment delete permission is required", 403);

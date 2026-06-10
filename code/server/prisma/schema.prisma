@@ -152,7 +152,7 @@ model ProjectMember {
 }
 
 enum ProjectRole {
-  OWNER
+  ADMIN
   EDITOR
   VIEWER
 }

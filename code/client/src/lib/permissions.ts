@@ -8,7 +8,7 @@ type ProjectPermissions = {
   canManageProject: boolean;
 };
 
-const projectEditorRoles = new Set<ProjectRole>(["OWNER", "EDITOR"]);
+const projectEditorRoles = new Set<ProjectRole>(["ADMIN", "EDITOR"]);
 const teamAdminRoles = new Set<TeamRole>(["OWNER", "ADMIN"]);
 
 export function getProjectPermissions(
@@ -26,6 +26,6 @@ export function getProjectPermissions(
     currentTeamMember,
     isTeamAdmin,
     canEditProject: isTeamAdmin || isProjectEditor,
-    canManageProject: isTeamAdmin || currentProjectMember?.role === "OWNER"
+    canManageProject: isTeamAdmin || currentProjectMember?.role === "ADMIN"
   };
 }

@@ -27,10 +27,10 @@ export function ProjectSettingsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [memberUserId, setMemberUserId] = useState("");
-  const [memberRole, setMemberRole] = useState<"OWNER" | "EDITOR" | "VIEWER">("EDITOR");
+  const [memberRole, setMemberRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteTeamRole, setInviteTeamRole] = useState<"OWNER" | "ADMIN" | "MEMBER">("MEMBER");
-  const [inviteProjectRole, setInviteProjectRole] = useState<"OWNER" | "EDITOR" | "VIEWER">("EDITOR");
+  const [inviteProjectRole, setInviteProjectRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -148,7 +148,7 @@ export function ProjectSettingsPage() {
   });
 
   const updateRoleMutation = useMutation({
-    mutationFn: (input: { userId: string; role: "OWNER" | "EDITOR" | "VIEWER" }) =>
+    mutationFn: (input: { userId: string; role: "ADMIN" | "EDITOR" | "VIEWER" }) =>
       projectApi.updateMemberRole(projectId!, input.userId, input.role),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
@@ -243,7 +243,7 @@ export function ProjectSettingsPage() {
           </label>
           <button type="submit" disabled={!canManageProject || updateProjectMutation.isPending}>保存</button>
         </form>
-        {!canManageProject ? <span className="muted">只有项目 OWNER 或团队 OWNER / ADMIN 可以修改项目基础信息。</span> : null}
+        {!canManageProject ? <span className="muted">只有项目 ADMIN 或团队 OWNER / ADMIN 可以修改项目基础信息。</span> : null}
         <MutationError error={updateProjectMutation.error} />
       </section>
       <section className="panel">
@@ -262,7 +262,7 @@ export function ProjectSettingsPage() {
             disabled={!canManageProject}
             onChange={(event) => setInviteProjectRole(event.target.value as typeof inviteProjectRole)}
           >
-            <option value="OWNER">项目 OWNER</option>
+            <option value="ADMIN">项目 ADMIN</option>
             <option value="EDITOR">项目 EDITOR</option>
             <option value="VIEWER">项目 VIEWER</option>
           </select>
@@ -279,7 +279,7 @@ export function ProjectSettingsPage() {
             创建邀请
           </button>
         </form>
-        {!canManageProject ? <span className="muted">只有项目 OWNER 或团队 OWNER / ADMIN 可以邀请项目成员。</span> : null}
+        {!canManageProject ? <span className="muted">只有项目 ADMIN 或团队 OWNER / ADMIN 可以邀请项目成员。</span> : null}
         <MutationError error={createInvitationMutation.error ?? revokeInvitationMutation.error} />
         {createInvitationMutation.data ? (
           <label className="copy-field">
@@ -345,7 +345,7 @@ export function ProjectSettingsPage() {
             disabled={!canManageProject}
             onChange={(event) => setMemberRole(event.target.value as typeof memberRole)}
           >
-            <option value="OWNER">OWNER</option>
+            <option value="ADMIN">ADMIN</option>
             <option value="EDITOR">EDITOR</option>
             <option value="VIEWER">VIEWER</option>
           </select>
@@ -356,7 +356,7 @@ export function ProjectSettingsPage() {
             添加
           </button>
         </form>
-        {!canManageProject ? <span className="muted">只有项目 OWNER 或团队 OWNER / ADMIN 可以管理项目成员。</span> : null}
+        {!canManageProject ? <span className="muted">只有项目 ADMIN 或团队 OWNER / ADMIN 可以管理项目成员。</span> : null}
         {availableTeamMembers.length === 0 ? (
           <span className="muted">所有团队成员都已经在项目里。</span>
         ) : null}
@@ -379,11 +379,11 @@ export function ProjectSettingsPage() {
                 onChange={(event) =>
                   updateRoleMutation.mutate({
                     userId: member.user.id,
-                    role: event.target.value as "OWNER" | "EDITOR" | "VIEWER"
+                    role: event.target.value as "ADMIN" | "EDITOR" | "VIEWER"
                   })
                 }
               >
-                <option value="OWNER">OWNER</option>
+                <option value="ADMIN">ADMIN</option>
                 <option value="EDITOR">EDITOR</option>
                 <option value="VIEWER">VIEWER</option>
               </select>
