@@ -235,6 +235,14 @@ type ActivityLogResponse = {
   } | null;
 };
 
+type ClearActivityLogsResponse = {
+  deletedCount: number;
+};
+
+type ClearFeishuDeliveriesResponse = {
+  deletedCount: number;
+};
+
 type TestUser = {
   id: string;
   email: string;
@@ -1333,11 +1341,88 @@ describe("V0 HTTP integration", () => {
     assert.ok(feishuDeliveries.some((delivery) => delivery.recipient.id === editor.id && delivery.recipient.feishuBound));
     assert.ok(feishuDeliveries.some((delivery) => delivery.id === feishuDelivery?.id && delivery.canRetry));
 
+    const oldFeishuNotification = await prisma.notification.create({
+      data: {
+        type: "TASK_ASSIGNED",
+        title: "Old Feishu notification",
+        content: "Old Feishu notification content",
+        recipientId: editor.id,
+        actorId: owner.id,
+        teamId: team.id,
+        projectId: project.id,
+        taskId: task.id,
+        dedupeKey: `old-feishu-cleanup-${runId}`,
+        createdAt: new Date("2020-01-04T08:00:00.000Z"),
+        deliveries: {
+          create: [
+            {
+              channel: "FEISHU",
+              status: "SENT",
+              sentAt: new Date("2020-01-04T08:05:00.000Z"),
+              createdAt: new Date("2020-01-04T08:00:00.000Z")
+            },
+            {
+              channel: "FEISHU",
+              status: "PENDING",
+              createdAt: new Date("2020-01-04T09:00:00.000Z")
+            }
+          ]
+        }
+      },
+      include: {
+        deliveries: true
+      }
+    });
+    const clearFeishuDeliveries = (await request<ClearFeishuDeliveriesResponse>(
+      "POST",
+      `/api/v1/projects/${project.id}/feishu-deliveries/clear`,
+      {
+        token: owner.token,
+        body: {
+          startDate: "2020-01-04",
+          endDate: "2020-01-04",
+          status: "ALL"
+        }
+      }
+    )).data;
+    assert.equal(clearFeishuDeliveries.deletedCount, 1);
+    const oldSentDelivery = oldFeishuNotification.deliveries.find((delivery) => delivery.status === "SENT");
+    const oldPendingDelivery = oldFeishuNotification.deliveries.find((delivery) => delivery.status === "PENDING");
+    assert.equal(await prisma.notificationDelivery.count({ where: { id: oldSentDelivery!.id } }), 0);
+    assert.equal(await prisma.notificationDelivery.count({ where: { id: oldPendingDelivery!.id } }), 1);
+
+    await request<ClearFeishuDeliveriesResponse>(
+      "POST",
+      `/api/v1/projects/${project.id}/feishu-deliveries/clear`,
+      {
+        token: owner.token,
+        body: {
+          startDate: "2020-01-04",
+          endDate: "2020-01-04",
+          status: "PENDING"
+        },
+        expectedStatus: 400
+      }
+    );
+
     await request<FeishuDeliveryResponse[]>(
       "GET",
       `/api/v1/projects/${project.id}/feishu-deliveries`,
       {
         token: editor.token,
+        expectedStatus: 403
+      }
+    );
+    await request<ClearFeishuDeliveriesResponse>(
+      "POST",
+      `/api/v1/projects/${project.id}/feishu-deliveries/clear`,
+      {
+        token: editor.token,
+        body: {
+          startDate: "2020-01-04",
+          endDate: "2020-01-04",
+          status: "ALL"
+        },
         expectedStatus: 403
       }
     );
@@ -1695,6 +1780,42 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 403
     });
 
+    const oldTeamLog = await prisma.activityLog.create({
+      data: {
+        actorId: owner.id,
+        teamId: team.id,
+        action: "project.created",
+        targetType: "project",
+        targetId: "old-team-log",
+        metadata: {
+          name: "Old Team Log"
+        },
+        createdAt: new Date("2020-01-02T08:00:00.000Z")
+      }
+    });
+    const clearTeamActivity = (await request<ClearActivityLogsResponse>(
+      "POST",
+      `/api/v1/teams/${team.id}/activity/clear`,
+      {
+        token: owner.token,
+        body: {
+          startDate: "2020-01-02",
+          endDate: "2020-01-02"
+        }
+      }
+    )).data;
+    assert.equal(clearTeamActivity.deletedCount, 1);
+    assert.equal(await prisma.activityLog.count({ where: { id: oldTeamLog.id } }), 0);
+
+    const teamActivityAfterClear = (await request<ActivityLogResponse[]>(
+      "GET",
+      `/api/v1/teams/${team.id}/activity`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(teamActivityAfterClear.some((log) => log.action === "activity_log.cleared"));
+
     const projectActivity = (await request<ActivityLogResponse[]>(
       "GET",
       `/api/v1/projects/${project.id}/activity`,
@@ -1710,6 +1831,7 @@ describe("V0 HTTP integration", () => {
     assert.ok(projectActivity.some((log) => log.action === "task_list.restored" && log.targetId === anotherList.id));
     assert.ok(projectActivity.some((log) => log.action === "task_list.purged" && log.targetId === anotherList.id));
     assert.ok(projectActivity.some((log) => log.action === "comment.created" && log.taskId === task.id));
+    assert.ok(projectActivity.some((log) => log.action === "feishu_delivery.cleared"));
 
     await request<ActivityLogResponse[]>("GET", `/api/v1/projects/${project.id}/activity`, {
       token: directAddedMember.token
@@ -1718,6 +1840,44 @@ describe("V0 HTTP integration", () => {
       token: editor.token,
       expectedStatus: 403
     });
+
+    const oldProjectLog = await prisma.activityLog.create({
+      data: {
+        actorId: owner.id,
+        teamId: team.id,
+        projectId: project.id,
+        taskId: task.id,
+        action: "task.updated",
+        targetType: "task",
+        targetId: task.id,
+        metadata: {
+          title: "Old Project Log"
+        },
+        createdAt: new Date("2020-01-03T08:00:00.000Z")
+      }
+    });
+    const clearProjectActivity = (await request<ClearActivityLogsResponse>(
+      "POST",
+      `/api/v1/projects/${project.id}/activity/clear`,
+      {
+        token: owner.token,
+        body: {
+          startDate: "2020-01-03",
+          endDate: "2020-01-03"
+        }
+      }
+    )).data;
+    assert.equal(clearProjectActivity.deletedCount, 1);
+    assert.equal(await prisma.activityLog.count({ where: { id: oldProjectLog.id } }), 0);
+
+    const projectActivityAfterClear = (await request<ActivityLogResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/activity`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(projectActivityAfterClear.some((log) => log.action === "activity_log.cleared"));
 
     const archivedProject = (await request<ProjectResponse>("PATCH", `/api/v1/projects/${project.id}/archive`, {
       token: owner.token

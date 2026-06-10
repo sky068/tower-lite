@@ -4,8 +4,9 @@ import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
+import { createActivityLog } from "../activity/activity.service.js";
 import { requireProjectManager } from "../projects/project.policy.js";
-import type { FeishuWebhookInput } from "./feishu.schema.js";
+import type { ClearFeishuDeliveriesInput, FeishuWebhookInput } from "./feishu.schema.js";
 
 const FEISHU_DELIVERY_INTERVAL_MS = 60 * 1000;
 const FEISHU_DELIVERY_BATCH_SIZE = 20;
@@ -34,6 +35,17 @@ type DecodedFeishuWebhook = {
 
 function isFeishuConfigured() {
   return Boolean(env.FEISHU_APP_ID && env.FEISHU_APP_SECRET);
+}
+
+function parseDateRange(input: Pick<ClearFeishuDeliveriesInput, "startDate" | "endDate">) {
+  const start = new Date(`${input.startDate}T00:00:00.000Z`);
+  const exclusiveEnd = new Date(`${input.endDate}T00:00:00.000Z`);
+  exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+
+  return {
+    start,
+    exclusiveEnd
+  };
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -521,4 +533,49 @@ export async function retryProjectFeishuDelivery(userId: string, projectId: stri
   }
 
   return serializeFeishuDelivery(updatedDelivery);
+}
+
+export async function clearProjectFeishuDeliveries(
+  userId: string,
+  projectId: string,
+  input: ClearFeishuDeliveriesInput
+) {
+  const { project } = await requireProjectManager(userId, projectId);
+  const { start, exclusiveEnd } = parseDateRange(input);
+  const allowedStatuses =
+    input.status === "ALL" ? [DeliveryStatus.SENT, DeliveryStatus.FAILED, DeliveryStatus.SKIPPED] : [input.status];
+  const result = await prisma.notificationDelivery.deleteMany({
+    where: {
+      channel: DeliveryChannel.FEISHU,
+      status: {
+        in: allowedStatuses
+      },
+      createdAt: {
+        gte: start,
+        lt: exclusiveEnd
+      },
+      notification: {
+        projectId
+      }
+    }
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "feishu_delivery.cleared",
+    targetType: "notification_delivery",
+    targetId: null,
+    metadata: {
+      startDate: input.startDate,
+      endDate: input.endDate,
+      status: input.status,
+      deletedCount: result.count
+    }
+  });
+
+  return {
+    deletedCount: result.count
+  };
 }

@@ -26,6 +26,15 @@ const feishuDeliveryStatusFilters = [
   { value: "SENT", label: "已发送" }
 ] as const;
 
+const feishuDeliveryClearStatusOptions = [
+  { value: "ALL", label: "全部非待发送" },
+  { value: "SENT", label: "已发送" },
+  { value: "FAILED", label: "发送失败" },
+  { value: "SKIPPED", label: "已跳过" }
+] as const;
+
+type FeishuDeliveryClearStatus = (typeof feishuDeliveryClearStatusOptions)[number]["value"];
+
 export function ProjectSettingsPage() {
   const { projectId } = useParams();
   const location = useLocation();
@@ -41,6 +50,9 @@ export function ProjectSettingsPage() {
   const [inviteProjectRole, setInviteProjectRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
   const [feishuDeliveryStatusFilter, setFeishuDeliveryStatusFilter] =
     useState<(typeof feishuDeliveryStatusFilters)[number]["value"]>("ALL");
+  const [feishuClearStartDate, setFeishuClearStartDate] = useState("");
+  const [feishuClearEndDate, setFeishuClearEndDate] = useState("");
+  const [feishuClearStatus, setFeishuClearStatus] = useState<FeishuDeliveryClearStatus>("ALL");
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -186,6 +198,20 @@ export function ProjectSettingsPage() {
       void queryClient.invalidateQueries({ queryKey: ["project-feishu-deliveries", projectId] });
     }
   });
+  const clearFeishuDeliveriesMutation = useMutation({
+    mutationFn: (input: { startDate: string; endDate: string; status: FeishuDeliveryClearStatus }) =>
+      projectApi.clearFeishuDeliveries(projectId!, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project-feishu-deliveries", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
+    }
+  });
+  const clearActivityMutation = useMutation({
+    mutationFn: (input: { startDate: string; endDate: string }) => activityApi.clearProject(projectId!, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
+    }
+  });
 
   useEffect(() => {
     if (projectQuery.data) {
@@ -224,6 +250,26 @@ export function ProjectSettingsPage() {
 
     if (canManageProject) {
       createInvitationMutation.mutate();
+    }
+  }
+
+  function handleClearFeishuDeliveries(event: FormEvent) {
+    event.preventDefault();
+
+    if (!feishuClearStartDate || !feishuClearEndDate || !canManageProject) {
+      return;
+    }
+
+    if (
+      window.confirm(
+        `确认删除 ${feishuClearStartDate} 至 ${feishuClearEndDate} 的飞书投递记录？待发送记录不会被清理，此操作不可恢复。`
+      )
+    ) {
+      clearFeishuDeliveriesMutation.mutate({
+        startDate: feishuClearStartDate,
+        endDate: feishuClearEndDate,
+        status: feishuClearStatus
+      });
     }
   }
 
@@ -431,6 +477,9 @@ export function ProjectSettingsPage() {
           logs={activityQuery.data ?? []}
           isLoading={activityQuery.isLoading}
           title="项目审计日志"
+          clearError={clearActivityMutation.error}
+          isClearing={clearActivityMutation.isPending}
+          onClearRange={(input) => clearActivityMutation.mutate(input)}
         />
       ) : null}
       {canManageProject ? (
@@ -452,6 +501,50 @@ export function ProjectSettingsPage() {
               ))}
             </select>
           </div>
+          <form className="activity-clear-form delivery-clear-form" onSubmit={handleClearFeishuDeliveries}>
+            <label>
+              开始日期
+              <input
+                type="date"
+                value={feishuClearStartDate}
+                max={feishuClearEndDate || undefined}
+                onChange={(event) => setFeishuClearStartDate(event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              结束日期
+              <input
+                type="date"
+                value={feishuClearEndDate}
+                min={feishuClearStartDate || undefined}
+                onChange={(event) => setFeishuClearEndDate(event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              清理状态
+              <select
+                value={feishuClearStatus}
+                onChange={(event) => setFeishuClearStatus(event.target.value as FeishuDeliveryClearStatus)}
+              >
+                {feishuDeliveryClearStatusOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="danger-button"
+              type="submit"
+              disabled={
+                clearFeishuDeliveriesMutation.isPending || !feishuClearStartDate || !feishuClearEndDate
+              }
+            >
+              清理投递记录
+            </button>
+          </form>
           <div className="list settings-scroll-list delivery-scroll-list">
             {filteredFeishuDeliveries.map((delivery) => (
               <div className="delivery-row" key={delivery.id}>
@@ -486,7 +579,13 @@ export function ProjectSettingsPage() {
               <span className="muted">暂无飞书投递记录</span>
             ) : null}
           </div>
-          <MutationError error={feishuDeliveriesQuery.error ?? retryFeishuDeliveryMutation.error} />
+          <MutationError
+            error={
+              feishuDeliveriesQuery.error ??
+              retryFeishuDeliveryMutation.error ??
+              clearFeishuDeliveriesMutation.error
+            }
+          />
         </section>
       ) : null}
       <section className="panel danger-zone">

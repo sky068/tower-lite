@@ -1,7 +1,11 @@
+import { FormEvent, useState } from "react";
 import { formatRelativeTime } from "../../lib/dateTime";
 import type { ActivityLog } from "../../types/api";
+import { MutationError } from "./MutationError";
 
 const actionLabels: Record<string, string> = {
+  "activity_log.cleared": "清理审计日志",
+  "feishu_delivery.cleared": "清理飞书投递记录",
   "team_member.added": "添加团队成员",
   "team_member.role_updated": "调整团队角色",
   "team_member.removed": "移除团队成员",
@@ -38,10 +42,20 @@ const actionLabels: Record<string, string> = {
   "comment.deleted": "删除评论"
 };
 
+const feishuClearStatusLabels: Record<string, string> = {
+  ALL: "全部非待发送",
+  SENT: "已发送",
+  FAILED: "发送失败",
+  SKIPPED: "已跳过"
+};
+
 type ActivityLogPanelProps = {
   logs: ActivityLog[];
   isLoading: boolean;
   title?: string;
+  clearError?: unknown;
+  isClearing?: boolean;
+  onClearRange?: (input: { startDate: string; endDate: string }) => void;
 };
 
 function metadataValue(metadata: ActivityLog["metadata"], key: string) {
@@ -72,6 +86,32 @@ function getLogSummary(log: ActivityLog) {
     return [title, metadataValue(log.metadata, "contentPreview")].filter(Boolean).join(" / ");
   }
 
+  if (log.action === "activity_log.cleared") {
+    const startDate = metadataValue(log.metadata, "startDate");
+    const endDate = metadataValue(log.metadata, "endDate");
+    const deletedCount = log.metadata?.deletedCount;
+    return [
+      startDate && endDate ? `${startDate} 至 ${endDate}` : null,
+      typeof deletedCount === "number" ? `删除 ${deletedCount} 条` : null
+    ]
+      .filter(Boolean)
+      .join(" / ");
+  }
+
+  if (log.action === "feishu_delivery.cleared") {
+    const startDate = metadataValue(log.metadata, "startDate");
+    const endDate = metadataValue(log.metadata, "endDate");
+    const status = metadataValue(log.metadata, "status");
+    const deletedCount = log.metadata?.deletedCount;
+    return [
+      startDate && endDate ? `${startDate} 至 ${endDate}` : null,
+      status ? `状态 ${feishuClearStatusLabels[status] ?? status}` : null,
+      typeof deletedCount === "number" ? `删除 ${deletedCount} 条` : null
+    ]
+      .filter(Boolean)
+      .join(" / ");
+  }
+
   if (log.action.includes("role_updated")) {
     return [title, metadataValue(log.metadata, "role")].filter(Boolean).join(" / ");
   }
@@ -79,10 +119,62 @@ function getLogSummary(log: ActivityLog) {
   return title ?? log.project?.name ?? log.targetId ?? "无附加信息";
 }
 
-export function ActivityLogPanel({ logs, isLoading, title = "审计日志" }: ActivityLogPanelProps) {
+export function ActivityLogPanel({
+  logs,
+  isLoading,
+  title = "审计日志",
+  clearError,
+  isClearing = false,
+  onClearRange
+}: ActivityLogPanelProps) {
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  function handleClear(event: FormEvent) {
+    event.preventDefault();
+
+    if (!startDate || !endDate || !onClearRange) {
+      return;
+    }
+
+    if (window.confirm(`确认删除 ${startDate} 至 ${endDate} 的审计日志？此操作不可恢复。`)) {
+      onClearRange({ startDate, endDate });
+    }
+  }
+
   return (
     <section className="panel">
-      <h2>{title}</h2>
+      <div className="panel-title-row">
+        <h2>{title}</h2>
+      </div>
+      {onClearRange ? (
+        <form className="activity-clear-form" onSubmit={handleClear}>
+          <label>
+            开始日期
+            <input
+              type="date"
+              value={startDate}
+              max={endDate || undefined}
+              onChange={(event) => setStartDate(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            结束日期
+            <input
+              type="date"
+              value={endDate}
+              min={startDate || undefined}
+              onChange={(event) => setEndDate(event.target.value)}
+              required
+            />
+          </label>
+          <button className="danger-button" type="submit" disabled={isClearing || !startDate || !endDate}>
+            清理日志
+          </button>
+        </form>
+      ) : null}
+      <MutationError error={clearError} />
       <div className="list settings-scroll-list">
         {isLoading ? <span className="muted">日志加载中...</span> : null}
         {logs.map((log) => (

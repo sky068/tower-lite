@@ -102,6 +102,12 @@ export function TeamSettingsPage() {
       navigate("/dashboard");
     }
   });
+  const clearActivityMutation = useMutation({
+    mutationFn: (input: { startDate: string; endDate: string }) => activityApi.clearTeam(teamId!, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
+    }
+  });
 
   function handleAddMember(event: FormEvent) {
     event.preventDefault();
@@ -297,6 +303,9 @@ export function TeamSettingsPage() {
           logs={activityQuery.data ?? []}
           isLoading={activityQuery.isLoading}
           title="团队审计日志"
+          clearError={clearActivityMutation.error}
+          isClearing={clearActivityMutation.isPending}
+          onClearRange={(input) => clearActivityMutation.mutate(input)}
         />
       ) : null}
       {canManageTeam ? (

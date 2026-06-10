@@ -4,8 +4,13 @@ import { validate } from "../../middleware/validate.js";
 import { asyncHandler } from "../../utils/async-handler.js";
 import { sendData } from "../../utils/api-response.js";
 import { projectIdParamsSchema } from "../projects/project.schema.js";
-import { feishuDeliveryParamsSchema, feishuWebhookSchema } from "./feishu.schema.js";
-import { handleFeishuWebhook, listProjectFeishuDeliveries, retryProjectFeishuDelivery } from "./feishu.service.js";
+import { clearFeishuDeliveriesSchema, feishuDeliveryParamsSchema, feishuWebhookSchema } from "./feishu.schema.js";
+import {
+  clearProjectFeishuDeliveries,
+  handleFeishuWebhook,
+  listProjectFeishuDeliveries,
+  retryProjectFeishuDelivery
+} from "./feishu.service.js";
 
 export const feishuRoutes = Router();
 
@@ -29,6 +34,17 @@ feishuRoutes.get(
   validate("params", projectIdParamsSchema),
   asyncHandler(async (req, res) => {
     const data = await listProjectFeishuDeliveries(req.currentUser!.id, req.params.projectId);
+    return sendData(req, res, data);
+  })
+);
+
+feishuRoutes.post(
+  "/projects/:projectId/feishu-deliveries/clear",
+  requireAuth,
+  validate("params", projectIdParamsSchema),
+  validate("body", clearFeishuDeliveriesSchema),
+  asyncHandler(async (req, res) => {
+    const data = await clearProjectFeishuDeliveries(req.currentUser!.id, req.params.projectId, req.body);
     return sendData(req, res, data);
   })
 );

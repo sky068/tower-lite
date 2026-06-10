@@ -376,6 +376,12 @@ export const projectApi = {
   feishuDeliveries(projectId: string) {
     return unwrap<FeishuDelivery[]>(api.get(`/projects/${projectId}/feishu-deliveries`));
   },
+  clearFeishuDeliveries(
+    projectId: string,
+    input: { startDate: string; endDate: string; status: "ALL" | "SENT" | "FAILED" | "SKIPPED" }
+  ) {
+    return unwrap<{ deletedCount: number }>(api.post(`/projects/${projectId}/feishu-deliveries/clear`, input));
+  },
   retryFeishuDelivery(projectId: string, deliveryId: string) {
     return unwrap<FeishuDelivery>(api.post(`/projects/${projectId}/feishu-deliveries/${deliveryId}/retry`));
   }
@@ -398,6 +404,12 @@ export const activityApi = {
   },
   project(projectId: string) {
     return unwrap<ActivityLog[]>(api.get(`/projects/${projectId}/activity`));
+  },
+  clearTeam(teamId: string, input: { startDate: string; endDate: string }) {
+    return unwrap<{ deletedCount: number }>(api.post(`/teams/${teamId}/activity/clear`, input));
+  },
+  clearProject(projectId: string, input: { startDate: string; endDate: string }) {
+    return unwrap<{ deletedCount: number }>(api.post(`/projects/${projectId}/activity/clear`, input));
   }
 };
 

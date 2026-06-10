@@ -2905,6 +2905,32 @@ select[multiple] {
   text-align: right;
 }
 
+.activity-clear-form {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.delivery-clear-form {
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(150px, 0.9fr) auto;
+}
+
+.activity-clear-form label {
+  display: grid;
+  gap: 6px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.activity-clear-form input,
+.activity-clear-form select {
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
 .delivery-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -3021,7 +3047,8 @@ select[multiple] {
   .inline-panel,
   .subtask-create-form,
   .member-row,
-  .activity-row {
+  .activity-row,
+  .activity-clear-form {
     grid-template-columns: 1fr;
   }
 
