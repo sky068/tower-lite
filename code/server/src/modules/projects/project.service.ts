@@ -482,6 +482,15 @@ export async function purgeDeletedProject(userId: string, teamId: string, projec
         }
       }
     });
+    await tx.commentMention.deleteMany({
+      where: {
+        comment: {
+          task: {
+            projectId
+          }
+        }
+      }
+    });
     await tx.comment.deleteMany({
       where: {
         task: {

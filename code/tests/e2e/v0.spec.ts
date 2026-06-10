@@ -388,9 +388,15 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(detail.getByRole("heading", { name: secondLevelSubTaskTitle })).toBeVisible();
   await expect(detail.getByRole("button", { name: "已达到最大拆分层级" })).toBeDisabled();
 
-  await detail.getByPlaceholder("写一条评论").fill("Owner comment from E2E");
+  await detail.getByPlaceholder("写一条评论，输入 @ 提及成员").fill("Owner comment from E2E @");
+  await detail.locator(".comment-mention-menu").getByRole("button", { name: /E2E Editor/ }).click();
   await detail.getByRole("button", { name: "发送" }).click();
-  await expect(detail.getByText("Owner comment from E2E")).toBeVisible();
+  await expect(
+    detail
+      .locator(".comment")
+      .filter({ hasText: "Owner comment from E2E @E2E Editor" })
+      .getByText("Owner comment from E2E @E2E Editor")
+  ).toBeVisible();
   await detail.getByRole("button", { name: "关闭" }).click();
   await expect(detail).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
@@ -555,6 +561,9 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   ).toBeVisible();
   await expect(
     allNotifications.getByRole("link", { name: new RegExp(`你被分配了一个任务 ${escapeRegExp(subTaskTitle)}`) })
+  ).toBeVisible();
+  await expect(
+    allNotifications.getByRole("link", { name: new RegExp(`评论中提到了你 .*Owner comment from E2E`) })
   ).toBeVisible();
   const assignedTaskNotification = allNotifications
     .locator(".notification-center-row")

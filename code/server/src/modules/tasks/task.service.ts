@@ -816,6 +816,15 @@ async function deleteTasksByIds(tx: Prisma.TransactionClient, taskIds: string[])
       }
     }
   });
+  await tx.commentMention.deleteMany({
+    where: {
+      comment: {
+        taskId: {
+          in: taskIds
+        }
+      }
+    }
+  });
   await tx.comment.deleteMany({
     where: {
       taskId: {
@@ -1367,7 +1376,12 @@ export async function getTask(userId: string, taskId: string) {
           deletedAt: null
         },
         include: {
-          author: true
+          author: true,
+          mentions: {
+            include: {
+              user: true
+            }
+          }
         },
         orderBy: {
           createdAt: "asc"
@@ -1405,7 +1419,12 @@ export async function getTask(userId: string, taskId: string) {
         id: comment.author.id,
         name: comment.author.name,
         avatarUrl: comment.author.avatarUrl
-      }
+      },
+      mentions: comment.mentions.map((mention) => ({
+        id: mention.user.id,
+        name: mention.user.name,
+        avatarUrl: mention.user.avatarUrl
+      }))
     }))
   };
 }
@@ -1669,24 +1688,73 @@ export async function createComment(userId: string, taskId: string, input: Creat
   }
 
   const { project } = await requireActiveProjectEditor(userId, task.projectId);
+  const requestedMentionIds = [...new Set(input.mentionIds)];
+  const requestedMentionMembers = requestedMentionIds.length > 0
+    ? await prisma.projectMember.findMany({
+        where: {
+          projectId: task.projectId,
+          userId: {
+            in: requestedMentionIds
+          }
+        },
+        select: {
+          userId: true
+        }
+      })
+    : [];
 
-  const comment = await prisma.comment.create({
-    data: {
-      content: input.content,
-      taskId,
-      authorId: userId
+  if (requestedMentionMembers.length !== requestedMentionIds.length) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Mentioned user must be a project member", 422);
+  }
+
+  const projectMembers = await prisma.projectMember.findMany({
+    where: {
+      projectId: task.projectId
     },
     include: {
-      author: true
+      user: true
     }
   });
+  const contentMentionIds = projectMembers
+    .filter((member) => {
+      const nameToken = `@${member.user.name}`;
+      const emailToken = `@${member.user.email}`;
+      return input.content.includes(nameToken) || input.content.includes(emailToken);
+    })
+    .map((member) => member.userId);
+  const mentionIds = [...new Set([...requestedMentionIds, ...contentMentionIds])];
+
+  const comment = await prisma.$transaction(async (tx) =>
+    tx.comment.create({
+      data: {
+        content: input.content,
+        taskId,
+        authorId: userId,
+        mentions: {
+          create: mentionIds.map((mentionedUserId) => ({
+            userId: mentionedUserId
+          }))
+        }
+      },
+      include: {
+        author: true,
+        mentions: {
+          include: {
+            user: true
+          }
+        }
+      }
+    })
+  );
 
   const mentionedUserIds = await createMentionNotifications({
     actorId: userId,
     projectId: task.projectId,
     taskId,
+    taskTitle: task.title,
     commentId: comment.id,
-    content: input.content
+    content: input.content,
+    mentionIds
   });
   await createTaskCommentNotifications({
     actorId: userId,
@@ -1722,7 +1790,12 @@ export async function createComment(userId: string, taskId: string, input: Creat
       id: comment.author.id,
       name: comment.author.name,
       avatarUrl: comment.author.avatarUrl
-    }
+    },
+    mentions: comment.mentions.map((mention) => ({
+      id: mention.user.id,
+      name: mention.user.name,
+      avatarUrl: mention.user.avatarUrl
+    }))
   };
 }
 
@@ -1791,41 +1864,30 @@ async function createMentionNotifications(input: {
   actorId: string;
   projectId: string;
   taskId: string;
+  taskTitle: string;
   commentId: string;
   content: string;
+  mentionIds: string[];
 }) {
-  const members = await prisma.projectMember.findMany({
-    where: {
-      projectId: input.projectId
-    },
-    include: {
-      user: true
-    }
-  });
-
-  const mentionedMembers = members.filter((member) => {
-    const nameToken = `@${member.user.name}`;
-    const emailToken = `@${member.user.email}`;
-    return input.content.includes(nameToken) || input.content.includes(emailToken);
-  });
+  const mentionedUserIds = [...new Set(input.mentionIds)];
 
   await Promise.all(
-    mentionedMembers.map((member) =>
+    mentionedUserIds.map((recipientId) =>
       createNotification({
         type: NotificationType.COMMENT_MENTION,
-        recipientId: member.userId,
+        recipientId,
         actorId: input.actorId,
         projectId: input.projectId,
         taskId: input.taskId,
         title: "评论中提到了你",
-        content: input.content.slice(0, 120),
-        dedupeKey: `comment_mention:${input.taskId}:${input.commentId}:${member.userId}`,
+        content: `${input.taskTitle}: ${input.content.slice(0, 120)}`,
+        dedupeKey: `comment_mention:${input.taskId}:${input.commentId}:${recipientId}`,
         skipActor: true
       })
     )
   );
 
-  return mentionedMembers.map((member) => member.userId);
+  return mentionedUserIds;
 }
 
 async function createTaskCommentNotifications(input: {
@@ -1883,7 +1945,12 @@ export async function listComments(userId: string, taskId: string) {
       deletedAt: null
     },
     include: {
-      author: true
+      author: true,
+      mentions: {
+        include: {
+          user: true
+        }
+      }
     },
     orderBy: {
       createdAt: "asc"
@@ -1898,6 +1965,11 @@ export async function listComments(userId: string, taskId: string) {
       id: comment.author.id,
       name: comment.author.name,
       avatarUrl: comment.author.avatarUrl
-    }
+    },
+    mentions: comment.mentions.map((mention) => ({
+      id: mention.user.id,
+      name: mention.user.name,
+      avatarUrl: mention.user.avatarUrl
+    }))
   }));
 }

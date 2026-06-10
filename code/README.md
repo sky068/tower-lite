@@ -38,14 +38,25 @@ npm run prisma:seed
 本项目仍处于开发阶段，不保留旧数据兼容路径。数据库结构变化后，直接清空开发数据库并重新执行迁移和 seed：
 
 ```bash
+npm run dev:reset
+```
+
+如果需要拆开排查，可以等价执行：
+
+```bash
 npm run docker:reset
-npm run doctor
-npm run prisma:generate
 npm run prisma:migrate
 npm run prisma:seed
 ```
 
-`docker:reset` 只负责删除并重建 PostgreSQL / Redis 数据卷；`prisma:migrate` 会按顺序执行仓库内的 SQL 迁移文件，要求目标数据库为空。
+开发环境检查和 Prisma Client 生成仍可单独执行：
+
+```bash
+npm run doctor
+npm run prisma:generate
+```
+
+`dev:reset` 会删除并重建 PostgreSQL / Redis 数据卷，然后重新执行迁移和 seed；`prisma:migrate` 会先等待 PostgreSQL 可查询，再按顺序执行仓库内的 SQL 迁移文件，要求目标数据库为空。
 
 演示账号：
 
@@ -61,6 +72,7 @@ npm run dev:server
 npm run dev:up
 npm run dev:down
 npm run dev:init
+npm run dev:reset
 npm run dev:all
 npm run docker:up
 npm run docker:down
@@ -306,6 +318,17 @@ V0.4 启用项目回收站，用于恢复误删任务和清单：
 - 项目归档后回收站只读，不允许恢复或彻底删除。
 - 恢复和彻底删除会写入项目审计日志。
 
+## V0.5 评论 @ 成员规则
+
+V0.5 补齐评论 @ 成员能力，作为后续飞书协作通知的前置能力：
+
+- 任务详情评论区支持输入 `@` 触发项目成员选择，选中后将 `@姓名` 直接插入评论文本，提交时会同时传递 `mentionIds`。
+- 后端只接受当前项目成员作为 @ 对象；如果传入非项目成员，会返回正式业务错误。
+- 评论会保存被 @ 成员关系，并在评论下方展示已提及成员。
+- 被 @ 成员收到 `COMMENT_MENTION` 站内通知；评论作者本人不通知。
+- 如果被 @ 成员同时也是任务创建者或负责人，只收到 @ 通知，不再重复收到“任务有新评论”通知。
+- 普通新评论仍会通知任务创建者和当前负责人，评论作者本人除外。
+
 ## 当前前端已接入流程
 
 - 注册账号
@@ -337,7 +360,7 @@ V0.4 启用项目回收站，用于恢复误删任务和清单：
 - 设置任务状态、多位负责人、优先级、开始日期和截止日期，并在前端校验日期范围；负责人支持新增指派和取消指派
 - 在任务详情里创建最多两级子任务，并为子任务单独设置多位负责人、开始日期和截止日期
 - 子任务可以从父任务详情里打开，作为独立任务继续编辑
-- 在任务详情里添加评论
+- 在任务详情里添加评论，并通过输入 `@` 提及项目成员
 - 评论作者可以删除自己的评论
 - 在任务详情里移动任务到其他清单
 - 在任务详情里一键标记任务为已完成；看板任务卡和工作台“我的任务”右侧会显示完成人和完成时间，如今天、昨天或具体日期
@@ -362,7 +385,7 @@ V0.4 启用项目回收站，用于恢复误删任务和清单：
 
 ## 当前环境备注
 
-- 本项目仍处于开发阶段，数据库结构变更优先使用 `npm run docker:reset` 清空开发数据，再执行 `npm run prisma:migrate` 和 `npm run prisma:seed`，不保留旧 schema 兼容路径。
+- 本项目仍处于开发阶段，数据库结构变更优先使用 `npm run dev:reset` 清空开发数据并重建 schema / seed，不保留旧 schema 兼容路径。
 - Prisma CLI 的部分迁移命令在本机曾触发 schema engine 错误；因此 `npm run prisma:migrate` 已改为直接按顺序执行仓库内 SQL 迁移文件。
 - `npm run test`、`npm run typecheck`、`npm run build` 和 `npm run check:v0` 已通过。
 - `npm run test:integration` 会连接本地 PostgreSQL，运行前需要先确保 `npm run doctor` 的数据库检查通过。

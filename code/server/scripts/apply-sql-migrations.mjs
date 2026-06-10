@@ -43,6 +43,48 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForDatabase(prisma) {
+  const databaseUrl = new URL(process.env.DATABASE_URL);
+  const host = databaseUrl.hostname || "localhost";
+  const port = Number(databaseUrl.port || 5432);
+  const deadline = Date.now() + 60_000;
+  let lastError = null;
+
+  process.stdout.write(`Waiting for PostgreSQL at ${host}:${port}`);
+
+  while (Date.now() < deadline) {
+    try {
+      await prisma.$queryRawUnsafe("SELECT 1");
+      process.stdout.write(" ready\n");
+      return;
+    } catch (error) {
+      lastError = error;
+      process.stdout.write(".");
+      await sleep(1000);
+    }
+  }
+
+  process.stdout.write("\n");
+  console.error(`PostgreSQL did not become queryable at ${host}:${port} within 60 seconds.`);
+  console.error("Check Docker Desktop and the project database container:");
+  console.error("  open -a Docker");
+  console.error("  docker ps");
+  console.error("  npm run docker:logs");
+
+  if (lastError) {
+    console.error("");
+    console.error(lastError);
+  }
+
+  process.exit(1);
+}
+
 function splitSqlStatements(sql) {
   const statements = [];
   let current = "";
@@ -152,6 +194,7 @@ async function main() {
   const prisma = new PrismaClient();
 
   try {
+    await waitForDatabase(prisma);
     await ensureMigrationTable(prisma);
     const migrationDirs = readdirSync(migrationsRoot)
       .filter((name) => existsSync(join(migrationsRoot, name, "migration.sql")))

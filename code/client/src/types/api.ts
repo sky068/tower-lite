@@ -88,6 +88,7 @@ export type Comment = {
     name: string;
     avatarUrl: string | null;
   };
+  mentions: Array<Pick<User, "id" | "name" | "avatarUrl">>;
 };
 
 export type TaskDetail = Task & {

@@ -145,6 +145,15 @@ type NotificationReadResponse = {
   readAt: string | null;
 };
 
+type CommentResponse = {
+  id: string;
+  content: string;
+  mentions: Array<{
+    id: string;
+    name: string;
+  }>;
+};
+
 type InvitationResponse = {
   id: string;
   email: string;
@@ -172,6 +181,7 @@ type TagResponse = {
 
 type TaskDetailResponse = TaskResponse & {
   tags: TagResponse[];
+  comments: CommentResponse[];
 };
 
 type ActivityLogResponse = {
@@ -275,6 +285,14 @@ async function cleanupRunData() {
             in: projectIds
           }
         }
+      }
+    }),
+    prisma.commentMention.deleteMany({
+      where: {
+        OR: [
+          { userId: { in: userIds } },
+          { comment: { task: { projectId: { in: projectIds } } } }
+        ]
       }
     }),
     prisma.comment.deleteMany({
@@ -1363,6 +1381,80 @@ describe("V0 HTTP integration", () => {
     assert.ok(
       ownerNotificationsAfterComment.some(
         (notification) => notification.type === "TASK_COMMENTED"
+      )
+    );
+
+    const mentionComment = (await request<CommentResponse>("POST", `/api/v1/tasks/${task.id}/comments`, {
+      token: editor.token,
+      expectedStatus: 201,
+      body: {
+        content: `@${owner.name} please check this mention`,
+        mentionIds: [owner.id, editor.id]
+      }
+    })).data;
+    assert.deepEqual(
+      mentionComment.mentions.map((mention) => mention.id).sort(),
+      [editor.id, owner.id].sort()
+    );
+    const taskAfterMentionComment = (await request<TaskDetailResponse>("GET", `/api/v1/tasks/${task.id}`, {
+      token: owner.token
+    })).data;
+    assert.ok(
+      taskAfterMentionComment.comments.some(
+        (comment) =>
+          comment.id === mentionComment.id &&
+          comment.mentions.some((mention) => mention.id === owner.id)
+      )
+    );
+    const typedMentionComment = (await request<CommentResponse>("POST", `/api/v1/tasks/${task.id}/comments`, {
+      token: editor.token,
+      expectedStatus: 201,
+      body: {
+        content: `@${viewer.name} typed mention without explicit ids`
+      }
+    })).data;
+    assert.ok(typedMentionComment.mentions.some((mention) => mention.id === viewer.id));
+    await request<CommentResponse>("POST", `/api/v1/tasks/${task.id}/comments`, {
+      token: editor.token,
+      expectedStatus: 422,
+      body: {
+        content: `@${directAddedMember.name} should fail`,
+        mentionIds: [directAddedMember.id]
+      }
+    });
+    const ownerNotificationsAfterMention = (await request<NotificationResponse[]>(
+      "GET",
+      "/api/v1/users/me/notifications",
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(
+      ownerNotificationsAfterMention.some(
+        (notification) =>
+          notification.type === "COMMENT_MENTION" &&
+          notification.content.includes("please check this mention")
+      )
+    );
+    assert.ok(
+      !ownerNotificationsAfterMention.some(
+        (notification) =>
+          notification.type === "TASK_COMMENTED" &&
+          notification.content.includes("please check this mention")
+      )
+    );
+    const editorNotificationsAfterSelfMention = (await request<NotificationResponse[]>(
+      "GET",
+      "/api/v1/users/me/notifications",
+      {
+        token: editor.token
+      }
+    )).data;
+    assert.ok(
+      !editorNotificationsAfterSelfMention.some(
+        (notification) =>
+          notification.type === "COMMENT_MENTION" &&
+          notification.content.includes("please check this mention")
       )
     );
 

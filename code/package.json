@@ -14,6 +14,7 @@
     "dev:up": "node scripts/dev-up.mjs",
     "dev:down": "node scripts/dev-down.mjs",
     "dev:init": "npm run docker:up && npm run prisma:migrate && npm run prisma:seed",
+    "dev:reset": "node scripts/dev-reset.mjs",
     "dev:all": "npm run dev:init && npm run dev:up",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",

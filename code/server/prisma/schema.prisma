@@ -29,6 +29,7 @@ model User {
   createdTasks        Task[]         @relation("TaskCreator")
   completedTasks      Task[]         @relation("TaskCompleter")
   comments            Comment[]
+  commentMentions     CommentMention[]
   refreshTokens       RefreshToken[]
   notifications       Notification[] @relation("NotificationRecipient")
   notificationActions Notification[] @relation("NotificationActor")
@@ -322,8 +323,21 @@ model Comment {
 
   task      Task     @relation(fields: [taskId], references: [id])
   author    User     @relation(fields: [authorId], references: [id])
+  mentions  CommentMention[]
 
   @@index([taskId, createdAt])
+}
+
+model CommentMention {
+  commentId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  comment   Comment  @relation(fields: [commentId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@id([commentId, userId])
+  @@index([userId])
 }
 
 model Notification {

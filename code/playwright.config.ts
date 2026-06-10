@@ -4,6 +4,7 @@ const apiPort = Number(process.env.PLAYWRIGHT_API_PORT ?? 4000);
 const clientPort = Number(process.env.PLAYWRIGHT_CLIENT_PORT ?? 5173);
 const apiOrigin = `http://127.0.0.1:${apiPort}`;
 const clientOrigin = `http://127.0.0.1:${clientPort}`;
+const reuseExistingServer = process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -24,13 +25,13 @@ export default defineConfig({
     {
       command: `API_PORT=${apiPort} npm run dev:server`,
       url: `${apiOrigin}/api/v1/health`,
-      reuseExistingServer: true,
+      reuseExistingServer,
       timeout: 120_000
     },
     {
       command: `VITE_PORT=${clientPort} VITE_API_TARGET=${apiOrigin} npm run dev:client`,
       url: clientOrigin,
-      reuseExistingServer: true,
+      reuseExistingServer,
       timeout: 120_000
     }
   ],

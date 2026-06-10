@@ -51,8 +51,13 @@ export function TaskDetailPanel({
   const user = useAuthStore((state) => state.user);
   const taskAssigneeDropdownRef = useRef<HTMLDivElement | null>(null);
   const subTaskAssigneeDropdownRef = useRef<HTMLDivElement | null>(null);
+  const commentMentionDropdownRef = useRef<HTMLDivElement | null>(null);
+  const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [activeTaskId, setActiveTaskId] = useState(taskId);
   const [comment, setComment] = useState("");
+  const [isCommentMentionOpen, setIsCommentMentionOpen] = useState(false);
+  const [commentMentionQuery, setCommentMentionQuery] = useState("");
+  const [commentMentionRange, setCommentMentionRange] = useState<{ start: number; end: number } | null>(null);
   const [isTaskAssigneeOpen, setIsTaskAssigneeOpen] = useState(false);
   const [isSubTaskCreateOpen, setIsSubTaskCreateOpen] = useState(false);
   const [isSubTaskAssigneeOpen, setIsSubTaskAssigneeOpen] = useState(false);
@@ -98,6 +103,10 @@ export function TaskDetailPanel({
     setIsTaskAssigneeOpen(false);
     setIsSubTaskCreateOpen(false);
     setIsSubTaskAssigneeOpen(false);
+    setIsCommentMentionOpen(false);
+    setComment("");
+    setCommentMentionQuery("");
+    setCommentMentionRange(null);
     setSubTaskTitle("");
     setSubTaskStatus("TODO");
     setSubTaskAssigneeIds([]);
@@ -110,11 +119,12 @@ export function TaskDetailPanel({
     if (readOnly) {
       setIsTaskAssigneeOpen(false);
       setIsSubTaskAssigneeOpen(false);
+      setIsCommentMentionOpen(false);
     }
   }, [readOnly]);
 
   useEffect(() => {
-    if (!isTaskAssigneeOpen && !isSubTaskAssigneeOpen) {
+    if (!isTaskAssigneeOpen && !isSubTaskAssigneeOpen && !isCommentMentionOpen) {
       return;
     }
 
@@ -129,12 +139,16 @@ export function TaskDetailPanel({
       if (!subTaskAssigneeDropdownRef.current?.contains(event.target as Node)) {
         setIsSubTaskAssigneeOpen(false);
       }
+
+      if (!commentMentionDropdownRef.current?.contains(event.target as Node)) {
+        setIsCommentMentionOpen(false);
+      }
     }
 
     document.addEventListener("pointerdown", handlePointerDown);
 
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isTaskAssigneeOpen, isSubTaskAssigneeOpen]);
+  }, [isCommentMentionOpen, isTaskAssigneeOpen, isSubTaskAssigneeOpen]);
 
   const taskQuery = useQuery({
     queryKey: ["task", activeTaskId],
@@ -209,6 +223,19 @@ export function TaskDetailPanel({
       ? `${selectedNames.slice(0, 2).join(", ")} 等 ${selectedNames.length} 人`
       : selectedNames.join(", ");
   }, [membersQuery.data, subTaskAssigneeIds]);
+  const commentMentionOptions = useMemo(() => {
+    const query = commentMentionQuery.trim().toLowerCase();
+    const members = membersQuery.data ?? [];
+
+    if (!query) {
+      return members;
+    }
+
+    return members.filter((member) =>
+      member.user.name.toLowerCase().includes(query) ||
+      member.user.email.toLowerCase().includes(query)
+    );
+  }, [commentMentionQuery, membersQuery.data]);
 
   useEffect(() => {
     if (task) {
@@ -249,9 +276,12 @@ export function TaskDetailPanel({
   }, [tags, tagsQuery.data]);
 
   const createCommentMutation = useMutation({
-    mutationFn: (content: string) => boardApi.createComment(activeTaskId, { content }),
+    mutationFn: (input: { content: string; mentionIds: string[] }) => boardApi.createComment(activeTaskId, input),
     onSuccess: () => {
       setComment("");
+      setIsCommentMentionOpen(false);
+      setCommentMentionQuery("");
+      setCommentMentionRange(null);
       void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
     }
   });
@@ -389,7 +419,10 @@ export function TaskDetailPanel({
     const content = comment.trim();
 
     if (content && !readOnly) {
-      createCommentMutation.mutate(content);
+      createCommentMutation.mutate({
+        content,
+        mentionIds: getCommentMentionIds(content)
+      });
     }
   }
 
@@ -513,6 +546,73 @@ export function TaskDetailPanel({
         ? [...new Set([...current, userId])]
         : current.filter((assigneeId) => assigneeId !== userId)
     );
+  }
+
+  function getMentionTrigger(value: string, caret: number) {
+    const beforeCaret = value.slice(0, caret);
+    const start = beforeCaret.lastIndexOf("@");
+
+    if (start === -1) {
+      return null;
+    }
+
+    const query = beforeCaret.slice(start + 1);
+    if (/\s/.test(query)) {
+      return null;
+    }
+
+    return { start, end: caret, query };
+  }
+
+  function updateCommentMentionState(value: string, caret: number) {
+    const trigger = getMentionTrigger(value, caret);
+
+    if (!trigger || readOnly) {
+      setIsCommentMentionOpen(false);
+      setCommentMentionQuery("");
+      setCommentMentionRange(null);
+      return;
+    }
+
+    setIsCommentMentionOpen(true);
+    setCommentMentionQuery(trigger.query);
+    setCommentMentionRange({ start: trigger.start, end: trigger.end });
+  }
+
+  function handleCommentChange(value: string, caret: number) {
+    setComment(value);
+    updateCommentMentionState(value, caret);
+  }
+
+  function insertCommentMention(member: { user: { id: string; name: string } }) {
+    const textarea = commentTextareaRef.current;
+    const caret = textarea?.selectionStart ?? comment.length;
+    const range = commentMentionRange ?? getMentionTrigger(comment, caret);
+    const insertText = `@${member.user.name} `;
+    const nextComment = range
+      ? `${comment.slice(0, range.start)}${insertText}${comment.slice(range.end)}`
+      : `${comment}${comment ? " " : ""}${insertText}`;
+    const nextCaret = range ? range.start + insertText.length : nextComment.length;
+
+    setComment(nextComment);
+    setIsCommentMentionOpen(false);
+    setCommentMentionQuery("");
+    setCommentMentionRange(null);
+
+    window.requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+
+  function getCommentMentionIds(content: string) {
+    return [
+      ...new Set(
+        (membersQuery.data ?? [])
+          .filter((member) => content.includes(`@${member.user.name}`) || content.includes(`@${member.user.email}`))
+          .map((member) => member.user.id)
+      )
+    ];
   }
 
   function handleOpenTask(nextTaskId: string) {
@@ -1027,13 +1127,44 @@ export function TaskDetailPanel({
               <h3>评论</h3>
               <MutationError error={createCommentMutation.error ?? deleteCommentMutation.error} />
               <form className="comment-form" onSubmit={handleCreateComment}>
-                <textarea
-                  value={comment}
-                  onChange={(event) => setComment(event.target.value)}
-                  placeholder="写一条评论"
-                  rows={3}
-                  disabled={readOnly}
-                />
+                <div className="comment-input-wrap" ref={commentMentionDropdownRef}>
+                  <textarea
+                    ref={commentTextareaRef}
+                    value={comment}
+                    onChange={(event) =>
+                      handleCommentChange(event.target.value, event.currentTarget.selectionStart)
+                    }
+                    onClick={(event) => updateCommentMentionState(comment, event.currentTarget.selectionStart)}
+                    onKeyUp={(event) => updateCommentMentionState(comment, event.currentTarget.selectionStart)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        setIsCommentMentionOpen(false);
+                      }
+                    }}
+                    placeholder="写一条评论，输入 @ 提及成员"
+                    rows={3}
+                    disabled={readOnly}
+                  />
+                  {isCommentMentionOpen ? (
+                    <div className="comment-mention-menu">
+                      {commentMentionOptions.map((member) => (
+                        <button
+                          className="comment-mention-option"
+                          type="button"
+                          key={member.user.id}
+                          onClick={() => insertCommentMention(member)}
+                        >
+                          <UserAvatar user={member.user} size="xs" />
+                          <span>{member.user.name}</span>
+                          <small>{member.user.email}</small>
+                        </button>
+                      ))}
+                      {commentMentionOptions.length === 0 ? (
+                        <span className="muted">没有匹配成员</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
                 <button type="submit" disabled={readOnly || createCommentMutation.isPending}>
                   发送
                 </button>

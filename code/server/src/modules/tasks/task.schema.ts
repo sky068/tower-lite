@@ -85,7 +85,8 @@ export const moveTaskSchema = z.object({
 });
 
 export const createCommentSchema = z.object({
-  content: z.string().min(1).max(5000)
+  content: z.string().min(1).max(5000),
+  mentionIds: z.array(z.string().uuid()).default([])
 });
 
 export type CreateTaskListInput = z.infer<typeof createTaskListSchema>;

@@ -2186,27 +2186,100 @@ select[multiple] {
   justify-self: end;
 }
 
+.comment-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.comment-mention-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 45;
+  display: grid;
+  width: min(320px, 100%);
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.16);
+  padding: 6px;
+}
+
+.comment-form .comment-mention-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "avatar name"
+    "avatar email";
+  align-items: center;
+  justify-self: stretch;
+  gap: 1px 8px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #0f172a;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.comment-mention-option .user-avatar {
+  grid-area: avatar;
+}
+
+.comment-mention-option span {
+  grid-area: name;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.comment-mention-option small {
+  grid-area: email;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.comment-form .comment-mention-option:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
 .comment-list {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .comment {
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 6px;
+  padding: 8px 10px;
 }
 
 .comment-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.comment-header strong {
+  font-size: 13px;
+  line-height: 1.2;
 }
 
 .comment p {
-  margin: 6px 0 0;
+  margin: 4px 0 0;
   color: #475569;
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 .auth-page {
