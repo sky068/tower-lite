@@ -6,6 +6,7 @@ import { ResourceState } from "../../components/shared/ResourceState";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
+import { formatRelativeTime } from "../../lib/dateTime";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
 import { useAuthStore } from "../../stores/authStore";
@@ -25,6 +26,10 @@ type TaskDetailPanelProps = {
 
 function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
   return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+}
+
+function formatFullDateTime(value: string) {
+  return new Date(value).toLocaleString();
 }
 
 function AssigneeChip({ assignee }: { assignee: { name: string; avatarUrl: string | null; isRemoved?: boolean } }) {
@@ -1173,7 +1178,12 @@ export function TaskDetailPanel({
                 {task.comments.map((item) => (
                   <article className="comment" key={item.id}>
                     <div className="comment-header">
-                      <strong>{item.author.name}</strong>
+                      <span className="comment-meta">
+                        <strong>{item.author.name}</strong>
+                        <time dateTime={item.createdAt} title={formatFullDateTime(item.createdAt)}>
+                          {formatRelativeTime(item.createdAt)}
+                        </time>
+                      </span>
                       {item.author.id === user?.id ? (
                         <button
                           className="mini-button"
