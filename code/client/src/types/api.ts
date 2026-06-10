@@ -208,3 +208,14 @@ export type ProjectTrash = {
     } | null;
   }>;
 };
+
+export type TeamProjectTrash = {
+  projects: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    status: "ACTIVE" | "ARCHIVED";
+    deletedAt: string | null;
+    deletedBy: Pick<User, "id" | "name" | "email" | "avatarUrl"> | null;
+  }>;
+};

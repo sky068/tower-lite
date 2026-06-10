@@ -18,6 +18,11 @@ export const projectIdParamsSchema = z.object({
   projectId: z.string().uuid()
 });
 
+export const teamProjectTrashParamsSchema = z.object({
+  teamId: z.string().uuid(),
+  projectId: z.string().uuid()
+});
+
 export const projectMemberParamsSchema = z.object({
   projectId: z.string().uuid(),
   userId: z.string().uuid()

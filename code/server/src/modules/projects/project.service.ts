@@ -3,7 +3,7 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
 import { publishProjectEvent, publishTeamEvent, publishToUser } from "../realtime/realtime.service.js";
-import { requireTeamMember, requireTeamOwner } from "../teams/team.policy.js";
+import { requireTeamAdmin, requireTeamMember, requireTeamOwner } from "../teams/team.policy.js";
 import { requireProjectAccess, requireProjectManager } from "./project.policy.js";
 import type {
   AddProjectMemberInput,
@@ -46,6 +46,29 @@ function toProjectSummaryWithRole(
   return {
     ...toProjectSummary(project),
     role: project.members?.[0]?.role
+  };
+}
+
+function toDeletedProjectSummary(project: {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  deletedAt: Date | null;
+  deletedBy: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl: string | null;
+  } | null;
+}) {
+  return {
+    id: project.id,
+    name: project.name,
+    description: project.description,
+    status: project.status,
+    deletedAt: project.deletedAt,
+    deletedBy: project.deletedBy
   };
 }
 
@@ -187,6 +210,36 @@ export async function listTeamProjects(userId: string, teamId: string) {
   return projects.map(toProjectSummaryWithRole);
 }
 
+export async function listTeamProjectTrash(userId: string, teamId: string) {
+  await requireTeamAdmin(userId, teamId);
+
+  const projects = await prisma.project.findMany({
+    where: {
+      teamId,
+      deletedAt: {
+        not: null
+      }
+    },
+    include: {
+      deletedBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatarUrl: true
+        }
+      }
+    },
+    orderBy: {
+      deletedAt: "desc"
+    }
+  });
+
+  return {
+    projects: projects.map(toDeletedProjectSummary)
+  };
+}
+
 export async function getProject(userId: string, projectId: string) {
   const { project } = await requireProjectAccess(userId, projectId);
   return toProjectSummary(project);
@@ -259,6 +312,39 @@ export async function archiveProject(userId: string, projectId: string) {
   return toProjectSummary(project);
 }
 
+export async function unarchiveProject(userId: string, projectId: string) {
+  await requireProjectManager(userId, projectId);
+
+  const project = await prisma.project.update({
+    where: {
+      id: projectId
+    },
+    data: {
+      status: "ACTIVE"
+    }
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId: project.teamId,
+    projectId,
+    action: "project.unarchived",
+    targetType: "project",
+    targetId: projectId,
+    metadata: {
+      name: project.name
+    }
+  });
+
+  await publishProjectEvent(projectId, {
+    type: "project.changed",
+    projectId,
+    teamId: project.teamId
+  });
+
+  return toProjectSummary(project);
+}
+
 export async function deleteProject(userId: string, projectId: string) {
   const { project } = await requireProjectManager(userId, projectId);
 
@@ -267,7 +353,8 @@ export async function deleteProject(userId: string, projectId: string) {
       id: projectId
     },
     data: {
-      deletedAt: new Date()
+      deletedAt: new Date(),
+      deletedById: userId
     }
   });
 
@@ -287,6 +374,192 @@ export async function deleteProject(userId: string, projectId: string) {
     type: "project.changed",
     projectId,
     teamId: project.teamId
+  });
+
+  return { ok: true };
+}
+
+export async function restoreDeletedProject(userId: string, teamId: string, projectId: string) {
+  await requireTeamAdmin(userId, teamId);
+
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      teamId,
+      deletedAt: {
+        not: null
+      }
+    }
+  });
+
+  if (!project) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Project not found in trash", 404);
+  }
+
+  await assertProjectNameUnique(teamId, project.name, projectId);
+
+  const restoredProject = await prisma.project.update({
+    where: {
+      id: projectId
+    },
+    data: {
+      deletedAt: null,
+      deletedById: null
+    }
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId,
+    projectId,
+    action: "project.restored",
+    targetType: "project",
+    targetId: projectId,
+    metadata: {
+      name: project.name
+    }
+  });
+
+  await publishTeamEvent(teamId, {
+    type: "project.changed",
+    projectId,
+    teamId
+  });
+
+  return toProjectSummary(restoredProject);
+}
+
+export async function purgeDeletedProject(userId: string, teamId: string, projectId: string) {
+  await requireTeamAdmin(userId, teamId);
+
+  const project = await prisma.project.findFirst({
+    where: {
+      id: projectId,
+      teamId,
+      deletedAt: {
+        not: null
+      }
+    }
+  });
+
+  if (!project) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Project not found in trash", 404);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.notificationDelivery.deleteMany({
+      where: {
+        notification: {
+          projectId
+        }
+      }
+    });
+    await tx.notification.deleteMany({
+      where: {
+        projectId
+      }
+    });
+    await tx.taskDependency.deleteMany({
+      where: {
+        OR: [
+          {
+            dependentTask: {
+              projectId
+            }
+          },
+          {
+            prerequisite: {
+              projectId
+            }
+          }
+        ]
+      }
+    });
+    await tx.taskTag.deleteMany({
+      where: {
+        task: {
+          projectId
+        }
+      }
+    });
+    await tx.comment.deleteMany({
+      where: {
+        task: {
+          projectId
+        }
+      }
+    });
+    await tx.taskAssignee.deleteMany({
+      where: {
+        task: {
+          projectId
+        }
+      }
+    });
+    await tx.task.updateMany({
+      where: {
+        projectId
+      },
+      data: {
+        parentId: null
+      }
+    });
+    await tx.task.deleteMany({
+      where: {
+        projectId
+      }
+    });
+    await tx.tag.deleteMany({
+      where: {
+        projectId
+      }
+    });
+    await tx.taskList.deleteMany({
+      where: {
+        projectId
+      }
+    });
+    await tx.projectMember.deleteMany({
+      where: {
+        projectId
+      }
+    });
+    await tx.invitation.deleteMany({
+      where: {
+        projectId
+      }
+    });
+    await tx.activityLog.updateMany({
+      where: {
+        projectId
+      },
+      data: {
+        projectId: null
+      }
+    });
+    await tx.project.delete({
+      where: {
+        id: projectId
+      }
+    });
+  });
+
+  await createActivityLog({
+    actorId: userId,
+    teamId,
+    projectId: null,
+    action: "project.purged",
+    targetType: "project",
+    targetId: projectId,
+    metadata: {
+      name: project.name
+    }
+  });
+
+  await publishTeamEvent(teamId, {
+    type: "project.changed",
+    projectId,
+    teamId
   });
 
   return { ok: true };

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../../components/shared/MutationError";
+import { ResourceState } from "../../components/shared/ResourceState";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
@@ -14,6 +15,7 @@ type TaskDetailPanelProps = {
   projectId: string;
   taskId: string;
   readOnly?: boolean;
+  readOnlyReason?: string;
   closeOnSave?: boolean;
   restoreWindowScrollOnClose?: boolean;
   onOpenTask?: (taskId: string) => void;
@@ -38,6 +40,7 @@ export function TaskDetailPanel({
   projectId,
   taskId,
   readOnly = false,
+  readOnlyReason,
   closeOnSave = true,
   restoreWindowScrollOnClose = true,
   onOpenTask,
@@ -102,6 +105,13 @@ export function TaskDetailPanel({
     setSubTaskDueDate("");
     setSubTaskDateError("");
   }, [activeTaskId]);
+
+  useEffect(() => {
+    if (readOnly) {
+      setIsTaskAssigneeOpen(false);
+      setIsSubTaskAssigneeOpen(false);
+    }
+  }, [readOnly]);
 
   useEffect(() => {
     if (!isTaskAssigneeOpen && !isSubTaskAssigneeOpen) {
@@ -542,8 +552,14 @@ export function TaskDetailPanel({
         </header>
 
         {taskQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
+        {taskQuery.error ? <ResourceState error={taskQuery.error} /> : null}
         {task ? (
           <div className="task-detail-body">
+            {readOnly && readOnlyReason ? (
+              <section className="notice-panel task-readonly-notice">
+                {readOnlyReason}
+              </section>
+            ) : null}
             <section className="detail-section">
               <h3>基础信息</h3>
               <MutationError error={updateTaskMutation.error ?? moveTaskMutation.error} />

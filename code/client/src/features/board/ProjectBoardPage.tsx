@@ -3,6 +3,7 @@ import { MoreHorizontal, Plus } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
+import { ResourceState } from "../../components/shared/ResourceState";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
@@ -498,6 +499,14 @@ export function ProjectBoardPage() {
 
   function handleCancelEditList() {
     setEditingListId(null);
+  }
+
+  if (projectQuery.error) {
+    return (
+      <div className="page">
+        <ResourceState error={projectQuery.error} />
+      </div>
+    );
   }
 
   return (

@@ -9,9 +9,13 @@ import {
   createProject,
   deleteProject,
   getProject,
+  listTeamProjectTrash,
   listTeamProjects,
+  purgeDeletedProject,
   listProjectMembers,
   removeProjectMember,
+  restoreDeletedProject,
+  unarchiveProject,
   updateProject,
   updateProjectMemberRole
 } from "./project.service.js";
@@ -21,6 +25,7 @@ import {
   projectMemberParamsSchema,
   projectIdParamsSchema,
   teamProjectsParamsSchema,
+  teamProjectTrashParamsSchema,
   updateProjectMemberRoleSchema,
   updateProjectSchema
 } from "./project.schema.js";
@@ -34,6 +39,41 @@ projectRoutes.get(
   validate("params", teamProjectsParamsSchema),
   asyncHandler(async (req, res) => {
     const data = await listTeamProjects(getCurrentUserId(req), req.params.teamId);
+    return sendData(req, res, data);
+  })
+);
+
+projectRoutes.get(
+  "/teams/:teamId/project-trash",
+  validate("params", teamProjectsParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await listTeamProjectTrash(getCurrentUserId(req), req.params.teamId);
+    return sendData(req, res, data);
+  })
+);
+
+projectRoutes.patch(
+  "/teams/:teamId/project-trash/:projectId/restore",
+  validate("params", teamProjectTrashParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await restoreDeletedProject(
+      getCurrentUserId(req),
+      req.params.teamId,
+      req.params.projectId
+    );
+    return sendData(req, res, data);
+  })
+);
+
+projectRoutes.delete(
+  "/teams/:teamId/project-trash/:projectId",
+  validate("params", teamProjectTrashParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await purgeDeletedProject(
+      getCurrentUserId(req),
+      req.params.teamId,
+      req.params.projectId
+    );
     return sendData(req, res, data);
   })
 );
@@ -100,6 +140,15 @@ projectRoutes.patch(
   validate("params", projectIdParamsSchema),
   asyncHandler(async (req, res) => {
     const data = await archiveProject(getCurrentUserId(req), req.params.projectId);
+    return sendData(req, res, data);
+  })
+);
+
+projectRoutes.patch(
+  "/projects/:projectId/unarchive",
+  validate("params", projectIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await unarchiveProject(getCurrentUserId(req), req.params.projectId);
     return sendData(req, res, data);
   })
 );

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams, type Location } from "react-router-dom";
+import { ResourceState } from "../../components/shared/ResourceState";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
@@ -55,12 +56,18 @@ function useTaskRouteData() {
     teamMembersQuery.data
   );
   const isReadOnly = isArchived || !canEditProject;
+  const readOnlyReason = isArchived
+    ? "这个项目已归档，不能修改任务、子任务、标签或评论。"
+    : !canEditProject
+    ? "你当前是只读成员，可以查看任务但不能修改。"
+    : undefined;
 
   return {
     task,
     taskQuery,
     isArchived,
     isReadOnly,
+    readOnlyReason,
     canEditProject
   };
 }
@@ -69,16 +76,36 @@ export function TaskModalRoute() {
   const navigate = useNavigate();
   const location = useLocation();
   const state = location.state as TaskRouteState | null;
-  const { task, isReadOnly } = useTaskRouteData();
+  const { task, taskQuery, isReadOnly, readOnlyReason } = useTaskRouteData();
   const closePath = state?.backgroundLocation
     ? locationToPath(state.backgroundLocation)
     : getReturnTo(location) ?? "/dashboard";
+
+  if (taskQuery.error) {
+    return (
+      <div className="modal-backdrop">
+        <section className="task-detail-modal" aria-label="任务详情">
+          <header className="task-detail-header">
+            <div>
+              <span className="eyebrow">任务详情</span>
+              <h2>任务不可用</h2>
+            </div>
+            <button className="text-button" type="button" onClick={() => navigate(closePath, { replace: true })}>
+              关闭
+            </button>
+          </header>
+          <ResourceState error={taskQuery.error} backTo={closePath} backLabel="返回上一页" />
+        </section>
+      </div>
+    );
+  }
 
   return task ? (
     <TaskDetailPanel
       projectId={task.projectId}
       taskId={task.id}
       readOnly={isReadOnly}
+      readOnlyReason={readOnlyReason}
       closeOnSave={false}
       restoreWindowScrollOnClose={false}
       onOpenTask={(nextTaskId) =>
@@ -95,7 +122,8 @@ export function TaskModalRoute() {
 export function TaskPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { task, taskQuery, isArchived, isReadOnly, canEditProject } = useTaskRouteData();
+  const { task, taskQuery, isArchived, isReadOnly, readOnlyReason, canEditProject } =
+    useTaskRouteData();
   const returnTo = getReturnTo(location);
   const fallbackPath = "/dashboard";
   const closePath = returnTo ?? fallbackPath;
@@ -123,11 +151,13 @@ export function TaskPage() {
         </section>
       ) : null}
       {taskQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
+      {taskQuery.error ? <ResourceState error={taskQuery.error} backTo={closePath} backLabel={returnLabel} /> : null}
       {task ? (
         <TaskDetailPanel
           projectId={task.projectId}
           taskId={task.id}
           readOnly={isReadOnly}
+          readOnlyReason={readOnlyReason}
           closeOnSave={false}
           restoreWindowScrollOnClose={false}
           onOpenTask={(nextTaskId) => navigate(`/tasks/${nextTaskId}`, { replace: true })}

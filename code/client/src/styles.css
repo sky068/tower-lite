@@ -27,6 +27,17 @@ select {
   font: inherit;
 }
 
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+}
+
+button:disabled {
+  opacity: 0.55;
+}
+
 input[type="date"]:not(:disabled) {
   cursor: pointer;
 }
@@ -549,6 +560,29 @@ input[type="date"]:not(:disabled) {
   padding: 10px 12px;
 }
 
+.resource-state {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  max-width: 520px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 20px;
+}
+
+.resource-state h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 20px;
+}
+
+.resource-state p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.6;
+}
+
 .board {
   display: grid;
   grid-auto-columns: minmax(280px, 320px);
@@ -894,7 +928,7 @@ input[type="date"]:not(:disabled) {
 
 .compact-form {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
 }
 
@@ -928,6 +962,17 @@ input[type="date"]:not(:disabled) {
   background: #2563eb;
   color: #ffffff;
   padding: 0 14px;
+}
+
+.compact-form .secondary-inline-button {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+
+.compact-form .secondary-inline-button:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
 }
 
 .subtask-create-form .secondary-inline-button {
@@ -1126,6 +1171,11 @@ input[type="date"]:not(:disabled) {
 .list-row.unread {
   border-color: #bfdbfe;
   background: #eff6ff;
+}
+
+.trash-list {
+  display: grid;
+  gap: 8px;
 }
 
 .trash-row {
@@ -1412,6 +1462,10 @@ select[multiple] {
 
 .task-assignee-menu {
   top: calc(100% + 4px);
+}
+
+.task-readonly-notice {
+  margin: 0;
 }
 
 .compact-assignee-field {
@@ -2027,6 +2081,23 @@ select[multiple] {
 .segmented-actions button:disabled {
   background: #eef2f7;
   color: #94a3b8;
+}
+
+.segmented-actions .danger-inline {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.segmented-actions .danger-inline:hover:not(:disabled) {
+  border-color: #b91c1c;
+  background: #b91c1c;
+}
+
+.segmented-actions .danger-inline:disabled {
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .tag-list {

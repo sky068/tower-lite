@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { MutationError } from "../../components/shared/MutationError";
+import { ResourceState } from "../../components/shared/ResourceState";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { activityApi, invitationApi, projectApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
@@ -78,7 +79,20 @@ export function ProjectSettingsPage() {
 
   const archiveProjectMutation = useMutation({
     mutationFn: () => projectApi.archive(projectId!),
-    onSuccess: () => navigate("/dashboard")
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
+    }
+  });
+
+  const unarchiveProjectMutation = useMutation({
+    mutationFn: () => projectApi.unarchive(projectId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
+    }
   });
 
   const deleteProjectMutation = useMutation({
@@ -143,6 +157,14 @@ export function ProjectSettingsPage() {
       setDescription(projectQuery.data.description ?? "");
     }
   }, [projectQuery.data]);
+
+  if (projectQuery.error) {
+    return (
+      <div className="page">
+        <ResourceState error={projectQuery.error} />
+      </div>
+    );
+  }
 
   function handleUpdateProject(event: FormEvent) {
     event.preventDefault();
@@ -377,18 +399,24 @@ export function ProjectSettingsPage() {
       ) : null}
       <section className="panel danger-zone">
         <h2>危险操作</h2>
-        <MutationError error={archiveProjectMutation.error ?? deleteProjectMutation.error} />
+        <MutationError
+          error={archiveProjectMutation.error ?? unarchiveProjectMutation.error ?? deleteProjectMutation.error}
+        />
         <div className="segmented-actions">
           <button
             type="button"
-            disabled={!canManageProject || archiveProjectMutation.isPending || isArchived}
+            disabled={!canManageProject || archiveProjectMutation.isPending || unarchiveProjectMutation.isPending}
             onClick={() => {
-              if (window.confirm("确认归档这个项目？")) {
+              if (isArchived) {
+                if (window.confirm("确认取消归档这个项目？")) {
+                  unarchiveProjectMutation.mutate();
+                }
+              } else if (window.confirm("确认归档这个项目？")) {
                 archiveProjectMutation.mutate();
               }
             }}
           >
-            归档项目
+            {isArchived ? "取消归档" : "归档项目"}
           </button>
           <button
             type="button"

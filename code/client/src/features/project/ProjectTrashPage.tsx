@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
+import { ResourceState } from "../../components/shared/ResourceState";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
 import { getProjectPermissions } from "../../lib/permissions";
@@ -83,6 +84,14 @@ export function ProjectTrashPage() {
     restoreTaskMutation.error ??
     purgeTaskMutation.error;
 
+  if (projectQuery.error) {
+    return (
+      <div className="page">
+        <ResourceState error={projectQuery.error} />
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <div className="page-heading">
@@ -141,10 +150,16 @@ export function ProjectTrashPage() {
                   恢复
                 </button>
                 <button
+                  className="danger-inline"
                   type="button"
                   disabled={isArchived || purgeListMutation.isPending}
                   onClick={() => {
-                    if (window.confirm(`确认彻底删除清单“${list.name}”？清单内任务也会被永久删除。`)) {
+                    const firstConfirmed = window.confirm(
+                      `确认彻底删除清单“${list.name}”？清单内任务也会被永久删除。`
+                    );
+                    const secondConfirmed =
+                      firstConfirmed && window.confirm("这是不可恢复操作，请再次确认是否继续彻底删除。");
+                    if (secondConfirmed) {
                       purgeListMutation.mutate(list.id);
                     }
                   }}
@@ -188,10 +203,14 @@ export function ProjectTrashPage() {
                   恢复
                 </button>
                 <button
+                  className="danger-inline"
                   type="button"
                   disabled={isArchived || purgeTaskMutation.isPending}
                   onClick={() => {
-                    if (window.confirm(`确认彻底删除任务“${task.title}”？该操作不可恢复。`)) {
+                    const firstConfirmed = window.confirm(`确认彻底删除任务“${task.title}”？该操作不可恢复。`);
+                    const secondConfirmed =
+                      firstConfirmed && window.confirm("这是不可恢复操作，请再次确认是否继续彻底删除。");
+                    if (secondConfirmed) {
                       purgeTaskMutation.mutate(task.id);
                     }
                   }}

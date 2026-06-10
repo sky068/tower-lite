@@ -1,4 +1,4 @@
-import { expect, request, test, type APIRequestContext, type Browser, type Page } from "@playwright/test";
+import { expect, request, test, type APIRequestContext, type Browser, type Dialog, type Page } from "@playwright/test";
 
 type ApiEnvelope<T> = {
   data: T;
@@ -22,6 +22,7 @@ type TeamResponse = {
 type ProjectResponse = {
   id: string;
   name: string;
+  status: "ACTIVE" | "ARCHIVED";
 };
 
 type TaskResponse = {
@@ -40,10 +41,11 @@ type UserFixture = {
   id: string;
   email: string;
   name: string;
+  password: string;
   token: string;
 };
 
-const password = "Password123!";
+const defaultPassword = "Password123!";
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const emailDomain = `${runId}.e2e.test`;
 const apiPort = Number(process.env.PLAYWRIGHT_API_PORT ?? 4000);
@@ -90,7 +92,7 @@ async function registerUser(name: string): Promise<UserFixture> {
     data: {
       email,
       name,
-      password
+      password: defaultPassword
     }
   });
 
@@ -98,6 +100,7 @@ async function registerUser(name: string): Promise<UserFixture> {
     id: response.data.user.id,
     email,
     name,
+    password: defaultPassword,
     token: response.data.accessToken
   };
 }
@@ -105,7 +108,7 @@ async function registerUser(name: string): Promise<UserFixture> {
 async function login(page: Page, user: UserFixture) {
   await page.goto("/login");
   await page.getByLabel("邮箱").fill(user.email);
-  await page.getByLabel("密码").fill(password);
+  await page.getByLabel("密码").fill(user.password);
   await page.getByRole("button", { name: "登录" }).click();
   await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
 }
@@ -235,6 +238,69 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const deletedWithListTaskTitle = `E2E Deleted With List ${runId}`;
 
   await login(page, owner);
+  const purgeProject = (await apiRequest<ProjectResponse>("POST", `/teams/${teamId}/projects`, {
+    token: owner.token,
+    expectedStatus: 201,
+    data: {
+      name: `E2E Purge Project ${runId}`
+    }
+  })).data;
+  await apiRequest("DELETE", `/projects/${purgeProject.id}`, {
+    token: owner.token
+  });
+  const restorableProject = (await apiRequest<ProjectResponse>("POST", `/teams/${teamId}/projects`, {
+    token: owner.token,
+    expectedStatus: 201,
+    data: {
+      name: `E2E Restorable Project ${runId}`
+    }
+  })).data;
+  await apiRequest("DELETE", `/projects/${restorableProject.id}`, {
+    token: owner.token
+  });
+  await expect(page.getByRole("button", { name: "项目回收站" })).toBeVisible();
+  await page.getByRole("button", { name: "项目回收站" }).click();
+  const teamProjectTrash = page.getByRole("region", { name: "团队项目回收站" });
+  await expect(teamProjectTrash).toBeVisible();
+  await expect(teamProjectTrash.getByText(restorableProject.name)).toBeVisible();
+  await expect(teamProjectTrash.getByText(purgeProject.name)).toBeVisible();
+  await expect(
+    teamProjectTrash.locator(".trash-row").filter({ hasText: restorableProject.name }).getByText(/删除人：E2E Owner/)
+  ).toBeVisible();
+  let purgeProjectDialogStep = 0;
+  const handlePurgeProjectDialog = async (dialog: Dialog) => {
+    if (!dialog.message().includes(purgeProject.name) && !dialog.message().includes("不可恢复操作")) {
+      return;
+    }
+    purgeProjectDialogStep += 1;
+    if (purgeProjectDialogStep === 1) {
+      expect(dialog.message()).toContain(`确认彻底删除项目「${purgeProject.name}」`);
+    } else {
+      expect(dialog.message()).toContain("不可恢复操作");
+    }
+    await dialog.accept();
+  };
+  page.on("dialog", handlePurgeProjectDialog);
+  await teamProjectTrash
+    .locator(".trash-row")
+    .filter({ hasText: purgeProject.name })
+    .getByRole("button", { name: "彻底删除" })
+    .click();
+  await expect(teamProjectTrash.getByText(purgeProject.name)).toHaveCount(0);
+  expect(purgeProjectDialogStep).toBe(2);
+  page.off("dialog", handlePurgeProjectDialog);
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain(`确认恢复项目「${restorableProject.name}」`);
+    await dialog.accept();
+  });
+  await teamProjectTrash
+    .locator(".trash-row")
+    .filter({ hasText: restorableProject.name })
+    .getByRole("button", { name: "恢复" })
+    .click();
+  await expect(teamProjectTrash.getByText(restorableProject.name)).toHaveCount(0);
+  await teamProjectTrash.getByRole("button", { name: "关闭" }).click();
+  await expect(page.getByRole("link", { name: new RegExp(restorableProject.name) })).toBeVisible();
   await expect(page.getByText(`E2E Project ${runId}`)).toBeVisible();
   await page.goto(`/projects/${projectId}/board`);
   await expect(page.getByRole("heading", { name: `E2E Project ${runId}` })).toBeVisible();
@@ -252,6 +318,10 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
     "href",
     `/projects/${projectId}/trash`
   );
+  await page.goto("/projects/00000000-0000-0000-0000-000000000000/board");
+  await expect(page.getByRole("heading", { name: "内容不存在" })).toBeVisible();
+  await page.goto(`/projects/${projectId}/board`);
+  await expect(page.getByRole("heading", { name: `E2E Project ${runId}` })).toBeVisible();
   await projectMenu.getByRole("link", { name: "设置" }).click();
   await expect(page.getByRole("heading", { name: "项目设置" })).toBeVisible();
   await page.getByRole("button", { name: `← 返回 E2E Project ${runId}` }).click();
@@ -542,21 +612,40 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const profileResponse = await profileResponsePromise;
   expect(profileResponse.status(), await profileResponse.text()).toBe(200);
   await expect(accountSettings.getByText("资料已保存。")).toBeVisible();
-  await accountSettings.getByLabel("当前密码").fill(password);
+  await accountSettings.getByLabel("当前密码").fill(owner.password);
   await accountSettings.getByLabel("新密码", { exact: true }).fill("Password456!");
   await accountSettings.getByLabel("确认新密码").fill("Password456!");
   await accountSettings.getByRole("button", { name: "更新密码" }).click();
   await expect(accountSettings.getByText("密码已更新。")).toBeVisible();
+  owner.password = "Password456!";
   await accountSettings.getByRole("button", { name: "关闭账号设置" }).click();
   await expect(accountSettings).toBeHidden();
 
   await apiRequest<ProjectResponse>("PATCH", `/projects/${projectId}/archive`, {
     token: owner.token
   });
+  await page.goto(`/tasks/${taskId}`);
+  await expect(page.getByText("这个项目已归档，不能修改任务、子任务、标签或评论。")).toBeVisible();
+  await expect(page.getByRole("button", { name: "创建子任务" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "删除任务" })).toBeDisabled();
+  await page.getByRole("button", { name: "关闭" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
 
   await logout(page);
   await login(page, viewer);
   await page.goto(`/projects/${projectId}/board`);
   await expect(page.getByText("这个项目已归档，当前看板为只读状态。")).toBeVisible();
   await expect(page.getByRole("button", { name: "新建任务", exact: true })).toHaveCount(0);
+  await logout(page);
+  await login(page, owner);
+  await page.goto(`/projects/${projectId}/settings`);
+  await expect(page.getByRole("heading", { name: "项目设置" })).toBeVisible();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("确认取消归档这个项目");
+    await dialog.accept();
+  });
+  await page.getByRole("button", { name: "取消归档" }).click();
+  await expect(page.getByRole("button", { name: "归档项目" })).toBeVisible();
+  await page.goto(`/projects/${projectId}/board`);
+  await expect(page.getByText("这个项目已归档，当前看板为只读状态。")).toHaveCount(0);
 });

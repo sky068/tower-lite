@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
+import { ResourceState } from "../../components/shared/ResourceState";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
@@ -416,6 +417,14 @@ export function ProjectTaskListPage() {
       startDate: newTaskStartDate || null,
       dueDate: newTaskDueDate || null
     });
+  }
+
+  if (projectQuery.error) {
+    return (
+      <div className="page">
+        <ResourceState error={projectQuery.error} />
+      </div>
+    );
   }
 
   return (

@@ -81,6 +81,20 @@ type ProjectTrashResponse = {
   }>;
 };
 
+type TeamProjectTrashResponse = {
+  projects: Array<{
+    id: string;
+    name: string;
+    status: string;
+    deletedAt: string | null;
+    deletedBy: {
+      id: string;
+      name: string;
+      email: string;
+    } | null;
+  }>;
+};
+
 type TaskResponse = {
   id: string;
   title: string;
@@ -619,6 +633,105 @@ describe("V0 HTTP integration", () => {
       body: {
         name: `Integration Project ${runId}`
       }
+    });
+    const restorableProject = (await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: `Restorable Project ${runId}`
+      }
+    })).data;
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${restorableProject.id}`, {
+      token: owner.token
+    });
+    let teamProjectTrash = (await request<TeamProjectTrashResponse>(
+      "GET",
+      `/api/v1/teams/${team.id}/project-trash`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(
+      teamProjectTrash.projects.some(
+        (trashProject) =>
+          trashProject.id === restorableProject.id && trashProject.deletedBy?.id === owner.id
+      )
+    );
+    const restoredProject = (await request<ProjectResponse>(
+      "PATCH",
+      `/api/v1/teams/${team.id}/project-trash/${restorableProject.id}/restore`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.equal(restoredProject.id, restorableProject.id);
+    const projectsAfterRestore = (await request<ProjectResponse[]>("GET", `/api/v1/teams/${team.id}/projects`, {
+      token: owner.token
+    })).data;
+    assert.ok(projectsAfterRestore.some((item) => item.id === restorableProject.id));
+
+    const purgeProject = (await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: `Purge Project ${runId}`
+      }
+    })).data;
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${purgeProject.id}`, {
+      token: owner.token
+    });
+    await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${team.id}/project-trash/${purgeProject.id}`, {
+      token: owner.token
+    });
+    await request<ProjectResponse>("GET", `/api/v1/projects/${purgeProject.id}`, {
+      token: owner.token,
+      expectedStatus: 404
+    });
+    const trashAfterPurge = (await request<TeamProjectTrashResponse>(
+      "GET",
+      `/api/v1/teams/${team.id}/project-trash`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(!trashAfterPurge.projects.some((trashProject) => trashProject.id === purgeProject.id));
+
+    const conflictProject = (await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: `Trash Conflict Project ${runId}`
+      }
+    })).data;
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${conflictProject.id}`, {
+      token: owner.token
+    });
+    await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: `Trash Conflict Project ${runId}`
+      }
+    });
+    await request<ProjectResponse>(
+      "PATCH",
+      `/api/v1/teams/${team.id}/project-trash/${conflictProject.id}/restore`,
+      {
+        token: owner.token,
+        expectedStatus: 422
+      }
+    );
+    teamProjectTrash = (await request<TeamProjectTrashResponse>(
+      "GET",
+      `/api/v1/teams/${team.id}/project-trash`,
+      {
+        token: directAddedMember.token
+      }
+    )).data;
+    assert.ok(teamProjectTrash.projects.some((trashProject) => trashProject.id === conflictProject.id));
+    await request<TeamProjectTrashResponse>("GET", `/api/v1/teams/${team.id}/project-trash`, {
+      token: editor.token,
+      expectedStatus: 403
     });
 
     const teamInvitation = (await request<InvitationResponse>(
@@ -1263,6 +1376,9 @@ describe("V0 HTTP integration", () => {
     assert.ok(teamActivity.some((log) => log.action === "team_member.added"));
     assert.ok(teamActivity.some((log) => log.action === "team_invitation.accepted"));
     assert.ok(teamActivity.some((log) => log.action === "project.created"));
+    assert.ok(teamActivity.some((log) => log.action === "project.deleted"));
+    assert.ok(teamActivity.some((log) => log.action === "project.restored"));
+    assert.ok(teamActivity.some((log) => log.action === "project.purged"));
     assert.ok(!teamActivity.some((log) => log.action.startsWith("task.")));
     assert.ok(!teamActivity.some((log) => log.action.startsWith("task_list.")));
     assert.ok(!teamActivity.some((log) => log.action.startsWith("comment.")));
@@ -1319,5 +1435,39 @@ describe("V0 HTTP integration", () => {
         color: "#2563eb"
       }
     });
+
+    const unarchivedProject = (await request<ProjectResponse>("PATCH", `/api/v1/projects/${project.id}/unarchive`, {
+      token: owner.token
+    })).data;
+    assert.equal(unarchivedProject.status, "ACTIVE");
+
+    await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        taskListId: task.taskListId,
+        title: "Unarchived projects accept writes"
+      }
+    });
+
+    const activityAfterUnarchive = (await request<ActivityLogResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/activity`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(activityAfterUnarchive.some((log) => log.action === "project.archived"));
+    assert.ok(activityAfterUnarchive.some((log) => log.action === "project.unarchived"));
+
+    const teamActivityAfterProjectLifecycle = (await request<ActivityLogResponse[]>(
+      "GET",
+      `/api/v1/teams/${team.id}/activity`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(teamActivityAfterProjectLifecycle.some((log) => log.action === "project.archived"));
+    assert.ok(teamActivityAfterProjectLifecycle.some((log) => log.action === "project.unarchived"));
   });
 });

@@ -27,6 +27,10 @@ function formatCompletedByName(completedBy: MyTask["completedBy"]) {
   return completedBy.isRemoved ? `${completedBy.name}(已移除)` : completedBy.name;
 }
 
+function formatDeletedBy(user: { name: string; email: string } | null) {
+  return user ? `${user.name} / ${user.email}` : "未知成员";
+}
+
 function MyTaskLink({
   task,
   depth,
@@ -82,6 +86,7 @@ export function DashboardPage() {
   const [taskSearch, setTaskSearch] = useState("");
   const [taskProjectFilter, setTaskProjectFilter] = useState("ALL");
   const [taskStatusFilter, setTaskStatusFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
+  const [isProjectTrashOpen, setIsProjectTrashOpen] = useState(false);
 
   const teamsQuery = useQuery({
     queryKey: ["teams"],
@@ -108,6 +113,11 @@ export function DashboardPage() {
   );
   const canCreateProject = activeTeam?.role === "OWNER";
   const canManageActiveTeamProjects = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
+  const projectTrashQuery = useQuery({
+    queryKey: ["team-project-trash", activeTeamId],
+    queryFn: () => projectApi.trash(activeTeamId!),
+    enabled: Boolean(activeTeamId && canManageActiveTeamProjects && isProjectTrashOpen)
+  });
   const myTaskProjects = useMemo(() => {
     const projects = new Map<string, string>();
 
@@ -215,6 +225,21 @@ export function DashboardPage() {
     }
   });
 
+  const restoreProjectMutation = useMutation({
+    mutationFn: (projectId: string) => projectApi.restoreFromTrash(activeTeamId!, projectId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["team-project-trash", activeTeamId] });
+      void queryClient.invalidateQueries({ queryKey: ["projects", activeTeamId] });
+    }
+  });
+
+  const purgeProjectMutation = useMutation({
+    mutationFn: (projectId: string) => projectApi.purgeFromTrash(activeTeamId!, projectId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["team-project-trash", activeTeamId] });
+    }
+  });
+
   function handleCreateTeam(event: FormEvent) {
     event.preventDefault();
     createTeamMutation.mutate({ name: teamName });
@@ -247,6 +272,15 @@ export function DashboardPage() {
             <button type="submit" disabled={createTeamMutation.isPending}>
               创建
             </button>
+            {canManageActiveTeamProjects ? (
+              <button
+                className="secondary-inline-button"
+                type="button"
+                onClick={() => setIsProjectTrashOpen(true)}
+              >
+                项目回收站
+              </button>
+            ) : null}
           </form>
           <MutationError error={createTeamMutation.error} />
           <div className="list dashboard-compact-scroll-list">
@@ -383,6 +417,73 @@ export function DashboardPage() {
           </div>
         </section>
       </div>
+
+      {isProjectTrashOpen && canManageActiveTeamProjects ? (
+        <div className="modal-backdrop">
+          <section className="modal" aria-label="团队项目回收站">
+            <header className="modal-header">
+              <div>
+                <h2>项目回收站</h2>
+                <p>{activeTeam?.name ?? "当前团队"}</p>
+              </div>
+              <button className="text-button" type="button" onClick={() => setIsProjectTrashOpen(false)}>
+                关闭
+              </button>
+            </header>
+            <MutationError
+              error={projectTrashQuery.error ?? restoreProjectMutation.error ?? purgeProjectMutation.error}
+            />
+            <div className="trash-list">
+              {projectTrashQuery.isLoading ? <span className="muted">项目回收站加载中...</span> : null}
+              {(projectTrashQuery.data?.projects ?? []).map((project) => (
+                <div className="trash-row" key={project.id}>
+                  <div className="trash-row-main">
+                    <strong>{project.name}</strong>
+                    <span>
+                      {project.status === "ARCHIVED" ? "已归档" : "未归档"} · 删除人：
+                      {formatDeletedBy(project.deletedBy)} · 删除于{" "}
+                      {project.deletedAt ? formatCalendarDate(project.deletedAt) : "未知时间"}
+                    </span>
+                  </div>
+                  <div className="segmented-actions compact-actions">
+                    <button
+                      type="button"
+                      disabled={restoreProjectMutation.isPending}
+                      onClick={() => {
+                        if (window.confirm(`确认恢复项目「${project.name}」？`)) {
+                          restoreProjectMutation.mutate(project.id);
+                        }
+                      }}
+                    >
+                      恢复
+                    </button>
+                    <button
+                      className="danger-inline"
+                      type="button"
+                      disabled={purgeProjectMutation.isPending}
+                      onClick={() => {
+                        const firstConfirmed = window.confirm(
+                          `确认彻底删除项目「${project.name}」？项目内任务、清单、标签和评论都会被永久删除。`
+                        );
+                        const secondConfirmed =
+                          firstConfirmed && window.confirm("这是不可恢复操作，请再次确认是否继续彻底删除。");
+                        if (secondConfirmed) {
+                          purgeProjectMutation.mutate(project.id);
+                        }
+                      }}
+                    >
+                      彻底删除
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {!projectTrashQuery.isLoading && (projectTrashQuery.data?.projects ?? []).length === 0 ? (
+                <span className="muted">暂无已删除项目</span>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

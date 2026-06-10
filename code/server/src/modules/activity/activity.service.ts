@@ -11,7 +11,11 @@ const teamActivityActions = [
   "team_invitation.revoked",
   "team_invitation.accepted",
   "project.created",
-  "project.deleted"
+  "project.archived",
+  "project.unarchived",
+  "project.deleted",
+  "project.restored",
+  "project.purged"
 ];
 
 export type CreateActivityInput = {

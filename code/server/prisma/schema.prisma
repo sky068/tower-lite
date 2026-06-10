@@ -23,6 +23,7 @@ model User {
   teamMembers         TeamMember[]
   projectMembers      ProjectMember[]
   createdProjects     Project[]      @relation("ProjectCreator")
+  deletedProjects     Project[]      @relation("ProjectDeleter")
   invitationsSent     Invitation[]   @relation("InvitationInviter")
   taskAssignments     TaskAssignee[]
   createdTasks        Task[]         @relation("TaskCreator")
@@ -91,12 +92,14 @@ model Project {
   status      ProjectStatus   @default(ACTIVE)
   teamId      String
   createdById String
+  deletedById String?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   deletedAt   DateTime?
 
   team        Team            @relation(fields: [teamId], references: [id])
   createdBy   User            @relation("ProjectCreator", fields: [createdById], references: [id])
+  deletedBy   User?           @relation("ProjectDeleter", fields: [deletedById], references: [id])
   members     ProjectMember[]
   taskLists   TaskList[]
   tags        Tag[]
