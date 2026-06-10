@@ -28,6 +28,29 @@ type RealtimeEvent =
 
 export type RealtimeStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
+function getRealtimeOrigin() {
+  const apiTarget =
+    (import.meta.env.VITE_API_TARGET as string | undefined) ??
+    (import.meta.env.DEV ? "http://127.0.0.1:4000" : undefined);
+
+  if (!apiTarget) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}`;
+  }
+
+  try {
+    const url = new URL(apiTarget);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}`;
+  }
+}
+
 export function useRealtimeEvents() {
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -42,9 +65,8 @@ export function useRealtimeEvents() {
 
     let isDisposed = false;
     setStatus("connecting");
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(
-      `${protocol}//${window.location.host}/api/v1/events?token=${encodeURIComponent(accessToken)}`
+      `${getRealtimeOrigin()}/api/v1/events?token=${encodeURIComponent(accessToken)}`
     );
     let reconnectTimer: number | null = null;
 
