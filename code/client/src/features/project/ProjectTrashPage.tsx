@@ -99,6 +99,7 @@ export function ProjectTrashPage() {
         <nav className="project-menu" aria-label="项目菜单">
           <Link to={`/projects/${projectId}/board`}>看板</Link>
           <Link to={`/projects/${projectId}/list`}>列表</Link>
+          <Link to={`/projects/${projectId}/gantt`}>甘特图</Link>
           {projectId && canManageProject ? (
             <Link to={`/projects/${projectId}/settings`} state={{ returnTo: location.pathname }}>
               设置

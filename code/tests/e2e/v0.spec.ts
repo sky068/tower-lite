@@ -236,6 +236,8 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const customListName = `E2E Custom List ${runId}`;
   const deleteListName = `E2E Delete List ${runId}`;
   const deletedWithListTaskTitle = `E2E Deleted With List ${runId}`;
+  const taskStartDate = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+  const taskDueDate = new Date(Date.now() + 4 * 86_400_000).toISOString().slice(0, 10);
 
   await login(page, owner);
   const purgeProject = (await apiRequest<ProjectResponse>("POST", `/teams/${teamId}/projects`, {
@@ -310,6 +312,10 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
     "href",
     `/projects/${projectId}/list`
   );
+  await expect(projectMenu.getByRole("link", { name: "甘特图" })).toHaveAttribute(
+    "href",
+    `/projects/${projectId}/gantt`
+  );
   await expect(projectMenu.getByRole("link", { name: "设置" })).toHaveAttribute(
     "href",
     `/projects/${projectId}/settings`
@@ -338,6 +344,8 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await modal.getByLabel("标题").fill(taskTitle);
   await modal.getByLabel("描述").fill("Created by Playwright through the real frontend.");
   await modal.getByLabel("优先级").selectOption("HIGH");
+  await modal.getByLabel("开始日期").fill(taskStartDate);
+  await modal.getByLabel("截止日期").fill(taskDueDate);
   await modal.getByLabel("E2E Editor").check();
   await modal.getByLabel("E2E Owner").uncheck();
   await modal.getByRole("button", { name: "创建" }).click();
@@ -435,6 +443,14 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(detail).toBeVisible();
   await detail.getByRole("button", { name: "关闭" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/list$`));
+  await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图" }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/gantt$`));
+  await expect(page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图" })).toHaveAttribute(
+    "aria-current",
+    "page"
+  );
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(taskTitle) }).first()).toBeVisible();
   await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "看板" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
 

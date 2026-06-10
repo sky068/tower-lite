@@ -5,6 +5,7 @@ import { LoginPage } from "../features/auth/LoginPage";
 import { RegisterPage } from "../features/auth/RegisterPage";
 import { FeishuCallbackPage } from "../features/auth/FeishuCallbackPage";
 import { ProjectBoardPage } from "../features/board/ProjectBoardPage";
+import { ProjectGanttPage } from "../features/board/ProjectGanttPage";
 import { ProjectTaskListPage } from "../features/board/ProjectTaskListPage";
 import { RequireAuth } from "../features/auth/RequireAuth";
 import { TeamSettingsPage } from "../features/team/TeamSettingsPage";
@@ -52,6 +53,10 @@ const routes = [
       {
         path: "/projects/:projectId/list",
         element: <ProjectTaskListPage />
+      },
+      {
+        path: "/projects/:projectId/gantt",
+        element: <ProjectGanttPage />
       },
       {
         path: "/teams/:teamId/settings",

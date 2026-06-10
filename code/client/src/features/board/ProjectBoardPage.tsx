@@ -520,6 +520,9 @@ export function ProjectBoardPage() {
           <Link to={`/projects/${projectId}/list`}>
             列表
           </Link>
+          <Link to={`/projects/${projectId}/gantt`}>
+            甘特图
+          </Link>
           {projectId && projectPermissions.canManageProject ? (
             <Link
               to={`/projects/${projectId}/settings`}
