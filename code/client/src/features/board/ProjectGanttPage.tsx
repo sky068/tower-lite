@@ -48,8 +48,8 @@ type UpdateTaskDatesInput = {
 };
 
 const GANTT_ZOOM_OPTIONS: Array<{ value: GanttZoom; label: string; unitWidth: number }> = [
-  { value: "DAY", label: "天", unitWidth: 46 },
-  { value: "WEEK", label: "周", unitWidth: 72 },
+  { value: "DAY", label: "天", unitWidth: 68 },
+  { value: "WEEK", label: "周", unitWidth: 104 },
   { value: "MONTH", label: "月", unitWidth: 96 },
   { value: "QUARTER", label: "季度", unitWidth: 120 }
 ];
@@ -73,6 +73,10 @@ function formatDateInputValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatShortYear(date: Date) {
+  return String(date.getFullYear()).slice(-2);
 }
 
 function startOfWeek(date: Date) {
@@ -152,20 +156,25 @@ function diffUnits(start: Date, end: Date, zoom: GanttZoom) {
 
 function formatTimelineUnit(date: Date, zoom: GanttZoom) {
   if (zoom === "DAY") {
-    return `${date.getMonth() + 1}/${date.getDate()}`;
+    return `${formatShortYear(date)}/${date.getMonth() + 1}/${date.getDate()}`;
   }
 
   if (zoom === "WEEK") {
     const end = addDays(date, 6);
-    return `${date.getMonth() + 1}/${date.getDate()}-${end.getMonth() + 1}/${end.getDate()}`;
+
+    if (date.getFullYear() === end.getFullYear()) {
+      return `${formatShortYear(date)}/${date.getMonth() + 1}/${date.getDate()}-${end.getMonth() + 1}/${end.getDate()}`;
+    }
+
+    return `${formatShortYear(date)}/${date.getMonth() + 1}/${date.getDate()}-${formatShortYear(end)}/${end.getMonth() + 1}/${end.getDate()}`;
   }
 
   if (zoom === "MONTH") {
-    return `${date.getFullYear()}/${date.getMonth() + 1}`;
+    return `${formatShortYear(date)}/${date.getMonth() + 1}`;
   }
 
   if (zoom === "QUARTER") {
-    return `${date.getFullYear()} Q${Math.floor(date.getMonth() / 3) + 1}`;
+    return `${formatShortYear(date)} Q${Math.floor(date.getMonth() / 3) + 1}`;
   }
 
   return formatCalendarDate(date.toISOString());
@@ -181,6 +190,24 @@ function getTaskEnd(task: Task) {
 
 function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
   return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+}
+
+function GanttAssigneeAvatars({ assignees }: { assignees: Task["assignees"] }) {
+  if (!assignees || assignees.length === 0) {
+    return <span className="muted gantt-unassigned">未分配</span>;
+  }
+
+  const assigneeNames = assignees.map(formatAssigneeName).join("、");
+
+  return (
+    <span className="gantt-assignee-avatars" aria-label={`负责人：${assigneeNames}`}>
+      {assignees.map((assignee) => (
+        <span className="gantt-assignee-avatar" key={assignee.id} title={formatAssigneeName(assignee)}>
+          <UserAvatar user={assignee} size="xs" />
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function formatTaskDateRange(task: Task) {
@@ -537,6 +564,14 @@ export function ProjectGanttPage() {
       nextEnd = addUnit(normalizedEnd, zoom, current.deltaUnits);
     }
 
+    if (nextStart.getTime() > nextEnd.getTime()) {
+      if (current.mode === "START") {
+        nextStart = nextEnd;
+      } else {
+        nextEnd = nextStart;
+      }
+    }
+
     const queryKey = ["project-task-list", projectId];
     const startDate = formatDateInputValue(nextStart);
     const dueDate = formatDateInputValue(nextEnd);
@@ -698,8 +733,13 @@ export function ProjectGanttPage() {
                       style={{ paddingLeft: `${task.depth * 18 + 12}px` }}
                       onClick={() => openTask(task.id)}
                     >
-                      <span>{task.title}</span>
-                      <small>{task.listName}</small>
+                      <span className="gantt-task-title-main">
+                        <span className={`gantt-task-title-text ${task.depth === 0 ? "root" : "child"}`}>
+                          {task.title}
+                        </span>
+                        <small>{task.listName}</small>
+                      </span>
+                      <GanttAssigneeAvatars assignees={task.assignees} />
                     </button>
                     <div className="gantt-track">
                       <button
@@ -746,28 +786,27 @@ export function ProjectGanttPage() {
         {unscheduledTasks.length > 0 ? (
           <section className="gantt-unscheduled">
             <h2>未排期任务</h2>
-            <div className="list">
+            <div className="gantt-unscheduled-table">
+              <div className="gantt-unscheduled-header">
+                <span>任务</span>
+                <span>优先级</span>
+                <span>负责人</span>
+              </div>
               {unscheduledTasks.map((task) => (
                 <button className="gantt-unscheduled-row" key={task.id} type="button" onClick={() => openTask(task.id)}>
-                  <span>
-                    {task.title}
+                  <span
+                    className="gantt-unscheduled-title"
+                    style={{ "--gantt-task-depth": task.depth } as CSSProperties}
+                  >
+                    <span className={`gantt-unscheduled-title-text ${task.depth === 0 ? "root" : "child"}`}>
+                      {task.title}
+                    </span>
                     <small>{task.listName}</small>
                   </span>
                   <span className={`${getPriorityClassName(task.priority)} priority-pill`}>
                     {getPriorityLabel(task.priority)}
                   </span>
-                  <span className="gantt-assignees">
-                    {task.assignees && task.assignees.length > 0 ? (
-                      task.assignees.map((assignee) => (
-                        <span className="assignee-chip" key={assignee.id}>
-                          <UserAvatar user={assignee} size="xs" />
-                          <span>{formatAssigneeName(assignee)}</span>
-                        </span>
-                      ))
-                    ) : (
-                      <span className="muted">未分配</span>
-                    )}
-                  </span>
+                  <GanttAssigneeAvatars assignees={task.assignees} />
                 </button>
               ))}
             </div>
