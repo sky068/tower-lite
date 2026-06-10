@@ -3,13 +3,22 @@ import { getCurrentUserId, requireAuth } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import { asyncHandler } from "../../utils/async-handler.js";
 import { sendData } from "../../utils/api-response.js";
-import { notificationIdParamsSchema, updatePasswordSchema, updateProfileSchema } from "./user.schema.js";
 import {
+  bindFeishuSchema,
+  notificationIdParamsSchema,
+  updateEmailSchema,
+  updatePasswordSchema,
+  updateProfileSchema
+} from "./user.schema.js";
+import {
+  bindFeishuAccount,
   getCurrentUser,
   listMyTasks,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  unbindFeishuAccount,
+  updateEmail,
   updatePassword,
   updateProfile
 } from "./user.service.js";
@@ -36,10 +45,36 @@ userRoutes.patch(
 );
 
 userRoutes.patch(
+  "/users/me/email",
+  validate("body", updateEmailSchema),
+  asyncHandler(async (req, res) => {
+    const data = await updateEmail(getCurrentUserId(req), req.body);
+    return sendData(req, res, data);
+  })
+);
+
+userRoutes.patch(
   "/users/me/password",
   validate("body", updatePasswordSchema),
   asyncHandler(async (req, res) => {
     const data = await updatePassword(getCurrentUserId(req), req.body);
+    return sendData(req, res, data);
+  })
+);
+
+userRoutes.patch(
+  "/users/me/feishu-binding",
+  validate("body", bindFeishuSchema),
+  asyncHandler(async (req, res) => {
+    const data = await bindFeishuAccount(getCurrentUserId(req), req.body);
+    return sendData(req, res, data);
+  })
+);
+
+userRoutes.delete(
+  "/users/me/feishu-binding",
+  asyncHandler(async (req, res) => {
+    const data = await unbindFeishuAccount(getCurrentUserId(req));
     return sendData(req, res, data);
   })
 );

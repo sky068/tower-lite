@@ -1,7 +1,8 @@
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
-import type { UpdatePasswordInput, UpdateProfileInput } from "./user.schema.js";
+import type { BindFeishuInput, UpdateEmailInput, UpdatePasswordInput, UpdateProfileInput } from "./user.schema.js";
 
 function toPublicUser(user: { id: string; email: string; name: string; avatarUrl: string | null }) {
   return {
@@ -9,6 +10,22 @@ function toPublicUser(user: { id: string; email: string; name: string; avatarUrl
     email: user.email,
     name: user.name,
     avatarUrl: user.avatarUrl
+  };
+}
+
+function toCurrentUser(user: {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  feishuOpenId: string | null;
+  feishuUnionId: string | null;
+}) {
+  return {
+    ...toPublicUser(user),
+    feishuBound: Boolean(user.feishuOpenId || user.feishuUnionId),
+    feishuOpenId: user.feishuOpenId,
+    feishuUnionId: user.feishuUnionId
   };
 }
 
@@ -24,10 +41,7 @@ export async function getCurrentUser(userId: string) {
     throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
   }
 
-  return {
-    ...toPublicUser(user),
-    feishuBound: Boolean(user.feishuOpenId || user.feishuUnionId)
-  };
+  return toCurrentUser(user);
 }
 
 export async function updateProfile(userId: string, input: UpdateProfileInput) {
@@ -52,7 +66,45 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
     }
   });
 
-  return toPublicUser(updatedUser);
+  return toCurrentUser(updatedUser);
+}
+
+export async function updateEmail(userId: string, input: UpdateEmailInput) {
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    }
+  });
+
+  if (!user) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  if (user.email === input.email) {
+    return toCurrentUser(user);
+  }
+
+  const existingUser = await prisma.user.findUnique({
+    where: {
+      email: input.email
+    }
+  });
+
+  if (existingUser) {
+    throw new AppError("CONFLICT", "Email is already registered", 409);
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: {
+      id: userId
+    },
+    data: {
+      email: input.email
+    }
+  });
+
+  return toCurrentUser(updatedUser);
 }
 
 export async function updatePassword(userId: string, input: UpdatePasswordInput) {
@@ -85,6 +137,42 @@ export async function updatePassword(userId: string, input: UpdatePasswordInput)
   });
 
   return { ok: true };
+}
+
+export async function bindFeishuAccount(userId: string, input: BindFeishuInput) {
+  try {
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: userId
+      },
+      data: {
+        feishuOpenId: input.openId,
+        feishuUnionId: input.unionId ?? null
+      }
+    });
+
+    return toCurrentUser(updatedUser);
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new AppError("CONFLICT", "这个飞书账号已绑定到其他用户。", 409);
+    }
+
+    throw error;
+  }
+}
+
+export async function unbindFeishuAccount(userId: string) {
+  const updatedUser = await prisma.user.update({
+    where: {
+      id: userId
+    },
+    data: {
+      feishuOpenId: null,
+      feishuUnionId: null
+    }
+  });
+
+  return toCurrentUser(updatedUser);
 }
 
 export async function listMyTasks(userId: string) {

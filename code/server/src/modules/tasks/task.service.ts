@@ -1,15 +1,16 @@
-import { DeliveryChannel, NotificationType, Prisma, ProjectRole, TaskStatus } from "@prisma/client";
+import { NotificationType, Prisma, ProjectRole, TaskStatus } from "@prisma/client";
 import { logger } from "../../config/logger.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
+import { createNotification } from "../notifications/notification.service.js";
 import {
   assertProjectActive,
   requireActiveProjectEditor,
   requireProjectAccess,
   requireProjectManager
 } from "../projects/project.policy.js";
-import { publishProjectEvent, publishToUser } from "../realtime/realtime.service.js";
+import { publishProjectEvent } from "../realtime/realtime.service.js";
 import {
   assertTaskListDeletable,
   assertTaskListEditable,
@@ -360,60 +361,6 @@ async function getTaskParentTrail(parentId: string | null, projectId: string) {
   }
 
   return trail;
-}
-
-async function createNotification(input: {
-  type: NotificationType;
-  recipientId: string;
-  actorId: string;
-  projectId: string;
-  taskId: string;
-  title: string;
-  content: string;
-  dedupeKey: string;
-  skipActor?: boolean;
-}) {
-  if (input.skipActor && input.recipientId === input.actorId) {
-    return;
-  }
-
-  try {
-    await prisma.notification.upsert({
-      where: {
-        dedupeKey: input.dedupeKey
-      },
-      update: {},
-      create: {
-        type: input.type,
-        title: input.title,
-        content: input.content,
-        link: `/tasks/${input.taskId}`,
-        recipientId: input.recipientId,
-        actorId: input.actorId,
-        projectId: input.projectId,
-        taskId: input.taskId,
-        dedupeKey: input.dedupeKey,
-        deliveries: {
-          create: {
-            channel: DeliveryChannel.IN_APP,
-            status: "SENT",
-            sentAt: new Date()
-          }
-        }
-      }
-    });
-    publishToUser(input.recipientId, { type: "notification.changed" });
-  } catch (error) {
-    logger.error(
-      {
-        err: error,
-        type: input.type,
-        recipientId: input.recipientId,
-        taskId: input.taskId
-      },
-      "Failed to create task notification"
-    );
-  }
 }
 
 type TaskAssigneeUser = {

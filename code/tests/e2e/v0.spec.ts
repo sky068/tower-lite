@@ -109,7 +109,7 @@ async function login(page: Page, user: UserFixture) {
   await page.goto("/login");
   await page.getByLabel("邮箱").fill(user.email);
   await page.getByLabel("密码").fill(user.password);
-  await page.getByRole("button", { name: "登录" }).click();
+  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByRole("heading", { name: "工作台" })).toBeVisible();
 }
 
@@ -614,19 +614,32 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
       "base64"
     )
   });
-  const profileResponsePromise = page.waitForResponse((response) =>
-    response.url().includes("/api/v1/users/me/profile")
-  );
-  await accountSettings.getByRole("button", { name: "保存资料" }).click();
-  const profileResponse = await profileResponsePromise;
-  expect(profileResponse.status(), await profileResponse.text()).toBe(200);
-  await expect(accountSettings.getByText("资料已保存。")).toBeVisible();
+  const updatedOwnerEmail = `captain-${runId}@e2e.test`;
+  await accountSettings.getByLabel("邮箱").fill(updatedOwnerEmail);
   await accountSettings.getByLabel("当前密码").fill(owner.password);
   await accountSettings.getByLabel("新密码", { exact: true }).fill("Password456!");
   await accountSettings.getByLabel("确认新密码").fill("Password456!");
-  await accountSettings.getByRole("button", { name: "更新密码" }).click();
-  await expect(accountSettings.getByText("密码已更新。")).toBeVisible();
+  const profileResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/api/v1/users/me/profile")
+  );
+  const emailResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/api/v1/users/me/email")
+  );
+  const passwordResponsePromise = page.waitForResponse((response) =>
+    response.url().includes("/api/v1/users/me/password")
+  );
+  await accountSettings.getByRole("button", { name: "保存设置" }).click();
+  const profileResponse = await profileResponsePromise;
+  expect(profileResponse.status(), await profileResponse.text()).toBe(200);
+  const emailResponse = await emailResponsePromise;
+  expect(emailResponse.status(), await emailResponse.text()).toBe(200);
+  const passwordResponse = await passwordResponsePromise;
+  expect(passwordResponse.status(), await passwordResponse.text()).toBe(200);
+  await expect(accountSettings.getByText("设置已保存。")).toBeVisible();
+  owner.email = updatedOwnerEmail;
   owner.password = "Password456!";
+  await expect(accountSettings.getByLabel("Open ID")).toHaveCount(0);
+  await expect(accountSettings.getByLabel("Union ID")).toHaveCount(0);
   await accountSettings.getByRole("button", { name: "关闭账号设置" }).click();
   await expect(accountSettings).toBeHidden();
 

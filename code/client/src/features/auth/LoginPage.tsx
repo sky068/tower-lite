@@ -25,6 +25,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFeishuSubmitting, setIsFeishuSubmitting] = useState(false);
 
   const redirectTo = getPostAuthRedirect(location);
 
@@ -45,6 +46,26 @@ export function LoginPage() {
       setError(getApiErrorMessage(requestError, "邮箱或密码不正确"));
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleFeishuLogin() {
+    setError(null);
+    setIsFeishuSubmitting(true);
+
+    try {
+      const result = await authApi.feishuAuthorizeUrl({ redirectTo });
+
+      if (!result.configured || !result.authorizeUrl) {
+        setError("飞书登录尚未配置，请先在后端环境变量中配置 FEISHU_APP_ID 和 FEISHU_APP_SECRET。");
+        return;
+      }
+
+      window.location.assign(result.authorizeUrl);
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, "飞书登录启动失败，请稍后再试。"));
+    } finally {
+      setIsFeishuSubmitting(false);
     }
   }
 
@@ -77,6 +98,14 @@ export function LoginPage() {
           {error ? <div className="form-error">{error}</div> : null}
           <button type="submit" disabled={isSubmitting}>
             {isSubmitting ? "登录中..." : "登录"}
+          </button>
+          <button
+            className="feishu-login-button"
+            type="button"
+            disabled={isFeishuSubmitting}
+            onClick={() => void handleFeishuLogin()}
+          >
+            {isFeishuSubmitting ? "正在打开飞书..." : "使用飞书登录"}
           </button>
           <Link className="text-link" to="/register" state={location.state}>
             还没有账号？注册

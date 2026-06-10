@@ -154,6 +154,7 @@ input[type="date"]:not(:disabled) {
 
 .avatar-button {
   display: grid;
+  flex: 0 0 38px;
   width: 38px;
   height: 38px;
   place-items: center;
@@ -163,6 +164,8 @@ input[type="date"]:not(:disabled) {
   background: #eff6ff;
   color: #1d4ed8;
   font-weight: 700;
+  line-height: 0;
+  padding: 0;
 }
 
 .avatar-button .user-avatar {
@@ -208,8 +211,10 @@ input[type="date"]:not(:disabled) {
 }
 
 .user-avatar img {
+  display: block;
   width: 100%;
   height: 100%;
+  border-radius: inherit;
   object-fit: cover;
 }
 
@@ -1871,8 +1876,55 @@ select[multiple] {
 
 .account-settings-content {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 18px 22px;
+}
+
+.account-settings-section {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.account-settings-section h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.account-settings-profile {
+  grid-row: span 2;
+}
+
+.account-settings-profile .avatar-editor {
+  grid-template-columns: 1fr;
+  justify-items: start;
+}
+
+.account-settings-password {
+  padding-top: 4px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.account-settings-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.account-settings-status {
+  display: grid;
+  flex: 1 1 260px;
+  gap: 4px;
+  min-width: 0;
+}
+
+.account-settings-footer button[type="submit"] {
+  min-width: 104px;
 }
 
 .notification-center-modal {
@@ -2343,6 +2395,16 @@ select[multiple] {
 .form button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.form .feishu-login-button {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.form .feishu-login-button:hover:not(:disabled) {
+  background: #f8fafc;
 }
 
 .form-error {

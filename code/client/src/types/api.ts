@@ -10,6 +10,12 @@ export type User = {
   avatarUrl: string | null;
 };
 
+export type CurrentUser = User & {
+  feishuBound: boolean;
+  feishuOpenId: string | null;
+  feishuUnionId: string | null;
+};
+
 export type AuthResponse = {
   accessToken: string;
   refreshToken: string;

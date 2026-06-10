@@ -1,12 +1,12 @@
 import { create } from "zustand";
-import type { User } from "../types/api";
+import type { CurrentUser, User } from "../types/api";
 
 type AuthState = {
   accessToken: string | null;
   refreshToken: string | null;
-  user: User | null;
-  setSession: (session: { accessToken: string; refreshToken: string; user: User }) => void;
-  updateUser: (user: User) => void;
+  user: CurrentUser | User | null;
+  setSession: (session: { accessToken: string; refreshToken: string; user: CurrentUser | User }) => void;
+  updateUser: (user: CurrentUser | User) => void;
   clearSession: () => void;
 };
 
@@ -15,7 +15,7 @@ const storedSession = (() => {
     return {
       accessToken: localStorage.getItem("tower.accessToken"),
       refreshToken: localStorage.getItem("tower.refreshToken"),
-      user: JSON.parse(localStorage.getItem("tower.user") ?? "null") as User | null
+      user: JSON.parse(localStorage.getItem("tower.user") ?? "null") as CurrentUser | User | null
     };
   } catch {
     return {

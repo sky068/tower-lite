@@ -1,7 +1,7 @@
-import { DeliveryChannel, NotificationType } from "@prisma/client";
+import { NotificationType } from "@prisma/client";
 import { logger } from "../config/logger.js";
 import { prisma } from "../lib/prisma.js";
-import { publishToUsers } from "../modules/realtime/realtime.service.js";
+import { createNotification } from "../modules/notifications/notification.service.js";
 
 const DUE_REMINDER_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -50,8 +50,6 @@ export async function runDueReminderScan() {
     }
   });
 
-  const notifiedUserIds = new Set<string>();
-
   await Promise.all(
     tasks.flatMap((task) => {
       const recipientIds = [
@@ -59,35 +57,19 @@ export async function runDueReminderScan() {
       ] as string[];
 
       return recipientIds.map(async (recipientId) => {
-        await prisma.notification.upsert({
-          where: {
-            dedupeKey: `task_due_soon:${task.id}:${recipientId}:${task.dueDate?.toISOString()}`
-          },
-          update: {},
-          create: {
-            type: NotificationType.TASK_DUE_SOON,
-            title: "任务即将到期",
-            content: `${task.project.name} / ${task.title}`,
-            link: `/tasks/${task.id}`,
-            recipientId,
-            projectId: task.projectId,
-            taskId: task.id,
-            dedupeKey: `task_due_soon:${task.id}:${recipientId}:${task.dueDate?.toISOString()}`,
-            deliveries: {
-              create: {
-                channel: DeliveryChannel.IN_APP,
-                status: "SENT",
-                sentAt: now
-              }
-            }
-          }
+        await createNotification({
+          type: NotificationType.TASK_DUE_SOON,
+          title: "任务即将到期",
+          content: `${task.project.name} / ${task.title}`,
+          link: `/tasks/${task.id}`,
+          recipientId,
+          projectId: task.projectId,
+          taskId: task.id,
+          dedupeKey: `task_due_soon:${task.id}:${recipientId}:${task.dueDate?.toISOString()}`
         });
-        notifiedUserIds.add(recipientId);
       });
     })
   );
-
-  publishToUsers([...notifiedUserIds], { type: "notification.changed" });
 
   if (tasks.length > 0) {
     logger.info({ count: tasks.length }, "Created due soon notifications");

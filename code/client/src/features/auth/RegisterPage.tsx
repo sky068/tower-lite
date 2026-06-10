@@ -53,7 +53,7 @@ export function RegisterPage() {
     <main className="auth-page">
       <section className="auth-panel">
         <h1>创建账号</h1>
-        <p>先用邮箱账号进入 V0，飞书登录后续接入。</p>
+        <p>使用邮箱创建账号，也可以返回登录页使用飞书登录。</p>
         <form className="form" onSubmit={handleSubmit}>
           <label>
             姓名

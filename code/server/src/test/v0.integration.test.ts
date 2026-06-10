@@ -26,6 +26,17 @@ type AuthResponse = {
   };
 };
 
+type CurrentUserResponse = AuthResponse["user"] & {
+  feishuBound: boolean;
+  feishuOpenId: string | null;
+  feishuUnionId: string | null;
+};
+
+type FeishuAuthorizeResponse = {
+  configured: boolean;
+  authorizeUrl: string | null;
+};
+
 type TeamResponse = {
   id: string;
   name: string;
@@ -503,6 +514,26 @@ describe("V0 HTTP integration", () => {
     const invitedProjectMember = await registerUser("InvitedProjectMember");
     const concurrentProjectInvitee = await registerUser("ConcurrentProjectInvitee");
 
+    const feishuAuthorize = (await request<FeishuAuthorizeResponse>(
+      "GET",
+      "/api/v1/auth/feishu/authorize-url?redirectTo=/dashboard"
+    )).data;
+    if (process.env.FEISHU_APP_ID && process.env.FEISHU_APP_SECRET) {
+      assert.equal(feishuAuthorize.configured, true);
+      assert.ok(feishuAuthorize.authorizeUrl?.includes("/open-apis/authen/v1/index"));
+      assert.ok(feishuAuthorize.authorizeUrl?.includes("scope=contact%3Auser.email%3Areadonly"));
+    } else {
+      assert.equal(feishuAuthorize.configured, false);
+      assert.equal(feishuAuthorize.authorizeUrl, null);
+    }
+    await request<AuthResponse & { redirectTo: string }>("POST", "/api/v1/auth/feishu/callback", {
+      expectedStatus: feishuAuthorize.configured ? 401 : 422,
+      body: {
+        code: "fake-code",
+        state: "fake-state"
+      }
+    });
+
     const updatedOwner = (await request<AuthResponse["user"]>("PATCH", "/api/v1/users/me/profile", {
       token: owner.token,
       body: {
@@ -512,6 +543,42 @@ describe("V0 HTTP integration", () => {
     })).data;
     assert.equal(updatedOwner.name, "Updated Owner");
     assert.equal(updatedOwner.avatarUrl, "data:image/png;base64,iVBORw0KGgo=");
+
+    const ownerUpdatedEmail = `updated-owner@${emailDomain}`;
+    const updatedOwnerEmail = (await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/email", {
+      token: owner.token,
+      body: {
+        email: ownerUpdatedEmail
+      }
+    })).data;
+    assert.equal(updatedOwnerEmail.email, ownerUpdatedEmail);
+    owner.email = ownerUpdatedEmail;
+
+    await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/email", {
+      token: owner.token,
+      expectedStatus: 409,
+      body: {
+        email: editor.email
+      }
+    });
+
+    const boundEditor = (await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/feishu-binding", {
+      token: editor.token,
+      body: {
+        openId: `ou_${runId}`,
+        unionId: `on_${runId}`
+      }
+    })).data;
+    assert.equal(boundEditor.feishuBound, true);
+    assert.equal(boundEditor.feishuOpenId, `ou_${runId}`);
+
+    await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/feishu-binding", {
+      token: viewer.token,
+      expectedStatus: 409,
+      body: {
+        openId: `ou_${runId}`
+      }
+    });
 
     await request<AuthResponse["user"]>("PATCH", "/api/v1/users/me/profile", {
       token: owner.token,
@@ -1146,6 +1213,17 @@ describe("V0 HTTP integration", () => {
           notification.title === "你被分配了一个任务"
       )
     );
+    const taskAssignedNotification = editorNotifications.find(
+      (notification) => notification.type === "TASK_ASSIGNED" && notification.content === task.title
+    );
+    assert.ok(taskAssignedNotification);
+    const feishuDelivery = await prisma.notificationDelivery.findFirst({
+      where: {
+        notificationId: taskAssignedNotification.id,
+        channel: "FEISHU"
+      }
+    });
+    assert.equal(feishuDelivery?.status, "PENDING");
 
     const ownerNotificationsAfterAssign = (await request<NotificationResponse[]>(
       "GET",

@@ -1,8 +1,9 @@
-import { DeliveryChannel, NotificationType, Prisma, ProjectRole } from "@prisma/client";
+import { NotificationType, Prisma, ProjectRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
-import { publishProjectEvent, publishTeamEvent, publishToUser } from "../realtime/realtime.service.js";
+import { createNotification } from "../notifications/notification.service.js";
+import { publishProjectEvent, publishTeamEvent } from "../realtime/realtime.service.js";
 import { requireTeamAdmin, requireTeamMember, requireTeamOwner } from "../teams/team.policy.js";
 import { requireProjectAccess, requireProjectManager } from "./project.policy.js";
 import type {
@@ -78,34 +79,17 @@ async function createProjectJoinedNotification(input: {
   projectId: string;
   projectName: string;
 }) {
-  if (input.actorId === input.recipientId) {
-    return;
-  }
-
-  await prisma.notification.upsert({
-    where: {
-      dedupeKey: `project_joined:${input.projectId}:${input.recipientId}`
-    },
-    update: {},
-    create: {
-      type: NotificationType.PROJECT_JOINED,
-      title: "你被加入了项目",
-      content: input.projectName,
-      link: `/projects/${input.projectId}/board`,
-      recipientId: input.recipientId,
-      actorId: input.actorId,
-      projectId: input.projectId,
-      dedupeKey: `project_joined:${input.projectId}:${input.recipientId}`,
-      deliveries: {
-        create: {
-          channel: DeliveryChannel.IN_APP,
-          status: "SENT",
-          sentAt: new Date()
-        }
-      }
-    }
+  await createNotification({
+    type: NotificationType.PROJECT_JOINED,
+    title: "你被加入了项目",
+    content: input.projectName,
+    link: `/projects/${input.projectId}/board`,
+    recipientId: input.recipientId,
+    actorId: input.actorId,
+    projectId: input.projectId,
+    dedupeKey: `project_joined:${input.projectId}:${input.recipientId}`,
+    skipActor: true
   });
-  publishToUser(input.recipientId, { type: "notification.changed" });
 }
 
 async function assertProjectNameUnique(teamId: string, name: string, excludeProjectId?: string) {

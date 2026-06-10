@@ -24,10 +24,21 @@ export const updateProfileSchema = z.object({
   avatarUrl: nullableAvatarUrlSchema
 });
 
+export const updateEmailSchema = z.object({
+  email: z.string().trim().email().transform((email) => email.toLowerCase())
+});
+
 export const updatePasswordSchema = z.object({
   currentPassword: z.string().min(1).max(128),
   newPassword: z.string().min(8).max(128)
 });
 
+export const bindFeishuSchema = z.object({
+  openId: z.string().trim().min(1).max(200),
+  unionId: z.string().trim().min(1).max(200).nullable().optional()
+});
+
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+export type UpdateEmailInput = z.infer<typeof updateEmailSchema>;
 export type UpdatePasswordInput = z.infer<typeof updatePasswordSchema>;
+export type BindFeishuInput = z.infer<typeof bindFeishuSchema>;

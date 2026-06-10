@@ -3,6 +3,7 @@ import { AppShell } from "../components/layout/AppShell";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { RegisterPage } from "../features/auth/RegisterPage";
+import { FeishuCallbackPage } from "../features/auth/FeishuCallbackPage";
 import { ProjectBoardPage } from "../features/board/ProjectBoardPage";
 import { ProjectTaskListPage } from "../features/board/ProjectTaskListPage";
 import { RequireAuth } from "../features/auth/RequireAuth";
@@ -28,6 +29,10 @@ const routes = [
   {
     path: "/register",
     element: <RegisterPage />
+  },
+  {
+    path: "/auth/feishu/callback",
+    element: <FeishuCallbackPage />
   },
   {
     element: (

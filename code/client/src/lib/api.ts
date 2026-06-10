@@ -5,6 +5,7 @@ import type {
   ApiResponse,
   ActivityLog,
   AuthResponse,
+  CurrentUser,
   Comment,
   Invitation,
   Member,
@@ -159,7 +160,10 @@ export function getApiErrorMessage(error: unknown, fallback = "操作失败，�
       "Invitation is no longer pending": "该邀请已被处理，请刷新后查看最新状态。",
       "Invitation has been revoked": "该邀请已被撤销，请联系管理员重新邀请。",
       "Invitation has expired": "邀请已过期，请联系管理员重新邀请。",
-      "Invitation email does not match current user": "当前登录邮箱和邀请邮箱不一致，请切换账号后再接受邀请。"
+      "Invitation email does not match current user": "当前登录邮箱和邀请邮箱不一致，请切换账号后再接受邀请。",
+      "Feishu login is not configured": "飞书登录尚未配置，请先配置飞书应用信息。",
+      "Invalid Feishu login state": "飞书登录状态已失效，请重新发起登录。",
+      "Feishu account is already bound to another user": "这个飞书账号已绑定到其他用户。"
     };
 
     if (message === "Current password is incorrect") {
@@ -229,20 +233,39 @@ export const authApi = {
   login(input: { email: string; password: string }) {
     return unwrap<AuthResponse>(api.post("/auth/login", input));
   },
+  feishuAuthorizeUrl(input: { redirectTo: string }) {
+    return unwrap<{ configured: boolean; authorizeUrl: string | null }>(
+      api.get("/auth/feishu/authorize-url", {
+        params: input
+      })
+    );
+  },
+  feishuCallback(input: { code: string; state: string }) {
+    return unwrap<AuthResponse & { redirectTo: string }>(api.post("/auth/feishu/callback", input));
+  },
   logout(input: { refreshToken: string }) {
     return unwrap<{ ok: boolean }>(api.post("/auth/logout", input));
   },
   me() {
-    return unwrap<User & { feishuBound: boolean }>(api.get("/users/me"));
+    return unwrap<CurrentUser>(api.get("/users/me"));
   }
 };
 
 export const userApi = {
   updateProfile(input: { name: string; avatarUrl?: string | null }) {
-    return unwrap<User>(api.patch("/users/me/profile", input));
+    return unwrap<CurrentUser>(api.patch("/users/me/profile", input));
+  },
+  updateEmail(input: { email: string }) {
+    return unwrap<CurrentUser>(api.patch("/users/me/email", input));
   },
   updatePassword(input: { currentPassword: string; newPassword: string }) {
     return unwrap<{ ok: boolean }>(api.patch("/users/me/password", input));
+  },
+  bindFeishu(input: { openId: string; unionId?: string | null }) {
+    return unwrap<CurrentUser>(api.patch("/users/me/feishu-binding", input));
+  },
+  unbindFeishu() {
+    return unwrap<CurrentUser>(api.delete("/users/me/feishu-binding"));
   },
   myTasks() {
     return unwrap<MyTask[]>(api.get("/users/me/tasks"));

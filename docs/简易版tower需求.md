@@ -64,6 +64,8 @@
 - 飞书通知失败重试
 - 飞书回调验签与事件接收
 
+V1.0 先落地飞书登录与通知基础设施：登录页支持飞书 OAuth 登录，成功后优先按飞书邮箱匹配或创建本地账号，并绑定飞书 `Open ID` / `Union ID`；如果飞书未返回邮箱，则使用 `${open_id}@feishu.local` 作为本地兜底邮箱，保证用户仍可登录，后续可在账号设置里修改为真实绑定邮箱；飞书账号绑定由 OAuth 登录自动完成，账号设置不提供手动填写 `Open ID` / `Union ID` 的入口；站内通知创建时同步创建飞书投递记录，后端 worker 在配置飞书应用密钥后发送和重试；飞书事件回调验签作为后续 V1.x 能力继续补齐。
+
 ### V2：甘特图排期版
 
 目标：支持项目维度排期和任务依赖管理。
@@ -225,7 +227,7 @@
 - 评论内容支持纯文本和 @ 成员标记。
 - 任务详情评论区输入 `@` 时触发项目成员选择，用户选择项目成员后直接插入 `@姓名` 文本，并随评论提交 `mentionIds`。
 - @ 成员必须是项目成员；后端必须校验 `mentionIds` 全部属于当前项目成员，否则返回 `BUSINESS_RULE_VIOLATION`。
-- 评论需要保存被 @ 成员关系，便于后续飞书通知、审计排查和前端展示。
+- 评论需要保存被 @ 成员关系，便于后续飞书通知和审计排查；前端评论条目只展示评论正文中的 `@姓名`，不额外展示独立 @ 成员列表。
 - 被 @ 的成员收到 `COMMENT_MENTION` 站内通知；评论作者本人不通知。
 - 如果被 @ 成员同时也是任务创建者或负责人，只收到 @ 通知，不再重复收到“任务有新评论”通知。
 - 删除评论仅允许评论作者、项目 OWNER、团队 ADMIN / OWNER 操作。
@@ -750,8 +752,8 @@ Authorization: Bearer <access_token>
 | POST | `/auth/login` | 邮箱登录 |
 | POST | `/auth/refresh` | 刷新 access token |
 | POST | `/auth/logout` | 注销 refresh token |
-| GET | `/auth/feishu/redirect` | 跳转飞书授权页 |
-| GET | `/auth/feishu/callback` | 飞书 OAuth 回调 |
+| GET | `/auth/feishu/authorize-url` | 获取飞书授权地址 |
+| POST | `/auth/feishu/callback` | 飞书 OAuth code 换本地登录态 |
 
 登录响应：
 
@@ -775,7 +777,9 @@ Authorization: Bearer <access_token>
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/users/me` | 当前用户信息 |
-| PATCH | `/users/me` | 更新昵称、头像；头像支持图片 URL 或前端上传后生成的图片 data URL |
+| PATCH | `/users/me/profile` | 更新昵称、头像；头像支持图片 URL 或前端上传后生成的图片 data URL |
+| PATCH | `/users/me/email` | 更新绑定邮箱；用于飞书未返回邮箱时补充真实邮箱，也用于后续邀请邮箱匹配 |
+| PATCH | `/users/me/password` | 修改密码 |
 | GET | `/users/me/tasks` | 我的任务 |
 | GET | `/users/me/notifications` | 通知列表 |
 | PATCH | `/users/me/notifications/:id/read` | 标记已读 |

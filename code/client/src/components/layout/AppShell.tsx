@@ -35,14 +35,14 @@ export function AppShell() {
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
   const [notificationCenterFilter, setNotificationCenterFilter] = useState<"ALL" | "UNREAD">("ALL");
   const [profileName, setProfileName] = useState(user?.name ?? "");
+  const [profileEmail, setProfileEmail] = useState(user?.email ?? "");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(user?.avatarUrl ?? "");
   const [profileAvatarError, setProfileAvatarError] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordFormError, setPasswordFormError] = useState("");
-  const [profileSaved, setProfileSaved] = useState(false);
-  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [accountSettingsSaved, setAccountSettingsSaved] = useState(false);
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const realtimeStatus = useRealtimeEvents();
@@ -74,7 +74,6 @@ export function AppShell() {
         avatarUrl: profileAvatarUrl.trim() || null
       }),
     onSuccess: (updatedUser) => {
-      setProfileSaved(true);
       try {
         updateUser(updatedUser);
         void queryClient.invalidateQueries({ queryKey: ["me"] });
@@ -82,9 +81,20 @@ export function AppShell() {
         // The profile is saved on the server; a local cache write failure should not turn it into a failed save.
       }
     },
-    onError: () => {
-      setProfileSaved(false);
-    }
+    onError: () => setAccountSettingsSaved(false)
+  });
+
+  const updateEmailMutation = useMutation({
+    mutationFn: () =>
+      userApi.updateEmail({
+        email: profileEmail.trim()
+      }),
+    onSuccess: (updatedUser) => {
+      updateUser(updatedUser);
+      setProfileEmail(updatedUser.email);
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
+    },
+    onError: () => setAccountSettingsSaved(false)
   });
 
   const updatePasswordMutation = useMutation({
@@ -98,11 +108,8 @@ export function AppShell() {
       setNewPassword("");
       setConfirmPassword("");
       setPasswordFormError("");
-      setPasswordSaved(true);
     },
-    onError: () => {
-      setPasswordSaved(false);
-    }
+    onError: () => setAccountSettingsSaved(false)
   });
 
   const notifications = notificationsQuery.data ?? [];
@@ -126,6 +133,7 @@ export function AppShell() {
 
   useEffect(() => {
     setProfileName(user?.name ?? "");
+    setProfileEmail(user?.email ?? "");
     setProfileAvatarUrl(user?.avatarUrl ?? "");
   }, [user]);
 
@@ -180,22 +188,59 @@ export function AppShell() {
     setIsUserMenuOpen(false);
     setIsAccountSettingsOpen(true);
     setProfileName(user?.name ?? "");
+    setProfileEmail(user?.email ?? "");
     setProfileAvatarUrl(user?.avatarUrl ?? "");
     setProfileAvatarError("");
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
     setPasswordFormError("");
-    setProfileSaved(false);
-    setPasswordSaved(false);
+    setAccountSettingsSaved(false);
   }
 
-  function handleUpdateProfile(event: FormEvent) {
+  async function handleSaveAccountSettings(event: FormEvent) {
     event.preventDefault();
 
-    if (profileName.trim() && !profileAvatarError) {
-      setProfileSaved(false);
-      updateProfileMutation.mutate();
+    const hasPasswordInput = Boolean(currentPassword || newPassword || confirmPassword);
+
+    if (hasPasswordInput && (!currentPassword || !newPassword || !confirmPassword)) {
+      setPasswordFormError("如需修改密码，请完整填写当前密码、新密码和确认新密码。");
+      return;
+    }
+
+    if (hasPasswordInput && newPassword !== confirmPassword) {
+      setPasswordFormError("两次输入的新密码不一致。");
+      return;
+    }
+
+    if (!profileName.trim() || !profileEmail.trim() || profileAvatarError) {
+      return;
+    }
+
+    const normalizedAvatarUrl = profileAvatarUrl.trim() || null;
+    const profileChanged =
+      profileName.trim() !== (user?.name ?? "") || normalizedAvatarUrl !== (user?.avatarUrl ?? null);
+    const emailChanged = profileEmail.trim().toLowerCase() !== (user?.email ?? "").toLowerCase();
+
+    setPasswordFormError("");
+    setAccountSettingsSaved(false);
+
+    try {
+      if (profileChanged) {
+        await updateProfileMutation.mutateAsync();
+      }
+
+      if (emailChanged) {
+        await updateEmailMutation.mutateAsync();
+      }
+
+      if (hasPasswordInput) {
+        await updatePasswordMutation.mutateAsync();
+      }
+
+      setAccountSettingsSaved(true);
+    } catch {
+      setAccountSettingsSaved(false);
     }
   }
 
@@ -222,7 +267,7 @@ export function AppShell() {
       if (typeof reader.result === "string") {
         setProfileAvatarUrl(reader.result);
         setProfileAvatarError("");
-        setProfileSaved(false);
+        setAccountSettingsSaved(false);
       }
     };
     reader.onerror = () => {
@@ -234,20 +279,7 @@ export function AppShell() {
   function handleClearAvatar() {
     setProfileAvatarUrl("");
     setProfileAvatarError("");
-    setProfileSaved(false);
-  }
-
-  function handleUpdatePassword(event: FormEvent) {
-    event.preventDefault();
-
-    if (newPassword !== confirmPassword) {
-      setPasswordFormError("两次输入的新密码不一致。");
-      return;
-    }
-
-    setPasswordFormError("");
-    setPasswordSaved(false);
-    updatePasswordMutation.mutate();
+    setAccountSettingsSaved(false);
   }
 
   return (
@@ -395,24 +427,17 @@ export function AppShell() {
                   <X size={18} />
                 </button>
               </header>
-              <div className="account-settings-content">
-                <form className="modal-form" onSubmit={handleUpdateProfile}>
+              <form className="modal-form account-settings-content" onSubmit={handleSaveAccountSettings}>
+                <section className="account-settings-section account-settings-profile">
                   <h3>个人资料</h3>
-                  <label>
-                    名字
-                    <input
-                      value={profileName}
-                      onChange={(event) => {
-                        setProfileName(event.target.value);
-                        setProfileSaved(false);
-                      }}
-                      required
-                    />
-                  </label>
-                  <div className="avatar-editor">
+                  <div className="avatar-editor compact">
                     <div className="avatar-preview" aria-label="当前头像">
                       <UserAvatar
-                        user={profileAvatarUrl ? { name: profileName.trim() || "用户", avatarUrl: profileAvatarUrl } : null}
+                        user={
+                          profileAvatarUrl
+                            ? { name: profileName.trim() || "用户", avatarUrl: profileAvatarUrl }
+                            : null
+                        }
                         size="xl"
                       />
                     </div>
@@ -437,13 +462,35 @@ export function AppShell() {
                     <span className="muted">支持 PNG、JPG、WebP 或 GIF，最大 200KB。</span>
                     {profileAvatarError ? <span className="form-error inline-error">{profileAvatarError}</span> : null}
                   </div>
-                  <button type="submit" disabled={updateProfileMutation.isPending || !profileName.trim()}>
-                    保存资料
-                  </button>
-                  {profileSaved ? <span className="success-text">资料已保存。</span> : null}
-                  <MutationError error={updateProfileMutation.error} />
-                </form>
-                <form className="modal-form" onSubmit={handleUpdatePassword}>
+                </section>
+                <section className="account-settings-section">
+                  <h3>账号信息</h3>
+                  <label>
+                    名字
+                    <input
+                      value={profileName}
+                      onChange={(event) => {
+                        setProfileName(event.target.value);
+                        setAccountSettingsSaved(false);
+                      }}
+                      required
+                    />
+                  </label>
+                  <label>
+                    邮箱
+                    <input
+                      type="email"
+                      value={profileEmail}
+                      onChange={(event) => {
+                        setProfileEmail(event.target.value);
+                        setAccountSettingsSaved(false);
+                      }}
+                      required
+                    />
+                  </label>
+                  <span className="muted">飞书未返回邮箱时会先使用临时邮箱，之后可以在这里改为真实邮箱。</span>
+                </section>
+                <section className="account-settings-section account-settings-password">
                   <h3>修改密码</h3>
                   <label>
                     当前密码
@@ -452,9 +499,9 @@ export function AppShell() {
                       value={currentPassword}
                       onChange={(event) => {
                         setCurrentPassword(event.target.value);
-                        setPasswordSaved(false);
+                        setPasswordFormError("");
+                        setAccountSettingsSaved(false);
                       }}
-                      required
                     />
                   </label>
                   <label>
@@ -465,10 +512,9 @@ export function AppShell() {
                       onChange={(event) => {
                         setNewPassword(event.target.value);
                         setPasswordFormError("");
-                        setPasswordSaved(false);
+                        setAccountSettingsSaved(false);
                       }}
                       minLength={8}
-                      required
                     />
                   </label>
                   <label>
@@ -479,23 +525,36 @@ export function AppShell() {
                       onChange={(event) => {
                         setConfirmPassword(event.target.value);
                         setPasswordFormError("");
-                        setPasswordSaved(false);
+                        setAccountSettingsSaved(false);
                       }}
                       minLength={8}
-                      required
                     />
                   </label>
+                  <span className="muted">不修改密码时保持为空即可。</span>
+                </section>
+                <footer className="account-settings-footer">
+                  <div className="account-settings-status">
+                    {passwordFormError ? <span className="error-text">{passwordFormError}</span> : null}
+                    {accountSettingsSaved ? <span className="success-text">设置已保存。</span> : null}
+                    <MutationError
+                      error={updateProfileMutation.error ?? updateEmailMutation.error ?? updatePasswordMutation.error}
+                    />
+                  </div>
                   <button
                     type="submit"
-                    disabled={updatePasswordMutation.isPending || !currentPassword || !newPassword}
+                    disabled={
+                      updateProfileMutation.isPending ||
+                      updateEmailMutation.isPending ||
+                      updatePasswordMutation.isPending ||
+                      !profileName.trim() ||
+                      !profileEmail.trim() ||
+                      Boolean(profileAvatarError)
+                    }
                   >
-                    更新密码
+                    保存设置
                   </button>
-                  {passwordFormError ? <span className="error-text">{passwordFormError}</span> : null}
-                  {passwordSaved ? <span className="success-text">密码已更新。</span> : null}
-                  <MutationError error={updatePasswordMutation.error} />
-                </form>
-              </div>
+                </footer>
+              </form>
             </section>
           </div>
         ) : null}

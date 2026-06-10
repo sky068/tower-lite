@@ -19,6 +19,24 @@ export const refreshSchema = z.object({
 
 export const logoutSchema = refreshSchema;
 
+export const feishuAuthorizeQuerySchema = z.object({
+  redirectTo: z
+    .string()
+    .trim()
+    .max(300)
+    .optional()
+    .transform((value) =>
+      value && value.startsWith("/") && !value.startsWith("//") ? value : "/dashboard"
+    )
+});
+
+export const feishuCallbackSchema = z.object({
+  code: z.string().trim().min(1),
+  state: z.string().trim().min(1)
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshInput = z.infer<typeof refreshSchema>;
+export type FeishuAuthorizeQuery = z.infer<typeof feishuAuthorizeQuerySchema>;
+export type FeishuCallbackInput = z.infer<typeof feishuCallbackSchema>;
