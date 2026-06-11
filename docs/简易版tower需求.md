@@ -184,6 +184,17 @@ V2.0 先落地项目级甘特图排期基础能力：项目菜单增加“甘特
 - 恢复项目时如果同一团队已有同名未删除项目，恢复失败，不自动改名。
 - 同一团队内未删除项目不允许重名。
 
+### 4.2.1 系统管理员和默认团队 / 默认项目配置流程
+
+1. 部署时在 `.env` 配置 `DEFAULT_ADMIN_EMAIL`、`DEFAULT_ADMIN_PASSWORD`、`DEFAULT_ADMIN_NAME`。
+2. 后端启动时读取默认管理员配置：如果邮箱已存在，则把该用户升级为系统 ADMIN；如果邮箱不存在，则自动创建系统 ADMIN 账号。
+3. 系统 ADMIN 登录工作台后创建团队，并填写团队管理员邮箱。
+4. 如果团队管理员邮箱对应账号已存在，系统直接把该用户加入团队并设为团队 ADMIN；如果账号不存在，系统生成团队 ADMIN 邀请。
+5. 系统 ADMIN 可在团队设置里设置或取消默认团队。
+6. 系统 ADMIN 创建项目时必须选择当前团队成员作为项目 ADMIN；系统 ADMIN 不会因为创建项目而自动成为项目成员。
+7. 系统 ADMIN 可在项目设置里设置或取消默认项目；设置默认项目时会同步把项目所属团队设为默认团队。
+8. 普通用户注册或登录时，如果存在默认团队 / 默认项目，系统会自动加入默认团队为 MEMBER、加入默认项目为 EDITOR。
+
 ### 4.3 看板清单
 
 - 项目创建时自动生成一个名为“默认清单”的清单，不自动生成待处理、进行中、已完成三列。
@@ -1225,6 +1236,9 @@ REDIS_URL=
 JWT_ACCESS_SECRET=
 JWT_REFRESH_SECRET=
 APP_BASE_URL=
+DEFAULT_ADMIN_EMAIL=
+DEFAULT_ADMIN_PASSWORD=
+DEFAULT_ADMIN_NAME=
 FEISHU_APP_ID=
 FEISHU_APP_SECRET=
 FEISHU_ENCRYPT_KEY=

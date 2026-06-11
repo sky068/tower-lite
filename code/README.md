@@ -133,6 +133,14 @@ Prisma 命令会自动读取项目根目录的 `.env`。如果提示 `DATABASE_U
 cp .env.example .env
 ```
 
+系统管理员通过 `.env` 初始化。后端启动时会读取这些变量：如果邮箱已存在，会把该用户升级为系统管理员；如果邮箱不存在，会自动创建系统管理员账号。
+
+```bash
+DEFAULT_ADMIN_EMAIL="admin@tower.local"
+DEFAULT_ADMIN_PASSWORD="password123"
+DEFAULT_ADMIN_NAME="系统管理员"
+```
+
 如果想“一步到位”完成 Docker、迁移、seed，并启动前后端：
 
 ```bash
@@ -156,6 +164,17 @@ demo 登录账号：
 demo@tower.local / password123
 teammate@tower.local / password123
 ```
+
+系统管理员和默认团队 / 默认项目配置流程：
+
+1. 在 `.env` 配置 `DEFAULT_ADMIN_EMAIL`、`DEFAULT_ADMIN_PASSWORD`、`DEFAULT_ADMIN_NAME`。
+2. 启动或重启后端，让系统管理员账号自动创建或升级。
+3. 使用系统管理员账号登录工作台。
+4. 点击“创建团队”，填写团队名称和团队管理员邮箱。邮箱对应账号已存在时会直接加入团队并设为团队 `ADMIN`；账号不存在时会生成团队 `ADMIN` 邀请。
+5. 团队创建完成后，系统管理员可在团队设置中点击“设为默认团队”。
+6. 创建项目时，系统管理员需要选择一个当前团队成员作为项目 `ADMIN`；系统管理员自己不会自动成为项目成员。
+7. 项目创建完成后，系统管理员可在项目设置中点击“设为默认项目”。设置默认项目时会同步把项目所属团队设为默认团队。
+8. 普通用户注册或登录时，如果存在默认团队 / 默认项目，会自动加入默认团队为 `MEMBER`、加入默认项目为 `EDITOR`。
 
 如果 demo 登录提示密码错误，通常是当前数据库没有执行 seed，重新运行：
 
