@@ -67,26 +67,67 @@ demo@tower.local / password123
 ## 开发命令
 
 ```bash
+# 单独启动前端 Vite dev server，默认 http://localhost:5173
 npm run dev:client
+
+# 单独启动后端 API server，默认 http://localhost:4000/api/v1
 npm run dev:server
+
+# 后台启动前后端，不启动 Docker、不迁移、不 seed
 npm run dev:up
+
+# 关闭 dev:up 启动的前后端进程
 npm run dev:down
+
+# 启动 Docker Compose，并执行数据库迁移和 seed
 npm run dev:init
+
+# 清空并重建开发数据库，再执行迁移和 seed
 npm run dev:reset
+
+# 一步完成 dev:init，并后台启动前后端
 npm run dev:all
+
+# 启动 PostgreSQL / Redis 容器
 npm run docker:up
+
+# 关闭 PostgreSQL / Redis 容器
 npm run docker:down
+
+# 删除 PostgreSQL / Redis 数据卷并重新启动容器，会清空本地开发数据
 npm run docker:reset
+
+# 检查本机 Node、Docker、数据库、Redis 等开发环境
 npm run doctor
+
+# 运行后端单元测试
 npm run test
+
+# 运行后端集成测试，需要本地数据库可连接
 npm run test:integration
+
+# 运行 Playwright E2E，会自动启动测试用前后端
 npm run test:e2e
+
+# 复用当前已启动的前后端运行 Playwright E2E
 npm run test:e2e:reuse
+
+# 串联运行 test:integration 和 test:e2e
 npm run test:acceptance
+
+# 串联运行 test:integration 和 test:e2e:reuse
 npm run test:acceptance:reuse
+
+# TypeScript 类型检查
 npm run typecheck
+
+# 构建前端、后端和 shared workspace
 npm run build
+
+# V0 功能检查脚本
 npm run check:v0
+
+# 生成甘特图 / 任务树测试任务，会先清理上次生成的 [测试排期] 任务
 npm run prisma:test-tasks
 ```
 
