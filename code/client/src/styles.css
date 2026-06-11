@@ -27,6 +27,10 @@ select {
   font: inherit;
 }
 
+button {
+  white-space: nowrap;
+}
+
 button:not(:disabled) {
   cursor: pointer;
 }
@@ -193,7 +197,7 @@ textarea:focus {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #f8fafc;
-  overflow: hidden;
+  overflow: visible;
   padding: 10px;
 }
 
@@ -215,6 +219,17 @@ textarea:focus {
 .sidebar-create-form .form-error {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.sidebar-create-form .user-select-trigger {
+  min-height: 34px;
+  border-radius: 7px;
+  padding: 0 9px;
+  font-size: 13px;
+}
+
+.sidebar-create-form .user-select-menu {
+  max-height: 220px;
 }
 
 .sidebar-create-actions {
@@ -1130,7 +1145,7 @@ textarea:focus {
 
 .board-filters {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(130px, auto));
+  grid-template-columns: minmax(220px, 1fr) minmax(170px, 220px) repeat(2, minmax(136px, 150px));
   gap: 8px;
 }
 
@@ -1568,6 +1583,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .project-trash-button {
@@ -1585,7 +1601,7 @@ textarea:focus {
 }
 
 .project-filter-select {
-  min-width: 140px;
+  min-width: 180px;
   min-height: 36px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -1596,6 +1612,7 @@ textarea:focus {
 
 .status-tabs {
   display: inline-flex;
+  flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -1604,6 +1621,7 @@ textarea:focus {
 
 .status-tabs button {
   display: grid;
+  flex: 0 0 72px;
   width: 72px;
   min-height: 34px;
   place-items: center;
@@ -1612,6 +1630,7 @@ textarea:focus {
   background: transparent;
   color: #334155;
   padding: 0;
+  white-space: nowrap;
 }
 
 .status-tabs button:last-child {
@@ -1666,8 +1685,8 @@ textarea:focus {
   padding: 8px 10px;
 }
 
-.compact-form button,
-.subtask-create-form button:not(.assignee-dropdown-trigger) {
+.compact-form > button,
+.subtask-create-form > button:not(.assignee-dropdown-trigger) {
   min-height: 38px;
   border: 0;
   border-radius: 8px;
@@ -2027,12 +2046,21 @@ textarea:focus {
   flex: 1;
   gap: 2px;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   border: 0;
   background: transparent;
   color: inherit;
   padding: 0;
   text-align: left;
   text-decoration: none;
+}
+
+.row-main strong,
+.row-main span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .row-actions {
@@ -2102,6 +2130,7 @@ select[multiple] {
 }
 
 .checkbox-field {
+  width: 100%;
   min-width: 0;
   margin: 0;
   border: 0;
@@ -2119,7 +2148,10 @@ select[multiple] {
 .checkbox-field legend,
 .field-label {
   display: block;
+  width: max-content;
+  max-width: 100%;
   padding: 0;
+  white-space: nowrap;
 }
 
 .checkbox-list {
@@ -2249,7 +2281,9 @@ select[multiple] {
   display: grid;
   align-content: start;
   gap: 9px;
+  min-width: 0;
   min-height: 360px;
+  width: 100%;
   padding: 14px;
   transition:
     opacity 140ms ease,
@@ -2387,11 +2421,16 @@ select[multiple] {
 .task-card {
   display: grid;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
   padding: 12px;
 }
 
 .task-card-button {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   color: inherit;
   cursor: pointer;
   text-align: left;
@@ -2412,9 +2451,17 @@ select[multiple] {
 
 .task-card-title {
   display: flex;
+  min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+}
+
+.task-card-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .priority-chip {
@@ -2475,6 +2522,7 @@ select[multiple] {
 .task-card-tags {
   display: flex;
   flex-wrap: wrap;
+  min-width: 0;
   gap: 6px;
 }
 
@@ -2483,12 +2531,25 @@ select[multiple] {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  max-width: 100%;
+  min-width: 0;
   min-height: 22px;
   border-radius: 8px;
   background: #f1f5f9;
   color: #475569;
   padding: 2px 7px;
   font-size: 12px;
+}
+
+.task-card-meta > span,
+.task-card-tags span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-card-meta .assignee-chip-list {
+  max-width: 100%;
 }
 
 .assignee-chip-list {
@@ -2902,7 +2963,7 @@ select[multiple] {
   padding: 9px 10px;
 }
 
-.detail-form button {
+.detail-form > button[type="submit"] {
   min-height: 36px;
   justify-self: end;
   border: 0;
@@ -3473,6 +3534,213 @@ select[multiple] {
 .copy-link-button:hover:not(:disabled) {
   background: #f8fafc;
   color: #0f172a;
+}
+
+.user-select {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
+.custom-select {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
+.user-select-trigger,
+.settings-form .user-select-trigger,
+.custom-select-trigger,
+.settings-form .custom-select-trigger {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.user-select-trigger:hover:not(:disabled),
+.settings-form .user-select-trigger:hover:not(:disabled),
+.custom-select-trigger:hover:not(:disabled),
+.settings-form .custom-select-trigger:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
+}
+
+.user-select-trigger:focus,
+.custom-select-trigger:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+  outline: none;
+}
+
+.user-select-value,
+.custom-select-value {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-select-value span:last-child,
+.user-select-placeholder,
+.custom-select-value span:last-child,
+.custom-select-placeholder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-select-placeholder,
+.custom-select-placeholder {
+  color: #94a3b8;
+}
+
+.user-select-menu,
+.custom-select-menu {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 4px);
+  left: 0;
+  display: grid;
+  width: 100%;
+  min-width: min(220px, calc(100vw - 32px));
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 16%);
+  padding: 6px;
+}
+
+.user-select-option,
+.settings-form .user-select-option,
+.custom-select-option,
+.settings-form .custom-select-option {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #334155;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.user-select-option:hover,
+.settings-form .user-select-option:hover,
+.user-select-option.selected,
+.settings-form .user-select-option.selected,
+.custom-select-option:hover,
+.settings-form .custom-select-option:hover,
+.custom-select-option.selected,
+.settings-form .custom-select-option.selected {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.custom-select-option:not(.has-priority):not(.has-avatar) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.user-select-option > span:last-child,
+.custom-select-option > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.user-select-option strong,
+.user-select-option small,
+.custom-select-option strong,
+.custom-select-option small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-select-option strong,
+.custom-select-option strong {
+  color: inherit;
+  font-size: 13px;
+}
+
+.user-select-option small,
+.custom-select-option small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.user-select-empty {
+  color: #64748b;
+  padding: 8px;
+  font-size: 13px;
+}
+
+.custom-select.compact-select,
+.custom-select.project-filter-select {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.custom-select.compact-select .custom-select-trigger {
+  min-height: 34px;
+  padding: 0 9px;
+}
+
+.custom-select.project-filter-select {
+  min-width: 180px;
+}
+
+.custom-select.has-avatar-options .custom-select-menu {
+  min-width: min(240px, calc(100vw - 32px));
+}
+
+.select-priority-mark {
+  width: 12px;
+  height: 12px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.select-priority-mark.priority-low {
+  border-color: #86efac;
+  background: #dcfce7;
+}
+
+.select-priority-mark.priority-medium {
+  border-color: #fde68a;
+  background: #fef3c7;
+}
+
+.select-priority-mark.priority-high {
+  border-color: #fdba74;
+  background: #ffedd5;
+}
+
+.select-priority-mark.priority-urgent {
+  border-color: #fca5a5;
+  background: #fee2e2;
 }
 
 .invite-accept-panel {

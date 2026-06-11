@@ -3,7 +3,9 @@ import { Bell, Building2, FolderKanban, ListChecks, LogOut, Plus, Settings, Tras
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FormEvent, type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../shared/MutationError";
+import { Select } from "../shared/Select";
 import { UserAvatar } from "../shared/UserAvatar";
+import { UserSelect } from "../shared/UserSelect";
 import { authApi, projectApi, teamApi, userApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
 import { useRealtimeEvents } from "../../lib/realtime";
@@ -278,7 +280,12 @@ export function AppShell() {
   function handleCreateProject(event: FormEvent) {
     event.preventDefault();
 
-    if (creatingProjectTeamId && canCreateProjectForCurrentTeam && newProjectName.trim()) {
+    if (
+      creatingProjectTeamId &&
+      canCreateProjectForCurrentTeam &&
+      newProjectName.trim() &&
+      (!isSystemAdmin || newProjectAdminUserId)
+    ) {
       createProjectMutation.mutate();
     }
   }
@@ -493,26 +500,18 @@ export function AppShell() {
                           placeholder="项目名称"
                           required
                         />
-                        <select
+                        <UserSelect
                           value={newProjectAdminUserId}
-                          onChange={(event) => setNewProjectAdminUserId(event.target.value)}
-                          required={isSystemAdmin}
-                          title={isSystemAdmin ? "系统管理员创建项目时必须指定项目管理员" : "不选则默认自己为项目管理员"}
-                        >
-                          <option value="">
-                            {isSystemAdmin ? "选择项目管理员" : "默认自己为项目管理员"}
-                          </option>
-                          {(projectAdminCandidatesQuery.data ?? []).map((member) => (
-                            <option key={member.user.id} value={member.user.id}>
-                              {member.user.name} / {member.user.email}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={setNewProjectAdminUserId}
+                          disabled={projectAdminCandidatesQuery.isLoading}
+                          placeholder={isSystemAdmin ? "选择项目管理员" : "默认自己为项目管理员"}
+                          users={(projectAdminCandidatesQuery.data ?? []).map((member) => member.user)}
+                        />
                         <div className="sidebar-create-actions">
                           <button
                             className="sidebar-confirm-button"
                             type="submit"
-                            disabled={createProjectMutation.isPending}
+                            disabled={createProjectMutation.isPending || (isSystemAdmin && !newProjectAdminUserId)}
                           >
                             确定
                           </button>
@@ -829,16 +828,16 @@ export function AppShell() {
                 </button>
               </header>
               <div className="notification-center-toolbar">
-                <select
+                <Select
                   className="compact-select"
+                  ariaLabel="通知筛选"
                   value={notificationCenterFilter}
-                  onChange={(event) =>
-                    setNotificationCenterFilter(event.target.value as typeof notificationCenterFilter)
-                  }
-                >
-                  <option value="ALL">全部</option>
-                  <option value="UNREAD">未读</option>
-                </select>
+                  onChange={(value) => setNotificationCenterFilter(value as typeof notificationCenterFilter)}
+                  options={[
+                    { value: "ALL", label: "全部" },
+                    { value: "UNREAD", label: "未读" }
+                  ]}
+                />
                 <button
                   className="subtle-button"
                   type="button"

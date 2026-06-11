@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { CopyableInviteLink } from "../../components/shared/CopyableInviteLink";
 import { MutationError } from "../../components/shared/MutationError";
+import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { activityApi, invitationApi, projectApi, systemApi, teamApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
@@ -274,13 +275,14 @@ export function TeamDetailPage() {
               placeholder="成员邮箱"
               required
             />
-            <select
+            <Select
               value={inviteRole}
-              onChange={(event) => setInviteRole(event.target.value as typeof inviteRole)}
-            >
-              <option value="MEMBER">MEMBER</option>
-              <option value="ADMIN">ADMIN</option>
-            </select>
+              onChange={(value) => setInviteRole(value as typeof inviteRole)}
+              options={[
+                { value: "MEMBER", label: "MEMBER" },
+                { value: "ADMIN", label: "ADMIN" }
+              ]}
+            />
             <button type="submit" disabled={createInvitationMutation.isPending}>
               创建邀请
             </button>
@@ -344,13 +346,14 @@ export function TeamDetailPage() {
               placeholder="成员邮箱"
               required
             />
-            <select
+            <Select
               value={role}
-              onChange={(event) => setRole(event.target.value as typeof role)}
-            >
-              <option value="MEMBER">MEMBER</option>
-              <option value="ADMIN">ADMIN</option>
-            </select>
+              onChange={(value) => setRole(value as typeof role)}
+              options={[
+                { value: "MEMBER", label: "MEMBER" },
+                { value: "ADMIN", label: "ADMIN" }
+              ]}
+            />
             <button type="submit" disabled={addMemberMutation.isPending}>添加</button>
           </form>
           <MutationError error={addMemberMutation.error} />
@@ -368,19 +371,20 @@ export function TeamDetailPage() {
                 <span>{member.user.email}</span>
               </div>
               {canManageTeam ? (
-                <select
+                <Select
                   value={member.role}
                   disabled={updateRoleMutation.isPending}
-                  onChange={(event) =>
+                  onChange={(value) =>
                     updateRoleMutation.mutate({
                       userId: member.user.id,
-                      role: event.target.value as "ADMIN" | "MEMBER"
+                      role: value as "ADMIN" | "MEMBER"
                     })
                   }
-                >
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="MEMBER">MEMBER</option>
-                </select>
+                  options={[
+                    { value: "ADMIN", label: "ADMIN" },
+                    { value: "MEMBER", label: "MEMBER" }
+                  ]}
+                />
               ) : (
                 <span className="role-pill">{member.role}</span>
               )}

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
+import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
@@ -882,31 +883,37 @@ export function ProjectGanttPage() {
           onChange={(event) => setTaskSearch(event.target.value)}
           placeholder="搜索任务、负责人或标签"
         />
-        <select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
-          <option value="ALL">全部负责人</option>
-          <option value="UNASSIGNED">未分配</option>
-          {(membersQuery.data ?? []).map((member) => (
-            <option key={member.user.id} value={member.user.id}>
-              {member.user.name}
-            </option>
-          ))}
-        </select>
-        <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
-          <option value="ALL">全部优先级</option>
-          {PRIORITY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <select
+        <Select
+          value={assigneeFilter}
+          onChange={setAssigneeFilter}
+          options={[
+            { value: "ALL", label: "全部负责人" },
+            { value: "UNASSIGNED", label: "未分配" },
+            ...(membersQuery.data ?? []).map((member) => ({
+              value: member.user.id,
+              label: member.user.name,
+              description: member.user.email,
+              user: member.user
+            }))
+          ]}
+        />
+        <Select
+          value={priorityFilter}
+          onChange={setPriorityFilter}
+          options={[
+            { value: "ALL", label: "全部优先级" },
+            ...PRIORITY_OPTIONS.map((option) => ({ ...option, priority: option.value }))
+          ]}
+        />
+        <Select
           value={completionFilter}
-          onChange={(event) => setCompletionFilter(event.target.value as typeof completionFilter)}
-        >
-          <option value="ALL">全部完成状态</option>
-          <option value="OPEN">未完成</option>
-          <option value="DONE">已完成</option>
-        </select>
+          onChange={(value) => setCompletionFilter(value as typeof completionFilter)}
+          options={[
+            { value: "ALL", label: "全部完成状态" },
+            { value: "OPEN", label: "未完成" },
+            { value: "DONE", label: "已完成" }
+          ]}
+        />
       </section>
       <section className="gantt-toolbar" aria-label="甘特图缩放">
         <span className="muted">缩放</span>

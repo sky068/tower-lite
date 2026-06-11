@@ -1,4 +1,13 @@
-import { expect, request, test, type APIRequestContext, type Browser, type Dialog, type Page } from "@playwright/test";
+import {
+  expect,
+  request,
+  test,
+  type APIRequestContext,
+  type Browser,
+  type Dialog,
+  type Locator,
+  type Page
+} from "@playwright/test";
 
 type ApiEnvelope<T> = {
   data: T;
@@ -59,6 +68,7 @@ let editor: UserFixture;
 let viewer: UserFixture;
 let teamId = "";
 let projectId = "";
+const cleanupProjectIds = new Set<string>();
 
 function apiPath(path: string) {
   return path.replace(/^\/+/, "");
@@ -86,6 +96,26 @@ async function apiRequest<T>(
   expect(response.status()).toBe(input.expectedStatus ?? 200);
 
   return (await response.json()) as ApiEnvelope<T>;
+}
+
+async function cleanupProject(projectIdToCleanup: string) {
+  if (!owner?.token || !teamId) {
+    return;
+  }
+
+  await api.fetch(apiPath(`/projects/${projectIdToCleanup}`), {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${owner.token}`
+    }
+  });
+
+  await api.fetch(apiPath(`/teams/${teamId}/project-trash/${projectIdToCleanup}`), {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${owner.token}`
+    }
+  });
 }
 
 async function registerUser(name: string): Promise<UserFixture> {
@@ -156,6 +186,17 @@ async function logout(page: Page) {
     .toBeNull();
 }
 
+function customSelectRoot(trigger: Locator) {
+  return trigger.locator(
+    "xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' custom-select ')][1]"
+  );
+}
+
+async function selectCustomOption(trigger: Locator, optionName: string | RegExp) {
+  await trigger.click();
+  await customSelectRoot(trigger).getByRole("option", { name: optionName }).click();
+}
+
 test.beforeAll(async () => {
   api = await request.newContext({
     baseURL: `http://127.0.0.1:${apiPort}/api/v1/`,
@@ -204,6 +245,7 @@ test.beforeAll(async () => {
     }
   });
   projectId = project.data.id;
+  cleanupProjectIds.add(projectId);
 
   await apiRequest("POST", `/projects/${projectId}/members`, {
     token: owner.token,
@@ -224,22 +266,18 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (projectId) {
-    await api.fetch(apiPath(`/projects/${projectId}`), {
-      method: "DELETE",
-      headers: {
-        authorization: `Bearer ${owner.token}`
-      }
-    });
+  for (const projectIdToCleanup of Array.from(cleanupProjectIds).reverse()) {
+    await cleanupProject(projectIdToCleanup);
   }
 
   if (teamId) {
-    await api.fetch(apiPath(`/teams/${teamId}`), {
+    const response = await api.fetch(apiPath(`/teams/${teamId}`), {
       method: "DELETE",
       headers: {
         authorization: `Bearer ${systemAdmin.token}`
       }
     });
+    expect(response.status()).toBe(200);
   }
 
   await api.dispose();
@@ -269,6 +307,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
       name: `E2E Purge Project ${runId}`
     }
   })).data;
+  cleanupProjectIds.add(purgeProject.id);
   await apiRequest("DELETE", `/projects/${purgeProject.id}`, {
     token: owner.token
   });
@@ -279,6 +318,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
       name: `E2E Restorable Project ${runId}`
     }
   })).data;
+  cleanupProjectIds.add(restorableProject.id);
   await apiRequest("DELETE", `/projects/${restorableProject.id}`, {
     token: owner.token
   });
@@ -327,7 +367,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(teamProjectTrash.getByText(restorableProject.name)).toHaveCount(0);
   await teamProjectTrash.getByRole("button", { name: "关闭" }).click();
   await expect(page.getByRole("link", { name: new RegExp(restorableProject.name) })).toBeVisible();
-  await expect(page.getByText(`E2E Project ${runId}`)).toBeVisible();
+  await expect(page.getByRole("link", { name: new RegExp(`E2E Project ${escapeRegExp(runId)}`) })).toBeVisible();
   await page.goto(`/projects/${projectId}/board`);
   await expect(page.getByRole("heading", { name: `E2E Project ${runId}` })).toBeVisible();
   const projectMenu = page.getByRole("navigation", { name: "项目菜单" });
@@ -367,7 +407,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(modal).toBeVisible();
   await modal.getByLabel("标题").fill(taskTitle);
   await modal.getByLabel("描述").fill("Created by Playwright through the real frontend.");
-  await modal.getByLabel("优先级").selectOption("HIGH");
+  await selectCustomOption(modal.getByLabel("优先级"), "高");
   await modal.getByLabel("开始日期").fill(taskStartDate);
   await modal.getByLabel("截止日期").fill(taskDueDate);
   await modal.getByLabel("E2E Editor").check();
@@ -385,15 +425,15 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
 
   await taskCard.click();
   await expect(page).toHaveURL(new RegExp(`/tasks/${taskId}$`));
-  const detail = page.getByLabel("任务详情");
+  const detail = page.getByRole("region", { name: "任务详情" });
   await expect(detail).toBeVisible();
   await expect(detail.getByRole("heading", { name: taskTitle })).toBeVisible();
   await detail.getByLabel("描述").fill("Updated by Playwright in task detail.");
-  await detail.getByLabel("优先级").selectOption("URGENT");
+  await selectCustomOption(detail.getByLabel("优先级"), "紧急");
   await detail.getByRole("button", { name: "保存" }).click();
   await expect(detail.getByText("已保存")).toBeVisible();
-  await expect(detail.getByLabel("优先级")).toHaveValue("URGENT");
-  await detail.getByRole("button", { name: "关闭" }).click();
+  await expect(detail.getByLabel("优先级")).toContainText("紧急");
+  await detail.getByRole("button", { name: "关闭任务详情" }).click();
   await expect(detail).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
   await expect(page.getByRole("button", { name: new RegExp("紧急") }).first()).toBeVisible();
@@ -429,7 +469,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
       .filter({ hasText: "Owner comment from E2E @E2E Editor" })
       .getByText("Owner comment from E2E @E2E Editor")
   ).toBeVisible();
-  await detail.getByRole("button", { name: "关闭" }).click();
+  await detail.getByRole("button", { name: "关闭任务详情" }).click();
   await expect(detail).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
   await page.getByPlaceholder("搜索任务、负责人或标签").fill(secondLevelSubTaskTitle);
@@ -449,7 +489,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(taskListHead.getByText("截止时间", { exact: true })).toBeVisible();
   await expect(taskListHead.getByText("负责人", { exact: true })).toBeVisible();
   await expect(page.getByPlaceholder("搜索任务、负责人或标签")).toBeVisible();
-  await expect(page.locator(".board-filters select").first()).toHaveValue("ALL");
+  await expect(page.locator(".board-filters .custom-select-trigger").first()).toContainText("全部负责人");
   await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "设置" }).click();
   await expect(page.getByRole("heading", { name: "项目设置" })).toBeVisible();
   await page.getByRole("button", { name: `← 返回 E2E Project ${runId}` }).click();
@@ -465,7 +505,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await defaultListTaskTitles.filter({ hasText: taskTitle }).click();
   await expect(page).toHaveURL(new RegExp(`/tasks/${taskId}$`));
   await expect(detail).toBeVisible();
-  await detail.getByRole("button", { name: "关闭" }).click();
+  await detail.getByRole("button", { name: "关闭任务详情" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/list$`));
   await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/gantt$`));
@@ -575,10 +615,10 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
 
   await customColumn.getByRole("button", { name: new RegExp(taskTitle) }).click();
   await expect(detail).toBeVisible();
-  await detail.getByLabel("状态").selectOption("DONE");
+  await selectCustomOption(detail.getByLabel("状态"), "已完成");
   await detail.getByRole("button", { name: "保存" }).click();
   await expect(detail.getByText("已保存")).toBeVisible();
-  await detail.getByRole("button", { name: "关闭" }).click();
+  await detail.getByRole("button", { name: "关闭任务详情" }).click();
   await expect(detail).toBeHidden();
   await expect(
     customColumn.getByRole("button", { name: new RegExp(`${escapeRegExp(owner.name)}.*今天完成`) })
@@ -592,9 +632,10 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
     has: editorPage.getByRole("heading", { name: "我的任务" })
   }).first();
   const myTaskProjectFilter = myTasksPanel.getByLabel("我的任务项目筛选");
-  await expect(myTaskProjectFilter).toHaveValue("ALL");
-  await expect(myTaskProjectFilter.getByRole("option", { name: `E2E Project ${runId}` })).toHaveCount(1);
-  await myTaskProjectFilter.selectOption({ label: `E2E Project ${runId}` });
+  await expect(myTaskProjectFilter).toContainText("全部项目");
+  await myTaskProjectFilter.click();
+  await expect(customSelectRoot(myTaskProjectFilter).getByRole("option", { name: `E2E Project ${runId}` })).toHaveCount(1);
+  await customSelectRoot(myTaskProjectFilter).getByRole("option", { name: `E2E Project ${runId}` }).click();
   const assignedFirstLevelLinks = myTasksPanel.getByRole("link", {
     name: new RegExp(`^${escapeRegExp(subTaskTitle)}\\b`)
   });
@@ -617,8 +658,9 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(myTaskLink).toBeVisible();
   await myTaskLink.click();
   await expect(editorPage).toHaveURL(new RegExp(`/tasks/${taskId}$`));
-  await expect(editorPage.getByLabel("任务详情")).toBeVisible();
-  await editorPage.getByRole("button", { name: "关闭" }).click();
+  const editorDetail = editorPage.getByRole("region", { name: "任务详情" });
+  await expect(editorDetail).toBeVisible();
+  await editorDetail.getByRole("button", { name: "关闭任务详情" }).click();
   await expect(editorPage).toHaveURL(/\/dashboard$/);
   await expect(editorPage.getByRole("heading", { name: "工作台" })).toBeVisible();
   await editorPage.getByRole("button", { name: "通知" }).click();
@@ -655,7 +697,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
 
   await editorPage.goto(`/tasks/${taskId}`);
   await expect(editorPage.getByRole("link", { name: "返回工作台" })).toBeVisible();
-  await editorPage.getByRole("button", { name: "关闭" }).click();
+  await editorPage.getByRole("region", { name: "任务详情" }).getByRole("button", { name: "关闭任务详情" }).click();
   await expect(editorPage).toHaveURL(/\/dashboard$/);
 
   await editorPage.goto(`/projects/${projectId}/board`);
@@ -719,7 +761,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(page.getByText("这个项目已归档，不能修改任务、子任务、标签或评论。")).toBeVisible();
   await expect(page.getByRole("button", { name: "创建子任务" })).toBeDisabled();
   await expect(page.getByRole("button", { name: "删除任务" })).toBeDisabled();
-  await page.getByRole("button", { name: "关闭" }).click();
+  await page.getByRole("region", { name: "任务详情" }).getByRole("button", { name: "关闭任务详情" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 
   await logout(page);

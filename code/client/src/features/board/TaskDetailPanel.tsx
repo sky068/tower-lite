@@ -3,6 +3,7 @@ import { Pencil, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
+import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
@@ -796,46 +797,31 @@ export function TaskDetailPanel({
                 </div>
                 <label>
                   <span className="status-field-label">状态</span>
-                  <select
+                  <Select
                     value={status}
                     disabled={readOnly}
-                    onChange={(event) => setStatus(event.target.value as TaskStatus)}
-                  >
-                    {TASK_STATUS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => setStatus(value as TaskStatus)}
+                    options={TASK_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                  />
                 </label>
                 <div className="detail-form-row">
                   <label>
                     优先级
-                    <select
+                    <Select
                       value={priority}
                       disabled={readOnly}
-                      onChange={(event) => setPriority(event.target.value as typeof priority)}
-                    >
-                      {PRIORITY_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(value) => setPriority(value as typeof priority)}
+                      options={PRIORITY_OPTIONS.map((option) => ({ ...option, priority: option.value }))}
+                    />
                   </label>
                   <label>
                     清单
-                    <select
+                    <Select
                       value={taskListId || task.taskListId}
                       disabled={readOnly || moveTaskMutation.isPending}
-                      onChange={(event) => setTaskListId(event.target.value)}
-                    >
-                      {lists.map((list) => (
-                        <option key={list.id} value={list.id}>
-                          {list.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setTaskListId}
+                      options={lists.map((list) => ({ value: list.id, label: list.name }))}
+                    />
                   </label>
                 </div>
                 <div className="detail-form-row">
@@ -1041,30 +1027,20 @@ export function TaskDetailPanel({
                     placeholder="新增子任务"
                     disabled={!canCreateSubTask}
                   />
-                  <select
+                  <Select
                     aria-label="子任务状态"
                     value={subTaskStatus}
-                    onChange={(event) => setSubTaskStatus(event.target.value as TaskStatus)}
+                    onChange={(value) => setSubTaskStatus(value as TaskStatus)}
                     disabled={!canCreateSubTask}
-                  >
-                    {TASK_STATUS_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
+                    options={TASK_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                  />
+                  <Select
                     aria-label="子任务清单"
                     value={subTaskListId || task.taskListId}
-                    onChange={(event) => setSubTaskListId(event.target.value)}
+                    onChange={setSubTaskListId}
                     disabled={!canCreateSubTask}
-                  >
-                    {lists.map((list) => (
-                      <option key={list.id} value={list.id}>
-                        {list.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={lists.map((list) => ({ value: list.id, label: list.name }))}
+                  />
                   <DateInputBox
                     ariaLabel="子任务开始日期"
                     value={subTaskStartDate}

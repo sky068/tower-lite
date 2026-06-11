@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { Select } from "../../components/shared/Select";
 import { userApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
 import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
@@ -287,19 +288,16 @@ export function DashboardPage() {
           <div className="panel-title-row">
             <h2>我的任务</h2>
             <div className="panel-title-actions">
-              <select
+              <Select
                 className="project-filter-select"
-                aria-label="我的任务项目筛选"
+                ariaLabel="我的任务项目筛选"
                 value={taskProjectFilter}
-                onChange={(event) => setTaskProjectFilter(event.target.value)}
-              >
-                <option value="ALL">全部项目</option>
-                {myTaskProjects.map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
+                onChange={setTaskProjectFilter}
+                options={[
+                  { value: "ALL", label: "全部项目" },
+                  ...myTaskProjects.map((project) => ({ value: project.id, label: project.name }))
+                ]}
+              />
               <div className="status-tabs" role="tablist" aria-label="我的任务状态筛选">
                 {taskStatusTabs.map((tab) => (
                   <button

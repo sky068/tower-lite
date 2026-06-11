@@ -5,7 +5,9 @@ import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { CopyableInviteLink } from "../../components/shared/CopyableInviteLink";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
+import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
+import { UserSelect } from "../../components/shared/UserSelect";
 import { activityApi, invitationApi, projectApi, systemApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { getProjectPermissions } from "../../lib/permissions";
@@ -377,23 +379,25 @@ export function ProjectSettingsPage() {
             disabled={!canManageProject}
             required
           />
-          <select
+          <Select
             value={inviteProjectRole}
             disabled={!canManageProject}
-            onChange={(event) => setInviteProjectRole(event.target.value as typeof inviteProjectRole)}
-          >
-            <option value="ADMIN">项目 ADMIN</option>
-            <option value="EDITOR">项目 EDITOR</option>
-            <option value="VIEWER">项目 VIEWER</option>
-          </select>
-          <select
+            onChange={(value) => setInviteProjectRole(value as typeof inviteProjectRole)}
+            options={[
+              { value: "ADMIN", label: "项目 ADMIN" },
+              { value: "EDITOR", label: "项目 EDITOR" },
+              { value: "VIEWER", label: "项目 VIEWER" }
+            ]}
+          />
+          <Select
             value={inviteTeamRole}
             disabled={!canManageProject}
-            onChange={(event) => setInviteTeamRole(event.target.value as typeof inviteTeamRole)}
-          >
-            <option value="MEMBER">团队 MEMBER</option>
-            <option value="ADMIN">团队 ADMIN</option>
-          </select>
+            onChange={(value) => setInviteTeamRole(value as typeof inviteTeamRole)}
+            options={[
+              { value: "MEMBER", label: "团队 MEMBER" },
+              { value: "ADMIN", label: "团队 ADMIN" }
+            ]}
+          />
           <button type="submit" disabled={!canManageProject || createInvitationMutation.isPending}>
             创建邀请
           </button>
@@ -447,28 +451,23 @@ export function ProjectSettingsPage() {
       <section className="panel">
         <h2>直接添加已有团队成员</h2>
         <form className="settings-form inline" onSubmit={handleAddMember}>
-          <select
+          <UserSelect
             value={memberUserId}
-            onChange={(event) => setMemberUserId(event.target.value)}
-            required
+            onChange={setMemberUserId}
             disabled={!canManageProject || availableTeamMembers.length === 0}
-          >
-            <option value="">选择团队成员</option>
-            {availableTeamMembers.map((member) => (
-              <option key={member.user.id} value={member.user.id}>
-                {member.user.name} / {member.user.email}
-              </option>
-            ))}
-          </select>
-          <select
+            placeholder="选择团队成员"
+            users={availableTeamMembers.map((member) => member.user)}
+          />
+          <Select
             value={memberRole}
             disabled={!canManageProject}
-            onChange={(event) => setMemberRole(event.target.value as typeof memberRole)}
-          >
-            <option value="ADMIN">ADMIN</option>
-            <option value="EDITOR">EDITOR</option>
-            <option value="VIEWER">VIEWER</option>
-          </select>
+            onChange={(value) => setMemberRole(value as typeof memberRole)}
+            options={[
+              { value: "ADMIN", label: "ADMIN" },
+              { value: "EDITOR", label: "EDITOR" },
+              { value: "VIEWER", label: "VIEWER" }
+            ]}
+          />
           <button
             type="submit"
             disabled={!canManageProject || addMemberMutation.isPending || availableTeamMembers.length === 0}
@@ -493,20 +492,21 @@ export function ProjectSettingsPage() {
                 <strong>{member.user.name}</strong>
                 <span>{member.user.email}</span>
               </div>
-              <select
+              <Select
                 value={member.role}
                 disabled={!canManageProject || updateRoleMutation.isPending}
-                onChange={(event) =>
+                onChange={(value) =>
                   updateRoleMutation.mutate({
                     userId: member.user.id,
-                    role: event.target.value as "ADMIN" | "EDITOR" | "VIEWER"
+                    role: value as "ADMIN" | "EDITOR" | "VIEWER"
                   })
                 }
-              >
-                <option value="ADMIN">ADMIN</option>
-                <option value="EDITOR">EDITOR</option>
-                <option value="VIEWER">VIEWER</option>
-              </select>
+                options={[
+                  { value: "ADMIN", label: "ADMIN" },
+                  { value: "EDITOR", label: "EDITOR" },
+                  { value: "VIEWER", label: "VIEWER" }
+                ]}
+              />
               <button
                 className="danger-button"
                 type="button"
@@ -537,20 +537,13 @@ export function ProjectSettingsPage() {
         <section className="panel">
           <div className="panel-title-row">
             <h2>飞书通知投递</h2>
-            <select
+            <Select
               className="project-filter-select"
               aria-label="飞书投递状态筛选"
               value={feishuDeliveryStatusFilter}
-              onChange={(event) =>
-                setFeishuDeliveryStatusFilter(event.target.value as typeof feishuDeliveryStatusFilter)
-              }
-            >
-              {feishuDeliveryStatusFilters.map((filter) => (
-                <option key={filter.value} value={filter.value}>
-                  {filter.label}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setFeishuDeliveryStatusFilter(value as typeof feishuDeliveryStatusFilter)}
+              options={feishuDeliveryStatusFilters.map((filter) => ({ value: filter.value, label: filter.label }))}
+            />
           </div>
           <form className="activity-clear-form delivery-clear-form" onSubmit={handleClearFeishuDeliveries}>
             <label>
@@ -575,16 +568,14 @@ export function ProjectSettingsPage() {
             </label>
             <label>
               清理状态
-              <select
+              <Select
                 value={feishuClearStatus}
-                onChange={(event) => setFeishuClearStatus(event.target.value as FeishuDeliveryClearStatus)}
-              >
-                {feishuDeliveryClearStatusOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => setFeishuClearStatus(value as FeishuDeliveryClearStatus)}
+                options={feishuDeliveryClearStatusOptions.map((option) => ({
+                  value: option.value,
+                  label: option.label
+                }))}
+              />
             </label>
             <button
               className="danger-button"

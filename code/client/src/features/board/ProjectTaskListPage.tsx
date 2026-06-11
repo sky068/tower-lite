@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
+import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
@@ -487,31 +488,37 @@ export function ProjectTaskListPage() {
           onChange={(event) => setTaskSearch(event.target.value)}
           placeholder="搜索任务、负责人或标签"
         />
-        <select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
-          <option value="ALL">全部负责人</option>
-          <option value="UNASSIGNED">未分配</option>
-          {assignableMembers.map((member) => (
-            <option key={member.user.id} value={member.user.id}>
-              {member.user.name}
-            </option>
-          ))}
-        </select>
-        <select value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
-          <option value="ALL">全部优先级</option>
-          {PRIORITY_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <select
+        <Select
+          value={assigneeFilter}
+          onChange={setAssigneeFilter}
+          options={[
+            { value: "ALL", label: "全部负责人" },
+            { value: "UNASSIGNED", label: "未分配" },
+            ...assignableMembers.map((member) => ({
+              value: member.user.id,
+              label: member.user.name,
+              description: member.user.email,
+              user: member.user
+            }))
+          ]}
+        />
+        <Select
+          value={priorityFilter}
+          onChange={setPriorityFilter}
+          options={[
+            { value: "ALL", label: "全部优先级" },
+            ...PRIORITY_OPTIONS.map((option) => ({ ...option, priority: option.value }))
+          ]}
+        />
+        <Select
           value={completionFilter}
-          onChange={(event) => setCompletionFilter(event.target.value as typeof completionFilter)}
-        >
-          <option value="ALL">全部完成状态</option>
-          <option value="OPEN">未完成</option>
-          <option value="DONE">已完成</option>
-        </select>
+          onChange={(value) => setCompletionFilter(value as typeof completionFilter)}
+          options={[
+            { value: "ALL", label: "全部完成状态" },
+            { value: "OPEN", label: "未完成" },
+            { value: "DONE", label: "已完成" }
+          ]}
+        />
       </section>
       <section className="project-task-list-view">
         {listsQuery.isLoading ? <span className="muted">列表加载中...</span> : null}
@@ -578,26 +585,19 @@ export function ProjectTaskListPage() {
               </label>
               <label>
                 状态
-                <select
+                <Select
                   value={newTaskStatus}
-                  onChange={(event) => setNewTaskStatus(event.target.value as TaskStatus)}
-                >
-                  {TASK_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => setNewTaskStatus(value as TaskStatus)}
+                  options={TASK_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                />
               </label>
               <label>
                 清单
-                <select value={newTaskListId} onChange={(event) => setNewTaskListId(event.target.value)}>
-                  {lists.map((list) => (
-                    <option key={list.id} value={list.id}>
-                      {list.name}
-                    </option>
-                  ))}
-                </select>
+                <Select
+                  value={newTaskListId}
+                  onChange={setNewTaskListId}
+                  options={lists.map((list) => ({ value: list.id, label: list.name }))}
+                />
               </label>
               <fieldset className="checkbox-field">
                 <legend>指派给</legend>
@@ -622,16 +622,11 @@ export function ProjectTaskListPage() {
               </fieldset>
               <label>
                 优先级
-                <select
+                <Select
                   value={newTaskPriority}
-                  onChange={(event) => setNewTaskPriority(event.target.value as typeof newTaskPriority)}
-                >
-                  {PRIORITY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => setNewTaskPriority(value as typeof newTaskPriority)}
+                  options={PRIORITY_OPTIONS.map((option) => ({ ...option, priority: option.value }))}
+                />
               </label>
               <div className="form-grid-2">
                 <label>
