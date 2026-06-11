@@ -17,7 +17,8 @@ import {
   assertTaskListNameAvailable,
   assertTaskDeletable,
   assertV01SubTaskParent,
-  assertValidDateRange
+  assertValidDateRange,
+  normalizeTaskDateRange
 } from "./task.rules.js";
 import type {
   CreateCommentInput,
@@ -1238,7 +1239,8 @@ export async function reorderTaskLists(
 export async function createTask(userId: string, projectId: string, input: CreateTaskInput) {
   const { project } = await requireActiveProjectEditor(userId, projectId);
   const assigneeIds = normalizeAssigneeIds(input);
-  assertValidDateRange(input.startDate, input.dueDate);
+  const normalizedDates = normalizeTaskDateRange(input.startDate, input.dueDate);
+  assertValidDateRange(normalizedDates.startDate, normalizedDates.dueDate);
   const taskList = input.taskListId
     ? await assertTaskListInProject(input.taskListId, projectId)
     : await getOrCreateDefaultTaskList(projectId);
@@ -1253,8 +1255,8 @@ export async function createTask(userId: string, projectId: string, input: Creat
       description: input.description,
       status: taskStatus,
       priority: input.priority,
-      startDate: input.startDate,
-      dueDate: input.dueDate,
+      startDate: normalizedDates.startDate,
+      dueDate: normalizedDates.dueDate,
       taskListId: taskList.id,
       projectId,
       creatorId: userId,
@@ -1398,7 +1400,12 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
   const previousAssigneeIds = new Set([
     ...(previousAssigneeMap.get(taskId)?.map((assignee) => assignee.userId) ?? [])
   ]);
-  assertValidDateRange(input.startDate ?? task.startDate, input.dueDate ?? task.dueDate);
+  const shouldUpdateDates = input.startDate !== undefined || input.dueDate !== undefined;
+  const nextDates = normalizeTaskDateRange(
+    input.startDate !== undefined ? input.startDate : task.startDate,
+    input.dueDate !== undefined ? input.dueDate : task.dueDate
+  );
+  assertValidDateRange(nextDates.startDate, nextDates.dueDate);
   if (assigneeIds) {
     await assertAssigneesAreProjectMembers(assigneeIds, task.projectId, [...previousAssigneeIds]);
   }
@@ -1414,8 +1421,12 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
         description: input.description,
         status: input.status,
         priority: input.priority,
-        startDate: input.startDate,
-        dueDate: input.dueDate,
+        ...(shouldUpdateDates
+          ? {
+              startDate: nextDates.startDate,
+              dueDate: nextDates.dueDate
+            }
+          : {}),
         ...(input.status
           ? getCompletionPatch({
               nextStatus: input.status,

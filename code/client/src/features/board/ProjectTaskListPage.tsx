@@ -145,10 +145,15 @@ function TaskTreeRow({
   const children = childrenByParentId.get(task.id) ?? [];
   const hasChildren = children.length > 0;
   const completedSubTaskCount = children.filter((child) => child.status === "DONE" || child.completedAt).length;
+  const rowClassName = [
+    "project-task-list-row",
+    depth === 0 ? "root" : "child",
+    task.completedAt ? "completed" : null
+  ].filter(Boolean).join(" ");
 
   return (
     <div className="project-task-list-node">
-      <div className={task.completedAt ? "project-task-list-row completed" : "project-task-list-row"}>
+      <div className={rowClassName}>
         <span className="project-task-title-cell" style={{ paddingLeft: `${depth * 22}px` }}>
           {hasChildren ? (
             <button

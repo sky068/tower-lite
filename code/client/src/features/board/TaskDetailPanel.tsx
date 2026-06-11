@@ -10,7 +10,7 @@ import { formatRelativeTime } from "../../lib/dateTime";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
 import { useAuthStore } from "../../stores/authStore";
-import type { TaskStatus } from "../../types/api";
+import type { Task, TaskDetail, TaskList, TaskStatus } from "../../types/api";
 
 type TaskDetailPanelProps = {
   projectId: string;
@@ -39,6 +39,46 @@ function AssigneeChip({ assignee }: { assignee: { name: string; avatarUrl: strin
       <span>{formatAssigneeName(assignee)}</span>
     </span>
   );
+}
+
+function DateInputBox({
+  ariaLabel,
+  disabled,
+  max,
+  min,
+  onChange,
+  value
+}: {
+  ariaLabel: string;
+  disabled?: boolean;
+  max?: string;
+  min?: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <span className="date-input-wrap">
+      <input
+        aria-label={ariaLabel}
+        className={value ? "date-input" : "date-input date-input-empty"}
+        type="date"
+        value={value}
+        min={min}
+        max={max}
+        disabled={disabled}
+        onClick={(event) => openDateInputPicker(event.currentTarget)}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {!value ? <span className="date-input-placeholder">未设置</span> : null}
+    </span>
+  );
+}
+
+function updateTaskInTaskLists(lists: TaskList[] | undefined, updatedTask: Task) {
+  return lists?.map((list) => ({
+    ...list,
+    tasks: list.tasks.map((task) => (task.id === updatedTask.id ? { ...task, ...updatedTask } : task))
+  }));
 }
 
 export function TaskDetailPanel({
@@ -341,7 +381,14 @@ export function TaskDetailPanel({
         startDate: startDate || null,
         dueDate: dueDate || null
       }),
-    onSuccess: async () => {
+    onSuccess: async (updatedTask) => {
+      queryClient.setQueryData<TaskDetail>(["task", activeTaskId], (current) =>
+        current ? { ...current, ...updatedTask } : current
+      );
+      queryClient.setQueryData<TaskList[]>(["project-task-list", projectId], (current) =>
+        updateTaskInTaskLists(current, updatedTask)
+      );
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] }),
         queryClient.invalidateQueries({ queryKey: ["board", projectId] }),
@@ -793,24 +840,22 @@ export function TaskDetailPanel({
                 </label>
                 <label>
                   开始日期
-                  <input
-                    type="date"
+                  <DateInputBox
+                    ariaLabel="开始日期"
                     value={startDate}
                     max={dueDate || undefined}
                     disabled={readOnly}
-                    onClick={(event) => openDateInputPicker(event.currentTarget)}
-                    onChange={(event) => setStartDate(event.target.value)}
+                    onChange={setStartDate}
                   />
                 </label>
                 <label>
                   截止日期
-                  <input
-                    type="date"
+                  <DateInputBox
+                    ariaLabel="截止日期"
                     value={dueDate}
                     min={startDate || undefined}
                     disabled={readOnly}
-                    onClick={(event) => openDateInputPicker(event.currentTarget)}
-                    onChange={(event) => setDueDate(event.target.value)}
+                    onChange={setDueDate}
                   />
                 </label>
                 {dateError ? <span className="form-error inline-error">{dateError}</span> : null}
@@ -1018,23 +1063,19 @@ export function TaskDetailPanel({
                       </option>
                     ))}
                   </select>
-                  <input
-                    aria-label="子任务开始日期"
-                    type="date"
+                  <DateInputBox
+                    ariaLabel="子任务开始日期"
                     value={subTaskStartDate}
                     max={subTaskDueDate || undefined}
-                    onClick={(event) => openDateInputPicker(event.currentTarget)}
-                    onChange={(event) => setSubTaskStartDate(event.target.value)}
                     disabled={!canCreateSubTask}
+                    onChange={setSubTaskStartDate}
                   />
-                  <input
-                    aria-label="子任务截止日期"
-                    type="date"
+                  <DateInputBox
+                    ariaLabel="子任务截止日期"
                     value={subTaskDueDate}
                     min={subTaskStartDate || undefined}
-                    onClick={(event) => openDateInputPicker(event.currentTarget)}
-                    onChange={(event) => setSubTaskDueDate(event.target.value)}
                     disabled={!canCreateSubTask}
+                    onChange={setSubTaskDueDate}
                   />
                   <div className="assignee-dropdown subtask-assignee-field" ref={subTaskAssigneeDropdownRef}>
                     <button

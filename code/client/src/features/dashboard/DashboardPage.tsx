@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
@@ -21,6 +22,7 @@ const taskStatusTabs = [
 
 const defaultTeamStorageKey = "tower.dashboard.defaultTeamId";
 const defaultProjectStorageKey = "tower.dashboard.defaultProjects";
+const myTaskExpandedStorageKey = "tower.dashboard.myTaskTreeExpanded";
 
 function readStoredDefaultTeamId() {
   return localStorage.getItem(defaultTeamStorageKey);
@@ -43,6 +45,18 @@ function writeStoredDefaultProject(teamId: string, projectId: string) {
   return nextDefaults;
 }
 
+function readStoredMyTaskExpanded() {
+  try {
+    return JSON.parse(localStorage.getItem(myTaskExpandedStorageKey) ?? "{}") as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredMyTaskExpanded(nextExpanded: Record<string, boolean>) {
+  localStorage.setItem(myTaskExpandedStorageKey, JSON.stringify(nextExpanded));
+}
+
 function formatCompletedByName(completedBy: MyTask["completedBy"]) {
   if (!completedBy) {
     return "未知成员";
@@ -55,49 +69,126 @@ function formatDeletedBy(user: { name: string; email: string } | null) {
   return user ? `${user.name} / ${user.email}` : "未知成员";
 }
 
-function MyTaskLink({
-  task,
-  depth,
+function formatMyTaskDate(task: MyTask) {
+  return task.dueDate ? formatCalendarDate(task.dueDate) : "-";
+}
+
+function MyTaskTreeRow({
+  node,
   backgroundLocation,
   returnTo,
-  isContextOnly = false
+  expanded,
+  onToggle
 }: {
-  task: MyTask;
-  depth: 0 | 1;
+  node: MyTaskTreeNode;
   backgroundLocation: ReturnType<typeof useLocation>;
   returnTo: string;
-  isContextOnly?: boolean;
+  expanded: Record<string, boolean>;
+  onToggle: (nodeKey: string) => void;
 }) {
-  const className = [
-    "list-row",
-    "task-tree-row",
-    depth === 1 ? "child" : null,
+  const task = node.task;
+  const childTasks = node.children.filter((child) => child.isAssignedToMe);
+  const hasChildren = childTasks.length > 0;
+  const isExpanded = expanded[node.key] ?? true;
+  const isContextOnly = !task.isAssignedToMe;
+  const completedSubTaskCount = childTasks.filter((child) => child.completedAt).length;
+  const rowClassName = [
+    "project-task-list-row",
+    "dashboard-task-list-row",
+    "root",
+    task.completedAt ? "completed" : null,
     isContextOnly ? "context" : null
   ].filter(Boolean).join(" ");
-  const completionText = task.completedAt
-    ? `${formatCompletedByName(task.completedBy)} ${formatCalendarDate(task.completedAt)}完成`
-    : null;
 
   return (
-    <Link
-      className={className}
-      to={`/tasks/${task.id}`}
-      state={{ backgroundLocation, returnTo }}
-    >
-      <div className="row-main">
-        <strong>{task.title}</strong>
-        <span>
-          {isContextOnly ? "父任务 / " : ""}
-          {depth === 1 ? `子任务 / ${task.parentTask?.title ?? "父任务"} / ` : ""}
-          {task.project.name} / {task.taskList.name}
+    <div className="project-task-list-node">
+      <div className={rowClassName}>
+        <span className="project-task-title-cell">
+          {hasChildren ? (
+            <button
+              className="tree-toggle-button"
+              type="button"
+              aria-label={`${isExpanded ? "收起" : "展开"}${task.title}`}
+              aria-expanded={isExpanded}
+              onClick={() => onToggle(node.key)}
+            >
+              {isExpanded ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+            </button>
+          ) : (
+            <span className="tree-spacer" />
+          )}
+          <Link className="project-task-title-button" to={`/tasks/${task.id}`} state={{ backgroundLocation, returnTo }}>
+            <span>{task.title}</span>
+            {hasChildren ? (
+              <span className="project-task-subtask-count">
+                ({completedSubTaskCount}/{childTasks.length})
+              </span>
+            ) : null}
+          </Link>
+        </span>
+        <span
+          className={`${getPriorityClassName(task.priority)} project-task-priority-square`}
+          title={getPriorityLabel(task.priority)}
+        >
+          {getPriorityLabel(task.priority)}
+        </span>
+        <span className="project-task-date-cell">
+          {task.completedAt ? (
+            <span className="task-completion-meta">
+              {formatCompletedByName(task.completedBy)} {formatCalendarDate(task.completedAt)}完成
+            </span>
+          ) : (
+            formatMyTaskDate(task)
+          )}
+        </span>
+        <span className="dashboard-task-context-cell">
+          {isContextOnly ? <span className="dashboard-task-context-label">父任务</span> : null}
+          <span>{task.project.name}</span>
+          <span>{task.taskList.name}</span>
         </span>
       </div>
-      {completionText ? <span className="task-completion-meta">{completionText}</span> : null}
-      <span className={getPriorityClassName(task.priority)}>
-        {getPriorityLabel(task.priority)}
-      </span>
-      <span>{task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "无截止"}</span>
-    </Link>
+      {hasChildren && isExpanded ? (
+        <div className="project-task-list-node">
+          {childTasks.map((child) => (
+            <div
+              className={[
+                "project-task-list-row",
+                "dashboard-task-list-row",
+                "child",
+                child.completedAt ? "completed" : null
+              ].filter(Boolean).join(" ")}
+              key={child.id}
+            >
+              <span className="project-task-title-cell" style={{ paddingLeft: "22px" }}>
+                <span className="tree-spacer" />
+                <Link className="project-task-title-button" to={`/tasks/${child.id}`} state={{ backgroundLocation, returnTo }}>
+                  <span>{child.title}</span>
+                </Link>
+              </span>
+              <span
+                className={`${getPriorityClassName(child.priority)} project-task-priority-square`}
+                title={getPriorityLabel(child.priority)}
+              >
+                {getPriorityLabel(child.priority)}
+              </span>
+              <span className="project-task-date-cell">
+                {child.completedAt ? (
+                  <span className="task-completion-meta">
+                    {formatCompletedByName(child.completedBy)} {formatCalendarDate(child.completedAt)}完成
+                  </span>
+                ) : (
+                  formatMyTaskDate(child)
+                )}
+              </span>
+              <span className="dashboard-task-context-cell">
+                <span>{child.project.name}</span>
+                <span>{child.taskList.name}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -113,6 +204,7 @@ export function DashboardPage() {
   const [taskSearch, setTaskSearch] = useState("");
   const [taskProjectFilter, setTaskProjectFilter] = useState("ALL");
   const [taskStatusFilter, setTaskStatusFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
+  const [myTaskExpanded, setMyTaskExpanded] = useState<Record<string, boolean>>(() => readStoredMyTaskExpanded());
   const [isProjectTrashOpen, setIsProjectTrashOpen] = useState(false);
 
   const teamsQuery = useQuery({
@@ -260,6 +352,16 @@ export function DashboardPage() {
 
     return nodes;
   }, [myTaskDisplay]);
+  const toggleMyTaskNode = (nodeKey: string) => {
+    setMyTaskExpanded((current) => {
+      const next = {
+        ...current,
+        [nodeKey]: !(current[nodeKey] ?? true)
+      };
+      writeStoredMyTaskExpanded(next);
+      return next;
+    });
+  };
   const createTeamMutation = useMutation({
     mutationFn: teamApi.create,
     onSuccess: (team) => {
@@ -531,33 +633,23 @@ export function DashboardPage() {
             onChange={(event) => setTaskSearch(event.target.value)}
             placeholder="搜索任务、项目或清单"
           />
-          <div className="list dashboard-scroll-list">
+          <div className="project-task-list-table dashboard-task-list-table dashboard-scroll-list">
+            <div className="project-task-list-head dashboard-task-list-head">
+              <span>任务标题</span>
+              <span>优先级</span>
+              <span>截止时间</span>
+              <span>项目 / 清单</span>
+            </div>
             {myTasksQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
             {myTaskTree.map((node) => (
-              <div className="task-tree-node" key={node.key}>
-                <MyTaskLink
-                  task={node.task}
-                  depth={0}
-                  backgroundLocation={location}
-                  returnTo={location.pathname}
-                  isContextOnly={!node.task.isAssignedToMe}
-                />
-                {node.children.length > 0 ? (
-                  <div className="task-tree-children">
-                    {node.children
-                      .filter((child) => child.isAssignedToMe)
-                      .map((child) => (
-                        <MyTaskLink
-                          key={child.id}
-                          task={child}
-                          depth={1}
-                          backgroundLocation={location}
-                          returnTo={location.pathname}
-                        />
-                      ))}
-                  </div>
-                ) : null}
-              </div>
+              <MyTaskTreeRow
+                backgroundLocation={location}
+                expanded={myTaskExpanded}
+                key={node.key}
+                node={node}
+                onToggle={toggleMyTaskNode}
+                returnTo={location.pathname}
+              />
             ))}
             {!myTasksQuery.isLoading && myTaskTree.length === 0 ? (
               <span className="muted">没有匹配的任务</span>

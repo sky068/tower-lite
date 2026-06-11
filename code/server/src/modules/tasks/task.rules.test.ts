@@ -7,7 +7,8 @@ import {
   assertTaskListNameAvailable,
   assertTaskDeletable,
   assertV01SubTaskParent,
-  assertValidDateRange
+  assertValidDateRange,
+  normalizeTaskDateRange
 } from "./task.rules.js";
 
 describe("task rules", () => {
@@ -26,6 +27,24 @@ describe("task rules", () => {
         error.code === "BUSINESS_RULE_VIOLATION" &&
         error.status === 422
     );
+  });
+
+  it("fills a missing task date from the provided date", () => {
+    const startOnlyDate = new Date("2026-06-03");
+    const dueOnlyDate = new Date("2026-06-04");
+
+    assert.deepEqual(normalizeTaskDateRange(startOnlyDate, null), {
+      startDate: startOnlyDate,
+      dueDate: startOnlyDate
+    });
+    assert.deepEqual(normalizeTaskDateRange(null, dueOnlyDate), {
+      startDate: dueOnlyDate,
+      dueDate: dueOnlyDate
+    });
+    assert.deepEqual(normalizeTaskDateRange(null, null), {
+      startDate: null,
+      dueDate: null
+    });
   });
 
   it("allows creating a subtask under a root task", () => {

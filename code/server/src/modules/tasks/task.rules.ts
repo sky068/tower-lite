@@ -6,6 +6,27 @@ export function assertValidDateRange(startDate?: Date | null, dueDate?: Date | n
   }
 }
 
+export function normalizeTaskDateRange(startDate?: Date | null, dueDate?: Date | null) {
+  if (startDate && !dueDate) {
+    return {
+      startDate,
+      dueDate: startDate
+    };
+  }
+
+  if (!startDate && dueDate) {
+    return {
+      startDate: dueDate,
+      dueDate
+    };
+  }
+
+  return {
+    startDate,
+    dueDate
+  };
+}
+
 export function assertV01SubTaskParent(parentTask: { depth: number }) {
   if (parentTask.depth >= 2) {
     throw new AppError(

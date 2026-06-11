@@ -472,7 +472,23 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
     "page"
   );
   await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText("未排期").first()).toBeVisible();
+  await expect(page.locator(".gantt-unscheduled").getByText(subTaskTitle)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: new RegExp(`${escapeRegExp(subTaskTitle)} 排期`) })).toHaveCount(0);
   await expect(page.getByRole("button", { name: new RegExp(taskTitle) }).first()).toBeVisible();
+  await page.getByPlaceholder("搜索任务、负责人或标签").fill(taskTitle);
+  await page.getByRole("button", { name: `折叠 ${taskTitle}` }).click();
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle)).toHaveCount(0);
+  await page.getByPlaceholder("搜索任务、负责人或标签").clear();
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle).first()).toBeVisible();
+  await page.getByRole("button", { name: `折叠 ${taskTitle}` }).click();
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle)).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle)).toHaveCount(0);
+  await page.getByRole("button", { name: `展开 ${taskTitle}` }).click();
+  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle).first()).toBeVisible();
   const ganttBar = page.getByRole("button", { name: new RegExp(`${escapeRegExp(taskTitle)} 排期`) });
   await expect(ganttBar).toHaveAttribute("data-reschedulable", "true");
   await expect(ganttBar.locator(".gantt-resize-handle.left")).toHaveCount(1);

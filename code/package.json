@@ -33,7 +33,8 @@
     "check:v0": "node scripts/check-v0.mjs",
     "prisma:generate": "npm run prisma:generate --workspace server",
     "prisma:migrate": "npm run prisma:migrate --workspace server",
-    "prisma:seed": "npm run prisma:seed --workspace server"
+    "prisma:seed": "npm run prisma:seed --workspace server",
+    "prisma:test-tasks": "npm run prisma:test-tasks --workspace server"
   },
   "engines": {
     "node": ">=18.18.0"
