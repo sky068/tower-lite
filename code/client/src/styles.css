@@ -1570,6 +1570,20 @@ textarea:focus {
   gap: 8px;
 }
 
+.project-trash-button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 0 16px;
+  font-weight: 700;
+}
+
+.project-trash-button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
 .project-filter-select {
   min-width: 140px;
   min-height: 36px;

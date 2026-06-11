@@ -233,7 +233,7 @@ export function TeamDetailPage() {
           <h2>团队项目</h2>
           {canManageTeam ? (
             <button
-              className="secondary-inline-button"
+              className="project-trash-button"
               type="button"
               onClick={() => setIsProjectTrashOpen(true)}
             >
