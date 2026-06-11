@@ -1,11 +1,11 @@
-import { InvitationStatus, ProjectRole, TeamRole } from "@prisma/client";
+import { InvitationStatus, Prisma, ProjectRole, TeamRole } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
 import { publishProjectEvent, publishTeamEvent } from "../realtime/realtime.service.js";
 import { requireProjectManager } from "../projects/project.policy.js";
-import { requireTeamOwner } from "../teams/team.policy.js";
+import { requireTeamAdmin } from "../teams/team.policy.js";
 import type {
   AcceptInvitationInput,
   CreateProjectInvitationInput,
@@ -96,7 +96,7 @@ async function revokeExistingPendingInvitation(input: {
 }
 
 export async function listTeamInvitations(userId: string, teamId: string) {
-  await requireTeamOwner(userId, teamId);
+  await requireTeamAdmin(userId, teamId);
 
   const invitations = await prisma.invitation.findMany({
     where: {
@@ -138,24 +138,37 @@ export async function createTeamInvitation(
   teamId: string,
   input: CreateTeamInvitationInput
 ) {
-  await requireTeamOwner(userId, teamId);
+  await requireTeamAdmin(userId, teamId);
   const email = normalizeEmail(input.email);
 
-  await revokeExistingPendingInvitation({ email, teamId });
-
-  const invitation = await prisma.invitation.create({
-    data: {
-      email,
-      token: createInvitationToken(),
-      teamRole: input.role,
-      teamId,
-      inviterId: userId,
-      expiresAt: expiresAt()
-    },
-    include: {
-      inviter: true,
-      project: true
-    }
+  const invitation = await prisma.$transaction(async (tx) => {
+    await tx.invitation.updateMany({
+      where: {
+        email,
+        teamId,
+        projectId: null,
+        status: InvitationStatus.PENDING
+      },
+      data: {
+        status: InvitationStatus.REVOKED
+      }
+    });
+    const createdInvitation = await tx.invitation.create({
+      data: {
+        email,
+        token: createInvitationToken(),
+        teamRole: input.role,
+        teamId,
+        inviterId: userId,
+        expiresAt: expiresAt()
+      },
+      include: {
+        inviter: true,
+        project: true
+      }
+    });
+    await assertTeamKeepsAdminEntry(tx, teamId);
+    return createdInvitation;
   });
 
   await createActivityLog({
@@ -169,6 +182,7 @@ export async function createTeamInvitation(
       role: input.role
     }
   });
+  await publishTeamEvent(teamId, { type: "team.changed", teamId });
 
   return toInvitation(invitation);
 }
@@ -214,6 +228,11 @@ export async function createProjectInvitation(
       projectName: project.name
     }
   });
+  await publishProjectEvent(projectId, {
+    type: "project.changed",
+    teamId: project.teamId,
+    projectId
+  });
 
   return toInvitation(invitation);
 }
@@ -232,24 +251,32 @@ export async function revokeInvitation(userId: string, invitationId: string) {
   if (invitation.projectId) {
     await requireProjectManager(userId, invitation.projectId);
   } else {
-    await requireTeamOwner(userId, invitation.teamId);
+    await requireTeamAdmin(userId, invitation.teamId);
   }
 
   if (invitation.status !== InvitationStatus.PENDING) {
     throw new AppError("BUSINESS_RULE_VIOLATION", "Only pending invitations can be revoked", 422);
   }
 
-  const updatedInvitation = await prisma.invitation.update({
-    where: {
-      id: invitationId
-    },
-    data: {
-      status: InvitationStatus.REVOKED
-    },
-    include: {
-      inviter: true,
-      project: true
+  const updatedInvitation = await prisma.$transaction(async (tx) => {
+    const updated = await tx.invitation.update({
+      where: {
+        id: invitationId
+      },
+      data: {
+        status: InvitationStatus.REVOKED
+      },
+      include: {
+        inviter: true,
+        project: true
+      }
+    });
+
+    if (!invitation.projectId && invitation.teamRole === TeamRole.ADMIN) {
+      await assertTeamKeepsAdminEntry(tx, invitation.teamId);
     }
+
+    return updated;
   });
 
   await createActivityLog({
@@ -263,24 +290,200 @@ export async function revokeInvitation(userId: string, invitationId: string) {
       email: invitation.email
     }
   });
+  await publishTeamEvent(invitation.teamId, { type: "team.changed", teamId: invitation.teamId });
+
+  if (invitation.projectId) {
+    await publishProjectEvent(invitation.projectId, {
+      type: "project.changed",
+      teamId: invitation.teamId,
+      projectId: invitation.projectId
+    });
+  }
 
   return toInvitation(updatedInvitation);
 }
 
-export async function acceptInvitation(userId: string, input: AcceptInvitationInput) {
-  const invitation = await prisma.invitation.findUnique({
+async function assertTeamKeepsAdminEntry(tx: Prisma.TransactionClient, teamId: string) {
+  const adminCount = await tx.teamMember.count({
     where: {
-      token: input.token
-    },
-    include: {
-      project: true
+      teamId,
+      role: TeamRole.ADMIN
+    }
+  });
+  const pendingAdminInvitationCount = await tx.invitation.count({
+    where: {
+      teamId,
+      projectId: null,
+      teamRole: TeamRole.ADMIN,
+      status: InvitationStatus.PENDING,
+      expiresAt: {
+        gt: new Date()
+      }
     }
   });
 
-  if (!invitation) {
-    throw new AppError("RESOURCE_NOT_FOUND", "Invitation not found", 404);
+  if (adminCount + pendingAdminInvitationCount < 1) {
+    throw new AppError(
+      "BUSINESS_RULE_VIOLATION",
+      "团队至少需要保留一名管理员或一条待接受的管理员邀请。",
+      422
+    );
+  }
+}
+
+async function acceptPendingInvitationForUser(input: {
+  userId: string;
+  invitation: {
+    id: string;
+    email: string;
+    teamId: string;
+    projectId: string | null;
+    teamRole: TeamRole | null;
+    projectRole: ProjectRole | null;
+  };
+}) {
+  const teamRole = input.invitation.teamRole ?? TeamRole.MEMBER;
+  const projectRole = input.invitation.projectRole ?? ProjectRole.VIEWER;
+  const acceptResult = await prisma.$transaction(async (tx) => {
+    const acceptedInvitation = await tx.invitation.updateMany({
+      where: {
+        id: input.invitation.id,
+        status: InvitationStatus.PENDING
+      },
+      data: {
+        status: InvitationStatus.ACCEPTED,
+        acceptedAt: new Date()
+      }
+    });
+
+    if (acceptedInvitation.count === 0) {
+      const currentInvitation = await tx.invitation.findUnique({
+        where: {
+          id: input.invitation.id
+        },
+        select: {
+          status: true
+        }
+      });
+
+      return {
+        accepted: false,
+        status: currentInvitation?.status ?? null
+      };
+    }
+
+    await tx.teamMember.upsert({
+      where: {
+        userId_teamId: {
+          userId: input.userId,
+          teamId: input.invitation.teamId
+        }
+      },
+      update: {
+        role: teamRole
+      },
+      create: {
+        userId: input.userId,
+        teamId: input.invitation.teamId,
+        role: teamRole
+      }
+    });
+
+    if (input.invitation.projectId) {
+      await tx.projectMember.upsert({
+        where: {
+          projectId_userId: {
+            userId: input.userId,
+            projectId: input.invitation.projectId
+          }
+        },
+        update: {
+          role: projectRole
+        },
+        create: {
+          userId: input.userId,
+          projectId: input.invitation.projectId,
+          role: projectRole
+        }
+      });
+    }
+
+    return {
+      accepted: true,
+      status: InvitationStatus.ACCEPTED
+    };
+  });
+
+  if (!acceptResult.accepted) {
+    return acceptResult;
   }
 
+  await createActivityLog({
+    actorId: input.userId,
+    teamId: input.invitation.teamId,
+    projectId: input.invitation.projectId,
+    action: input.invitation.projectId ? "project_invitation.accepted" : "team_invitation.accepted",
+    targetType: "invitation",
+    targetId: input.invitation.id,
+    metadata: {
+      email: input.invitation.email,
+      teamRole,
+      projectRole: input.invitation.projectId ? projectRole : null
+    }
+  });
+
+  await publishTeamEvent(input.invitation.teamId, { type: "team.changed", teamId: input.invitation.teamId });
+
+  if (input.invitation.projectId) {
+    await publishProjectEvent(input.invitation.projectId, {
+      type: "project.changed",
+      teamId: input.invitation.teamId,
+      projectId: input.invitation.projectId
+    });
+  }
+
+  return acceptResult;
+}
+
+export async function acceptPendingTeamAdminInvitationsForUser(userId: string) {
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    },
+    select: {
+      email: true
+    }
+  });
+
+  if (!user) {
+    return;
+  }
+
+  const invitations = await prisma.invitation.findMany({
+    where: {
+      email: normalizeEmail(user.email),
+      projectId: null,
+      teamRole: TeamRole.ADMIN,
+      status: InvitationStatus.PENDING,
+      expiresAt: {
+        gt: new Date()
+      }
+    },
+    orderBy: {
+      createdAt: "asc"
+    }
+  });
+
+  for (const invitation of invitations) {
+    await acceptPendingInvitationForUser({
+      userId,
+      invitation
+    });
+  }
+}
+
+export async function acceptInvitation(userId: string, input: AcceptInvitationInput) {
   const user = await prisma.user.findFirst({
     where: {
       id: userId,
@@ -290,6 +493,35 @@ export async function acceptInvitation(userId: string, input: AcceptInvitationIn
 
   if (!user) {
     throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  const invitation =
+    (await prisma.invitation.findUnique({
+      where: {
+        token: input.token
+      },
+      include: {
+        project: true
+      }
+    })) ??
+    (await prisma.invitation.findFirst({
+      where: {
+        email: normalizeEmail(user.email),
+        status: InvitationStatus.PENDING,
+        expiresAt: {
+          gt: new Date()
+        }
+      },
+      include: {
+        project: true
+      },
+      orderBy: {
+        createdAt: "desc"
+      }
+    }));
+
+  if (!invitation) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Invitation not found", 404);
   }
 
   if (normalizeEmail(user.email) !== normalizeEmail(invitation.email)) {
@@ -328,65 +560,9 @@ export async function acceptInvitation(userId: string, input: AcceptInvitationIn
     throw new AppError("BUSINESS_RULE_VIOLATION", "Invitation has expired", 422);
   }
 
-  const teamRole = invitation.teamRole ?? TeamRole.MEMBER;
-  const projectRole = invitation.projectRole ?? ProjectRole.VIEWER;
-
-  const acceptResult = await prisma.$transaction(async (tx) => {
-    const acceptedInvitation = await tx.invitation.updateMany({
-      where: {
-        id: invitation.id,
-        status: InvitationStatus.PENDING
-      },
-      data: {
-        status: InvitationStatus.ACCEPTED,
-        acceptedAt: new Date()
-      }
-    });
-
-    if (acceptedInvitation.count === 0) {
-      const currentInvitation = await tx.invitation.findUnique({
-        where: {
-          id: invitation.id
-        },
-        select: {
-          status: true
-        }
-      });
-
-      return {
-        accepted: false,
-        status: currentInvitation?.status ?? null
-      };
-    }
-
-    await tx.teamMember.createMany({
-      data: [
-        {
-          userId,
-          teamId: invitation.teamId,
-          role: teamRole
-        }
-      ],
-      skipDuplicates: true
-    });
-
-    if (invitation.projectId) {
-      await tx.projectMember.createMany({
-        data: [
-          {
-            userId,
-            projectId: invitation.projectId,
-            role: projectRole
-          }
-        ],
-        skipDuplicates: true
-      });
-    }
-
-    return {
-      accepted: true,
-      status: InvitationStatus.ACCEPTED
-    };
+  const acceptResult = await acceptPendingInvitationForUser({
+    userId,
+    invitation
   });
 
   if (!acceptResult.accepted) {
@@ -407,30 +583,6 @@ export async function acceptInvitation(userId: string, input: AcceptInvitationIn
     }
 
     throw new AppError("BUSINESS_RULE_VIOLATION", "Invitation is no longer pending", 422);
-  }
-
-  await createActivityLog({
-    actorId: userId,
-    teamId: invitation.teamId,
-    projectId: invitation.projectId,
-    action: invitation.projectId ? "project_invitation.accepted" : "team_invitation.accepted",
-    targetType: "invitation",
-    targetId: invitation.id,
-    metadata: {
-      email: invitation.email,
-      teamRole,
-      projectRole: invitation.projectId ? projectRole : null
-    }
-  });
-
-  await publishTeamEvent(invitation.teamId, { type: "team.changed", teamId: invitation.teamId });
-
-  if (invitation.projectId) {
-    await publishProjectEvent(invitation.projectId, {
-      type: "project.changed",
-      teamId: invitation.teamId,
-      projectId: invitation.projectId
-    });
   }
 
   return {

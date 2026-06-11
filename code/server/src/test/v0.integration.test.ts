@@ -72,6 +72,11 @@ type ProjectResponse = {
   status?: string;
 };
 
+type SystemDefaultsResponse = {
+  defaultTeamId: string | null;
+  defaultProjectId: string | null;
+};
+
 type MemberResponse = {
   user: {
     id: string;
@@ -552,6 +557,23 @@ describe("V0 HTTP integration", () => {
     const invitedTeamMember = await registerUser("InvitedTeamMember");
     const invitedProjectMember = await registerUser("InvitedProjectMember");
     const concurrentProjectInvitee = await registerUser("ConcurrentProjectInvitee");
+    const systemAdminOnly = await registerUser("SystemAdminOnly");
+    await prisma.user.update({
+      where: {
+        id: owner.id
+      },
+      data: {
+        systemRole: "ADMIN"
+      }
+    });
+    await prisma.user.update({
+      where: {
+        id: systemAdminOnly.id
+      },
+      data: {
+        systemRole: "ADMIN"
+      }
+    });
 
     const feishuAuthorize = (await request<FeishuAuthorizeResponse>(
       "GET",
@@ -727,14 +749,16 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        name: `Integration Team ${runId}`
+        name: `Integration Team ${runId}`,
+        adminEmail: owner.email
       }
     })).data;
     await request<TeamResponse>("POST", "/api/v1/teams", {
       token: owner.token,
       expectedStatus: 422,
       body: {
-        name: `Integration Team ${runId}`
+        name: `Integration Team ${runId}`,
+        adminEmail: owner.email
       }
     });
 
@@ -747,7 +771,8 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        name: `Disposable Team ${runId}`
+        name: `Disposable Team ${runId}`,
+        adminEmail: owner.email
       }
     })).data;
     await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${disposableTeam.id}`, {
@@ -759,7 +784,7 @@ describe("V0 HTTP integration", () => {
     assert.equal(ownerTeamsAfterDisposableDelete.some((item) => item.id === disposableTeam.id), false);
     await request<TeamResponse>("GET", `/api/v1/teams/${disposableTeam.id}`, {
       token: owner.token,
-      expectedStatus: 403
+      expectedStatus: 404
     });
 
     await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
@@ -808,27 +833,81 @@ describe("V0 HTTP integration", () => {
         name: "Editor cannot create projects"
       }
     });
+    await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        name: "System admin must choose a project admin"
+      }
+    });
 
     const project = (await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
       token: owner.token,
       expectedStatus: 201,
       body: {
         name: `Integration Project ${runId}`,
-        description: "V0 integration workflow"
+        description: "V0 integration workflow",
+        projectAdminUserId: directAddedMember.id
       }
     })).data;
+    const projectMembersForSystemAdmin = (await request<MemberResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/members`,
+      {
+        token: systemAdminOnly.token
+      }
+    )).data;
+    assert.ok(!projectMembersForSystemAdmin.some((member) => member.user.id === systemAdminOnly.id));
+    assert.ok(!projectMembersForSystemAdmin.some((member) => member.user.id === owner.id));
+    assert.ok(
+      projectMembersForSystemAdmin.some(
+        (member) => member.user.id === directAddedMember.id && member.role === "ADMIN"
+      )
+    );
+    await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        title: "Cannot assign system admin only",
+        assigneeIds: [systemAdminOnly.id]
+      }
+    });
+    const systemDefaults = (await request<SystemDefaultsResponse>(
+      "PATCH",
+      `/api/v1/projects/${project.id}/default`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.equal(systemDefaults.defaultTeamId, team.id);
+    assert.equal(systemDefaults.defaultProjectId, project.id);
+    await request<SystemDefaultsResponse>("PATCH", `/api/v1/projects/${project.id}/default`, {
+      token: editor.token,
+      expectedStatus: 403
+    });
+    const defaultJoinUser = await registerUser("DefaultJoinUser");
+    const defaultJoinTeams = (await request<TeamResponse[]>("GET", "/api/v1/teams", {
+      token: defaultJoinUser.token
+    })).data;
+    assert.ok(defaultJoinTeams.some((item) => item.id === team.id));
+    const defaultJoinProjects = (await request<ProjectResponse[]>("GET", `/api/v1/teams/${team.id}/projects`, {
+      token: defaultJoinUser.token
+    })).data;
+    assert.ok(defaultJoinProjects.some((item) => item.id === project.id));
     await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
       token: owner.token,
       expectedStatus: 422,
       body: {
-        name: `Integration Project ${runId}`
+        name: `Integration Project ${runId}`,
+        projectAdminUserId: directAddedMember.id
       }
     });
     const restorableProject = (await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        name: `Restorable Project ${runId}`
+        name: `Restorable Project ${runId}`,
+        projectAdminUserId: directAddedMember.id
       }
     })).data;
     await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${restorableProject.id}`, {
@@ -864,7 +943,8 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        name: `Purge Project ${runId}`
+        name: `Purge Project ${runId}`,
+        projectAdminUserId: directAddedMember.id
       }
     })).data;
     await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${purgeProject.id}`, {
@@ -890,7 +970,8 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        name: `Trash Conflict Project ${runId}`
+        name: `Trash Conflict Project ${runId}`,
+        projectAdminUserId: directAddedMember.id
       }
     })).data;
     await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${conflictProject.id}`, {
@@ -900,7 +981,8 @@ describe("V0 HTTP integration", () => {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        name: `Trash Conflict Project ${runId}`
+        name: `Trash Conflict Project ${runId}`,
+        projectAdminUserId: directAddedMember.id
       }
     });
     await request<ProjectResponse>(
@@ -923,6 +1005,40 @@ describe("V0 HTTP integration", () => {
       token: editor.token,
       expectedStatus: 403
     });
+
+    const autoAdminEmail = `auto-admin@${emailDomain}`;
+    const autoAdminInvitation = (await request<InvitationResponse>(
+      "POST",
+      `/api/v1/teams/${team.id}/invitations`,
+      {
+        token: owner.token,
+        expectedStatus: 201,
+        body: {
+          email: autoAdminEmail,
+          role: "ADMIN"
+        }
+      }
+    )).data;
+    const autoAdmin = (await request<AuthResponse>("POST", "/api/v1/auth/register", {
+      expectedStatus: 201,
+      body: {
+        email: autoAdminEmail,
+        name: "Auto Admin",
+        password: "Password123!"
+      }
+    })).data;
+    const autoAdminMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data;
+    assert.ok(
+      autoAdminMembers.some((member) => member.user.id === autoAdmin.user.id && member.role === "ADMIN")
+    );
+    const acceptedAutoAdminInvitation = await prisma.invitation.findUnique({
+      where: {
+        id: autoAdminInvitation.id
+      }
+    });
+    assert.equal(acceptedAutoAdminInvitation?.status, "ACCEPTED");
 
     const teamInvitation = (await request<InvitationResponse>(
       "POST",
@@ -1687,13 +1803,13 @@ describe("V0 HTTP integration", () => {
       token: editor.token,
       expectedStatus: 201,
       body: {
-        content: `@${owner.name} please check this mention`,
-        mentionIds: [owner.id, editor.id]
+        content: `@${viewer.name} please check this mention`,
+        mentionIds: [viewer.id, editor.id]
       }
     })).data;
     assert.deepEqual(
       mentionComment.mentions.map((mention) => mention.id).sort(),
-      [editor.id, owner.id].sort()
+      [editor.id, viewer.id].sort()
     );
     const taskAfterMentionComment = (await request<TaskDetailResponse>("GET", `/api/v1/tasks/${task.id}`, {
       token: owner.token
@@ -1702,7 +1818,7 @@ describe("V0 HTTP integration", () => {
       taskAfterMentionComment.comments.some(
         (comment) =>
           comment.id === mentionComment.id &&
-          comment.mentions.some((mention) => mention.id === owner.id)
+          comment.mentions.some((mention) => mention.id === viewer.id)
       )
     );
     const typedMentionComment = (await request<CommentResponse>("POST", `/api/v1/tasks/${task.id}/comments`, {
@@ -1717,26 +1833,26 @@ describe("V0 HTTP integration", () => {
       token: editor.token,
       expectedStatus: 422,
       body: {
-        content: `@${directAddedMember.name} should fail`,
-        mentionIds: [directAddedMember.id]
+        content: `@${systemAdminOnly.name} should fail`,
+        mentionIds: [systemAdminOnly.id]
       }
     });
-    const ownerNotificationsAfterMention = (await request<NotificationResponse[]>(
+    const viewerNotificationsAfterMention = (await request<NotificationResponse[]>(
       "GET",
       "/api/v1/users/me/notifications",
       {
-        token: owner.token
+        token: viewer.token
       }
     )).data;
     assert.ok(
-      ownerNotificationsAfterMention.some(
+      viewerNotificationsAfterMention.some(
         (notification) =>
           notification.type === "COMMENT_MENTION" &&
           notification.content.includes("please check this mention")
       )
     );
     assert.ok(
-      !ownerNotificationsAfterMention.some(
+      !viewerNotificationsAfterMention.some(
         (notification) =>
           notification.type === "TASK_COMMENTED" &&
           notification.content.includes("please check this mention")
@@ -1776,7 +1892,7 @@ describe("V0 HTTP integration", () => {
     assert.ok(!teamActivity.some((log) => log.action.startsWith("project_invitation.")));
 
     await request<ActivityLogResponse[]>("GET", `/api/v1/teams/${team.id}/activity`, {
-      token: directAddedMember.token,
+      token: editor.token,
       expectedStatus: 403
     });
 

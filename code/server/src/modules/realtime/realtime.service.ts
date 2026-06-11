@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server } from "node:http";
+import { SystemRole } from "@prisma/client";
 import { WebSocket, WebSocketServer } from "ws";
 import { prisma } from "../../lib/prisma.js";
 import { verifyAccessToken } from "../../utils/token.js";
@@ -124,7 +125,7 @@ export async function publishProjectEvent(projectId: string, event: RealtimeEven
       JOIN "TeamMember" team_member ON team_member."teamId" = project."teamId"
       WHERE project."id" = ${projectId}
         AND project."deletedAt" IS NULL
-        AND team_member."role" IN ('OWNER', 'ADMIN')
+        AND team_member."role" = 'ADMIN'
       UNION
       SELECT project_member."userId"
       FROM "ProjectMember" project_member
@@ -133,8 +134,17 @@ export async function publishProjectEvent(projectId: string, event: RealtimeEven
         AND project."deletedAt" IS NULL
     ) candidate
   `;
+  const systemAdmins = await prisma.user.findMany({
+    where: {
+      systemRole: SystemRole.ADMIN,
+      deletedAt: null
+    },
+    select: {
+      id: true
+    }
+  });
 
-  publishToUsers(rows.map((row) => row.userId), event);
+  publishToUsers([...rows.map((row) => row.userId), ...systemAdmins.map((user) => user.id)], event);
 }
 
 export async function publishTeamEvent(teamId: string, event: RealtimeEvent) {
@@ -149,6 +159,15 @@ export async function publishTeamEvent(teamId: string, event: RealtimeEvent) {
       userId: true
     }
   });
+  const systemAdmins = await prisma.user.findMany({
+    where: {
+      systemRole: SystemRole.ADMIN,
+      deletedAt: null
+    },
+    select: {
+      id: true
+    }
+  });
 
-  publishToUsers(members.map((member) => member.userId), event);
+  publishToUsers([...members.map((member) => member.userId), ...systemAdmins.map((user) => user.id)], event);
 }

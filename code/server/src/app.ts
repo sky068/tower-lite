@@ -14,6 +14,7 @@ import { taskRoutes } from "./modules/tasks/task.routes.js";
 import { tagRoutes } from "./modules/tags/tag.routes.js";
 import { teamRoutes } from "./modules/teams/team.routes.js";
 import { userRoutes } from "./modules/users/user.routes.js";
+import { systemRoutes } from "./modules/system/system.routes.js";
 
 const API_PREFIX = "/api/v1";
 
@@ -33,6 +34,7 @@ export function createApp() {
   app.use(API_PREFIX, authRoutes);
   app.use(API_PREFIX, feishuRoutes);
   app.use(API_PREFIX, userRoutes);
+  app.use(API_PREFIX, systemRoutes);
   app.use(API_PREFIX, activityRoutes);
   app.use(API_PREFIX, invitationRoutes);
   app.use(API_PREFIX, teamRoutes);

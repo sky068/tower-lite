@@ -1267,6 +1267,11 @@ input[type="date"]:not(:disabled) {
   grid-column: 1 / -1;
 }
 
+.subtask-assignee-field .assignee-dropdown-menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
 .compact-form input,
 .subtask-create-form input,
 .subtask-create-form select,

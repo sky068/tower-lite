@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
-import { projectApi, teamApi, userApi } from "../../lib/api";
+import { authApi, projectApi, teamApi, userApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
 import { getPriorityClassName, getPriorityLabel } from "../../lib/priority";
 import type { MyTask } from "../../types/api";
@@ -105,7 +105,9 @@ export function DashboardPage() {
   const queryClient = useQueryClient();
   const location = useLocation();
   const [teamName, setTeamName] = useState("");
+  const [teamAdminEmail, setTeamAdminEmail] = useState("");
   const [projectName, setProjectName] = useState("");
+  const [projectAdminUserId, setProjectAdminUserId] = useState("");
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(() => readStoredDefaultTeamId());
   const [defaultProjects, setDefaultProjects] = useState<Record<string, string>>(() => readStoredDefaultProjects());
   const [taskSearch, setTaskSearch] = useState("");
@@ -117,14 +119,22 @@ export function DashboardPage() {
     queryKey: ["teams"],
     queryFn: teamApi.list
   });
+  const currentUserQuery = useQuery({
+    queryKey: ["current-user"],
+    queryFn: authApi.me
+  });
 
   const teams = teamsQuery.data ?? [];
+  const isSystemAdmin = currentUserQuery.data?.systemRole === "ADMIN";
+  const systemDefaultTeamId = teams.find((team) => team.isSystemDefault)?.id ?? null;
   const activeTeamId =
     teams.length === 0
       ? null
       : selectedTeamId && teams.some((team) => team.id === selectedTeamId)
         ? selectedTeamId
-        : teams[0].id;
+        : systemDefaultTeamId && teams.some((team) => team.id === systemDefaultTeamId)
+          ? systemDefaultTeamId
+          : teams[0].id;
 
   const projectsQuery = useQuery({
     queryKey: ["projects", activeTeamId],
@@ -142,9 +152,19 @@ export function DashboardPage() {
     [activeTeamId, teams]
   );
   const projects = projectsQuery.data ?? [];
-  const defaultProjectId = activeTeamId ? defaultProjects[activeTeamId] ?? projects[0]?.id ?? null : null;
-  const canCreateProject = activeTeam?.role === "OWNER";
-  const canManageActiveTeamProjects = activeTeam?.role === "OWNER" || activeTeam?.role === "ADMIN";
+  const systemDefaultProjectId = projects.find((project) => project.isSystemDefault)?.id ?? null;
+  const defaultProjectId = activeTeamId
+    ? defaultProjects[activeTeamId] ?? systemDefaultProjectId ?? projects[0]?.id ?? null
+    : null;
+  const canCreateTeam = isSystemAdmin;
+  const canCreateProject = isSystemAdmin || activeTeam?.role === "ADMIN";
+  const canManageActiveTeamProjects = isSystemAdmin || activeTeam?.role === "ADMIN";
+  const teamMembersQuery = useQuery({
+    queryKey: ["team-members", activeTeamId],
+    queryFn: () => teamApi.members(activeTeamId!),
+    enabled: Boolean(activeTeamId && canCreateProject)
+  });
+  const projectAdminCandidates = teamMembersQuery.data ?? [];
   const projectTrashQuery = useQuery({
     queryKey: ["team-project-trash", activeTeamId],
     queryFn: () => projectApi.trash(activeTeamId!),
@@ -244,15 +264,18 @@ export function DashboardPage() {
     mutationFn: teamApi.create,
     onSuccess: (team) => {
       setTeamName("");
+      setTeamAdminEmail("");
       selectTeam(team.id);
       void queryClient.invalidateQueries({ queryKey: ["teams"] });
     }
   });
 
   const createProjectMutation = useMutation({
-    mutationFn: (name: string) => projectApi.create(activeTeamId!, { name }),
+    mutationFn: (input: { name: string; projectAdminUserId?: string }) =>
+      projectApi.create(activeTeamId!, input),
     onSuccess: (project) => {
       setProjectName("");
+      setProjectAdminUserId("");
       if (activeTeamId) {
         setDefaultProjects(writeStoredDefaultProject(activeTeamId, project.id));
       }
@@ -277,7 +300,9 @@ export function DashboardPage() {
 
   function handleCreateTeam(event: FormEvent) {
     event.preventDefault();
-    createTeamMutation.mutate({ name: teamName });
+    if (canCreateTeam) {
+      createTeamMutation.mutate({ name: teamName, adminEmail: teamAdminEmail });
+    }
   }
 
   function selectTeam(teamId: string) {
@@ -310,21 +335,33 @@ export function DashboardPage() {
   }, [activeTeamId, selectedTeamId, teams, teamsQuery.isLoading]);
 
   useEffect(() => {
+    setProjectAdminUserId("");
+  }, [activeTeamId]);
+
+  useEffect(() => {
     if (!activeTeamId || projectsQuery.isLoading || projects.length === 0) {
       return;
     }
 
     const storedProjectId = defaultProjects[activeTeamId];
 
+    const fallbackProjectId = systemDefaultProjectId ?? projects[0].id;
+
     if (!storedProjectId || !projects.some((project) => project.id === storedProjectId)) {
-      setDefaultProjects(writeStoredDefaultProject(activeTeamId, projects[0].id));
+      setDefaultProjects(writeStoredDefaultProject(activeTeamId, fallbackProjectId));
     }
-  }, [activeTeamId, defaultProjects, projects, projectsQuery.isLoading]);
+  }, [activeTeamId, defaultProjects, projects, projectsQuery.isLoading, systemDefaultProjectId]);
 
   function handleCreateProject(event: FormEvent) {
     event.preventDefault();
+    const nextProjectAdminUserId =
+      projectAdminUserId || (isSystemAdmin ? "" : currentUserQuery.data?.id ?? "");
+
     if (activeTeamId && canCreateProject) {
-      createProjectMutation.mutate(projectName);
+      createProjectMutation.mutate({
+        name: projectName,
+        projectAdminUserId: nextProjectAdminUserId || undefined
+      });
     }
   }
 
@@ -338,16 +375,27 @@ export function DashboardPage() {
       <div className="dashboard-grid">
         <section className="panel">
           <h2>团队</h2>
-          <form className="compact-form" onSubmit={handleCreateTeam}>
-            <input
-              value={teamName}
-              onChange={(event) => setTeamName(event.target.value)}
-              placeholder="新团队名称"
-              required
-            />
-            <button type="submit" disabled={createTeamMutation.isPending}>
-              创建
-            </button>
+          {canCreateTeam ? (
+            <form className="compact-form" onSubmit={handleCreateTeam}>
+              <input
+                value={teamName}
+                onChange={(event) => setTeamName(event.target.value)}
+                placeholder="新团队名称"
+                required
+              />
+              <input
+                value={teamAdminEmail}
+                onChange={(event) => setTeamAdminEmail(event.target.value)}
+                placeholder="团队管理员邮箱"
+                type="email"
+                required
+              />
+              <button type="submit" disabled={createTeamMutation.isPending}>
+                创建
+              </button>
+            </form>
+          ) : null}
+          <div className="compact-form">
             {canManageActiveTeamProjects ? (
               <button
                 className="secondary-inline-button"
@@ -357,7 +405,7 @@ export function DashboardPage() {
                 项目回收站
               </button>
             ) : null}
-          </form>
+          </div>
           <MutationError error={createTeamMutation.error} />
           <div className="list dashboard-compact-scroll-list">
             {teamsQuery.isLoading ? <span className="muted">团队加载中...</span> : null}
@@ -366,11 +414,12 @@ export function DashboardPage() {
                 <button className="row-main" type="button" onClick={() => selectTeam(team.id)}>
                   <strong>{team.name}</strong>
                   <span>
-                    {team.role}
-                    {team.id === activeTeamId ? <i className="default-badge">默认</i> : null}
+                    {team.role ?? "系统管理员"}
+                    {team.id === activeTeamId ? <i className="default-badge">当前</i> : null}
+                    {team.isSystemDefault ? <i className="default-badge">系统默认</i> : null}
                   </span>
                 </button>
-                {team.role === "OWNER" ? (
+                {isSystemAdmin || team.role === "ADMIN" ? (
                   <Link className="mini-link" to={`/teams/${team.id}/settings`}>
                     设置
                   </Link>
@@ -394,6 +443,22 @@ export function DashboardPage() {
                 disabled={!activeTeamId}
                 required
               />
+              <select
+                value={projectAdminUserId}
+                onChange={(event) => setProjectAdminUserId(event.target.value)}
+                disabled={!activeTeamId || teamMembersQuery.isLoading}
+                required={isSystemAdmin}
+                title={isSystemAdmin ? "系统管理员创建项目时必须指定项目管理员" : "不选则默认自己为项目管理员"}
+              >
+                <option value="">
+                  {isSystemAdmin ? "选择项目管理员" : "默认自己为项目管理员"}
+                </option>
+                {projectAdminCandidates.map((member) => (
+                  <option key={member.user.id} value={member.user.id}>
+                    {member.user.name} / {member.user.email}
+                  </option>
+                ))}
+              </select>
               <button type="submit" disabled={!activeTeamId || createProjectMutation.isPending}>
                 创建
               </button>
@@ -408,7 +473,8 @@ export function DashboardPage() {
                   <strong>{project.name}</strong>
                   <span>
                     {project.status}
-                    {project.id === defaultProjectId ? <i className="default-badge">默认</i> : null}
+                    {project.id === defaultProjectId ? <i className="default-badge">当前</i> : null}
+                    {project.isSystemDefault ? <i className="default-badge">系统默认</i> : null}
                   </span>
                 </Link>
                 <div className="row-actions">

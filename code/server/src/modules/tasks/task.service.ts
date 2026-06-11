@@ -461,7 +461,7 @@ async function filterActiveProjectRecipients(projectId: string, userIds: string[
       AND project_member."userId" = candidate."userId"
     WHERE project."deletedAt" IS NULL
       AND (
-        team_member."role" IN ('OWNER', 'ADMIN')
+        team_member."role" = 'ADMIN'
         OR project_member."id" IS NOT NULL
       )
   `;

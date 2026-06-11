@@ -4,12 +4,19 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import type { BindFeishuInput, UpdateEmailInput, UpdatePasswordInput, UpdateProfileInput } from "./user.schema.js";
 
-function toPublicUser(user: { id: string; email: string; name: string; avatarUrl: string | null }) {
+function toPublicUser(user: {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  systemRole?: string;
+}) {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
-    avatarUrl: user.avatarUrl
+    avatarUrl: user.avatarUrl,
+    systemRole: user.systemRole ?? "USER"
   };
 }
 
@@ -20,6 +27,7 @@ function toCurrentUser(user: {
   avatarUrl: string | null;
   feishuOpenId: string | null;
   feishuUnionId: string | null;
+  systemRole: string;
 }) {
   return {
     ...toPublicUser(user),
@@ -191,7 +199,7 @@ export async function listMyTasks(userId: string) {
       AND task."deletedAt" IS NULL
       AND project."deletedAt" IS NULL
       AND (
-        team_member."role" IN ('OWNER', 'ADMIN')
+        team_member."role" = 'ADMIN'
         OR project_member."id" IS NOT NULL
       )
   `;

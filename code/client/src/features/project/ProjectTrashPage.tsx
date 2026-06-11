@@ -39,7 +39,12 @@ export function ProjectTrashPage() {
     enabled: Boolean(projectQuery.data?.teamId)
   });
 
-  const projectPermissions = getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data);
+  const projectPermissions = getProjectPermissions(
+    user?.id,
+    membersQuery.data,
+    teamMembersQuery.data,
+    user?.systemRole === "ADMIN"
+  );
   const canManageProject = projectPermissions.canManageProject;
   const isArchived = projectQuery.data?.status === "ARCHIVED";
 
@@ -114,7 +119,7 @@ export function ProjectTrashPage() {
       </div>
 
       {!canManageProject ? (
-        <section className="notice-panel">只有项目 ADMIN 或团队 OWNER / ADMIN 可以查看回收站。</section>
+        <section className="notice-panel">只有项目 ADMIN、团队 ADMIN 或系统管理员可以查看回收站。</section>
       ) : null}
       {isArchived ? (
         <section className="notice-panel">项目已归档，回收站只允许查看，不能恢复或彻底删除。</section>

@@ -13,6 +13,7 @@ model User {
   passwordHash        String?
   name                String
   avatarUrl           String?
+  systemRole          SystemRole     @default(USER)
   feishuOpenId        String?        @unique
   feishuUnionId       String?        @unique
   emailVerifiedAt     DateTime?
@@ -36,6 +37,12 @@ model User {
   activityLogs        ActivityLog[]  @relation("ActivityActor")
   deletedTaskLists    TaskList[]     @relation("TaskListDeleter")
   deletedTasks        Task[]         @relation("TaskDeleter")
+  systemSettings      SystemSetting[]
+}
+
+enum SystemRole {
+  USER
+  ADMIN
 }
 
 model RefreshToken {
@@ -79,7 +86,6 @@ model TeamMember {
 }
 
 enum TeamRole {
-  OWNER
   ADMIN
   MEMBER
 }
@@ -130,6 +136,15 @@ model ActivityLog {
   @@index([teamId, createdAt])
   @@index([projectId, createdAt])
   @@index([taskId, createdAt])
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String?
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
 }
 
 enum ProjectStatus {

@@ -5,7 +5,7 @@ import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { UserAvatar } from "../../components/shared/UserAvatar";
-import { activityApi, invitationApi, projectApi, teamApi } from "../../lib/api";
+import { activityApi, invitationApi, projectApi, systemApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
@@ -46,13 +46,14 @@ export function ProjectSettingsPage() {
   const [memberUserId, setMemberUserId] = useState("");
   const [memberRole, setMemberRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteTeamRole, setInviteTeamRole] = useState<"OWNER" | "ADMIN" | "MEMBER">("MEMBER");
+  const [inviteTeamRole, setInviteTeamRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
   const [inviteProjectRole, setInviteProjectRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
   const [feishuDeliveryStatusFilter, setFeishuDeliveryStatusFilter] =
     useState<(typeof feishuDeliveryStatusFilters)[number]["value"]>("ALL");
   const [feishuClearStartDate, setFeishuClearStartDate] = useState("");
   const [feishuClearEndDate, setFeishuClearEndDate] = useState("");
   const [feishuClearStatus, setFeishuClearStatus] = useState<FeishuDeliveryClearStatus>("ALL");
+  const isSystemAdmin = user?.systemRole === "ADMIN";
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -79,7 +80,8 @@ export function ProjectSettingsPage() {
   const { canManageProject } = getProjectPermissions(
     user?.id,
     membersQuery.data,
-    teamMembersQuery.data
+    teamMembersQuery.data,
+    isSystemAdmin
   );
   const isArchived = projectQuery.data?.status === "ARCHIVED";
   const locationState = location.state as { returnTo?: string } | null;
@@ -212,6 +214,17 @@ export function ProjectSettingsPage() {
       void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
   });
+  const setDefaultProjectMutation = useMutation({
+    mutationFn: () =>
+      projectQuery.data?.isSystemDefault
+        ? systemApi.clearDefaultProject(projectId!)
+        : systemApi.setDefaultProject(projectId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectQuery.data?.teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["teams"] });
+    }
+  });
 
   useEffect(() => {
     if (projectQuery.data) {
@@ -312,8 +325,20 @@ export function ProjectSettingsPage() {
           </label>
           <button type="submit" disabled={!canManageProject || updateProjectMutation.isPending}>保存</button>
         </form>
-        {!canManageProject ? <span className="muted">只有项目 ADMIN 或团队 OWNER / ADMIN 可以修改项目基础信息。</span> : null}
+        {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以修改项目基础信息。</span> : null}
         <MutationError error={updateProjectMutation.error} />
+        {isSystemAdmin ? (
+          <div className="segmented-actions">
+            <button
+              type="button"
+              disabled={setDefaultProjectMutation.isPending || isArchived}
+              onClick={() => setDefaultProjectMutation.mutate()}
+            >
+              {projectQuery.data?.isSystemDefault ? "取消默认项目" : "设为默认项目"}
+            </button>
+          </div>
+        ) : null}
+        <MutationError error={setDefaultProjectMutation.error} />
       </section>
       <section className="panel">
         <h2>邀请项目成员</h2>
@@ -342,13 +367,12 @@ export function ProjectSettingsPage() {
           >
             <option value="MEMBER">团队 MEMBER</option>
             <option value="ADMIN">团队 ADMIN</option>
-            <option value="OWNER">团队 OWNER</option>
           </select>
           <button type="submit" disabled={!canManageProject || createInvitationMutation.isPending}>
             创建邀请
           </button>
         </form>
-        {!canManageProject ? <span className="muted">只有项目 ADMIN 或团队 OWNER / ADMIN 可以邀请项目成员。</span> : null}
+        {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以邀请项目成员。</span> : null}
         <MutationError error={createInvitationMutation.error ?? revokeInvitationMutation.error} />
         {createInvitationMutation.data ? (
           <label className="copy-field">
@@ -425,7 +449,7 @@ export function ProjectSettingsPage() {
             添加
           </button>
         </form>
-        {!canManageProject ? <span className="muted">只有项目 ADMIN 或团队 OWNER / ADMIN 可以管理项目成员。</span> : null}
+        {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以管理项目成员。</span> : null}
         {availableTeamMembers.length === 0 ? (
           <span className="muted">所有团队成员都已经在项目里。</span>
         ) : null}

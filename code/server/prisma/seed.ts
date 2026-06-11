@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { config } from "dotenv";
 import { resolve } from "node:path";
-import { Prisma, PrismaClient, ProjectRole, TeamRole } from "@prisma/client";
+import { Prisma, PrismaClient, ProjectRole, SystemRole, TeamRole } from "@prisma/client";
 
 config();
 config({ path: resolve(process.cwd(), "../.env") });
@@ -23,7 +23,8 @@ async function main() {
       id: demoIds.user,
       email: "demo@tower.local",
       name: "Demo User",
-      passwordHash
+      passwordHash,
+      systemRole: SystemRole.ADMIN
     }
   });
 
@@ -44,7 +45,7 @@ async function main() {
         create: [
           {
             userId: user.id,
-            role: TeamRole.OWNER
+            role: TeamRole.ADMIN
           },
           {
             userId: teammate.id,

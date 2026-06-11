@@ -96,8 +96,17 @@ export function ProjectBoardPage() {
 
   const lists = listsQuery.data ?? [];
   const projectPermissions = useMemo(
-    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data),
-    [membersQuery.data, teamMembersQuery.data, user?.id]
+    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data, user?.systemRole === "ADMIN"),
+    [membersQuery.data, teamMembersQuery.data, user?.id, user?.systemRole]
+  );
+  const assignableMembers = useMemo(() => membersQuery.data ?? [], [membersQuery.data]);
+  const assignableMemberIds = useMemo(
+    () => new Set(assignableMembers.map((member) => member.user.id)),
+    [assignableMembers]
+  );
+  const defaultNewTaskAssigneeIds = useMemo(
+    () => (user?.id && assignableMemberIds.has(user.id) ? [user.id] : []),
+    [assignableMemberIds, user?.id]
   );
   const canUseOrderedLists =
     orderedListIds.length === lists.length &&
@@ -139,7 +148,7 @@ export function ProjectBoardPage() {
       setNewTaskTitle("");
       setNewTaskDescription("");
       setNewTaskListId(defaultTaskListId);
-      setNewTaskAssigneeIds(user?.id ? [user.id] : []);
+      setNewTaskAssigneeIds(defaultNewTaskAssigneeIds);
       setNewTaskStatus("TODO");
       setNewTaskPriority("MEDIUM");
       setNewTaskStartDate("");
@@ -217,6 +226,12 @@ export function ProjectBoardPage() {
     }
   }, [defaultTaskListId, newTaskListId]);
 
+  useEffect(() => {
+    setNewTaskAssigneeIds((current) =>
+      current.filter((assigneeId) => assignableMemberIds.has(assigneeId))
+    );
+  }, [assignableMemberIds]);
+
   function handleCreateTask(event: FormEvent) {
     event.preventDefault();
     const title = newTaskTitle.trim();
@@ -236,7 +251,7 @@ export function ProjectBoardPage() {
       taskListId: newTaskListId || undefined,
       title,
       description: newTaskDescription.trim() || null,
-      assigneeIds: newTaskAssigneeIds,
+      assigneeIds: newTaskAssigneeIds.filter((assigneeId) => assignableMemberIds.has(assigneeId)),
       status: newTaskStatus,
       priority: newTaskPriority,
       startDate: newTaskStartDate || null,
@@ -250,7 +265,7 @@ export function ProjectBoardPage() {
     }
 
     setNewTaskListId(taskListId);
-    setNewTaskAssigneeIds(user?.id ? [user.id] : []);
+    setNewTaskAssigneeIds(defaultNewTaskAssigneeIds);
     setNewTaskDateError("");
     setIsCreateTaskOpen(true);
   }
@@ -583,7 +598,7 @@ export function ProjectBoardPage() {
         <select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
           <option value="ALL">全部负责人</option>
           <option value="UNASSIGNED">未分配</option>
-          {(membersQuery.data ?? []).map((member) => (
+          {assignableMembers.map((member) => (
             <option key={member.user.id} value={member.user.id}>
               {member.user.name}
             </option>
@@ -860,7 +875,7 @@ export function ProjectBoardPage() {
               <fieldset className="checkbox-field">
                 <legend>指派给</legend>
                 <div className="checkbox-list">
-                  {(membersQuery.data ?? []).map((member) => (
+                  {assignableMembers.map((member) => (
                     <label className="checkbox-row" key={member.user.id}>
                       <input
                         type="checkbox"
@@ -873,7 +888,7 @@ export function ProjectBoardPage() {
                       <span>{member.user.name}</span>
                     </label>
                   ))}
-                  {(membersQuery.data ?? []).length === 0 ? (
+                  {assignableMembers.length === 0 ? (
                     <span className="muted">暂无可选成员</span>
                   ) : null}
                 </div>

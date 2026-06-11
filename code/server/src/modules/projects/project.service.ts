@@ -4,7 +4,9 @@ import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { publishProjectEvent, publishTeamEvent } from "../realtime/realtime.service.js";
-import { requireTeamAdmin, requireTeamMember, requireTeamOwner } from "../teams/team.policy.js";
+import { isSystemAdmin } from "../system/system.policy.js";
+import { clearDeletedDefaultProject, getSystemDefaults } from "../system/system.service.js";
+import { requireTeamAdmin, requireTeamMember } from "../teams/team.policy.js";
 import { requireProjectAccess, requireProjectManager } from "./project.policy.js";
 import type {
   AddProjectMemberInput,
@@ -23,7 +25,7 @@ function toProjectSummary(project: {
   teamId: string;
   createdAt: Date;
   updatedAt: Date;
-}) {
+}, defaultProjectId?: string | null) {
   return {
     id: project.id,
     name: project.name,
@@ -33,7 +35,8 @@ function toProjectSummary(project: {
     status: project.status,
     teamId: project.teamId,
     createdAt: project.createdAt,
-    updatedAt: project.updatedAt
+    updatedAt: project.updatedAt,
+    isSystemDefault: defaultProjectId === project.id
   };
 }
 
@@ -114,7 +117,28 @@ async function assertProjectNameUnique(teamId: string, name: string, excludeProj
 }
 
 export async function createProject(userId: string, teamId: string, input: CreateProjectInput) {
-  await requireTeamOwner(userId, teamId);
+  const teamMember = await requireTeamAdmin(userId, teamId);
+  const userIsSystemAdmin = teamMember === null && await isSystemAdmin(userId);
+  const projectAdminUserId = input.projectAdminUserId ?? (userIsSystemAdmin ? undefined : userId);
+
+  if (!projectAdminUserId) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "创建项目时需要指定项目管理员。", 422);
+  }
+
+  const projectAdminTeamMember = await prisma.teamMember.findFirst({
+    where: {
+      userId: projectAdminUserId,
+      teamId,
+      team: {
+        deletedAt: null
+      }
+    }
+  });
+
+  if (!projectAdminTeamMember) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "项目管理员必须是当前团队成员。", 422);
+  }
+
   await assertProjectNameUnique(teamId, input.name);
 
   const project = await prisma.project.create({
@@ -134,7 +158,7 @@ export async function createProject(userId: string, teamId: string, input: Creat
       },
       members: {
         create: {
-          userId,
+          userId: projectAdminUserId,
           role: ProjectRole.ADMIN
         }
       }
@@ -160,13 +184,14 @@ export async function createProject(userId: string, teamId: string, input: Creat
 
 export async function listTeamProjects(userId: string, teamId: string) {
   const teamMember = await requireTeamMember(userId, teamId);
+  const userIsSystemAdmin = await isSystemAdmin(userId);
 
   const projects = await prisma.project.findMany({
     where: {
       teamId,
       deletedAt: null,
       OR:
-        teamMember.role === "OWNER" || teamMember.role === "ADMIN"
+        userIsSystemAdmin || teamMember?.role === "ADMIN"
           ? undefined
           : [
               {
@@ -191,7 +216,11 @@ export async function listTeamProjects(userId: string, teamId: string) {
     }
   });
 
-  return projects.map(toProjectSummaryWithRole);
+  const defaults = await getSystemDefaults();
+  return projects.map((project) => ({
+    ...toProjectSummary(project, defaults.defaultProjectId),
+    role: project.members?.[0]?.role
+  }));
 }
 
 export async function listTeamProjectTrash(userId: string, teamId: string) {
@@ -226,7 +255,8 @@ export async function listTeamProjectTrash(userId: string, teamId: string) {
 
 export async function getProject(userId: string, projectId: string) {
   const { project } = await requireProjectAccess(userId, projectId);
-  return toProjectSummary(project);
+  const defaults = await getSystemDefaults();
+  return toProjectSummary(project, defaults.defaultProjectId);
 }
 
 export async function updateProject(userId: string, projectId: string, input: UpdateProjectInput) {
@@ -259,6 +289,7 @@ export async function updateProject(userId: string, projectId: string, input: Up
     projectId,
     teamId: project.teamId
   });
+  await clearDeletedDefaultProject(userId, projectId, project.teamId);
 
   return toProjectSummary(project);
 }
@@ -359,6 +390,7 @@ export async function deleteProject(userId: string, projectId: string) {
     projectId,
     teamId: project.teamId
   });
+  await clearDeletedDefaultProject(userId, projectId, project.teamId);
 
   return { ok: true };
 }
@@ -554,6 +586,7 @@ export async function purgeDeletedProject(userId: string, teamId: string, projec
     projectId,
     teamId
   });
+  await clearDeletedDefaultProject(userId, projectId, teamId);
 
   return { ok: true };
 }

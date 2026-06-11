@@ -378,8 +378,8 @@ export function ProjectGanttPage() {
   });
 
   const projectPermissions = useMemo(
-    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data),
-    [membersQuery.data, teamMembersQuery.data, user?.id]
+    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data, user?.systemRole === "ADMIN"),
+    [membersQuery.data, teamMembersQuery.data, user?.id, user?.systemRole]
   );
   const allTasks = useMemo(() => flattenTasks(listsQuery.data ?? []), [listsQuery.data]);
   const filteredTasks = useMemo(

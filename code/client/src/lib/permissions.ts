@@ -9,12 +9,13 @@ type ProjectPermissions = {
 };
 
 const projectEditorRoles = new Set<ProjectRole>(["ADMIN", "EDITOR"]);
-const teamAdminRoles = new Set<TeamRole>(["OWNER", "ADMIN"]);
+const teamAdminRoles = new Set<TeamRole>(["ADMIN"]);
 
 export function getProjectPermissions(
   userId: string | null | undefined,
   projectMembers: Member[] = [],
-  teamMembers: Member[] = []
+  teamMembers: Member[] = [],
+  isSystemAdmin = false
 ): ProjectPermissions {
   const currentProjectMember = projectMembers.find((member) => member.user.id === userId);
   const currentTeamMember = teamMembers.find((member) => member.user.id === userId);
@@ -25,7 +26,7 @@ export function getProjectPermissions(
     currentProjectMember,
     currentTeamMember,
     isTeamAdmin,
-    canEditProject: isTeamAdmin || isProjectEditor,
-    canManageProject: isTeamAdmin || currentProjectMember?.role === "ADMIN"
+    canEditProject: isSystemAdmin || isTeamAdmin || isProjectEditor,
+    canManageProject: isSystemAdmin || isTeamAdmin || currentProjectMember?.role === "ADMIN"
   };
 }

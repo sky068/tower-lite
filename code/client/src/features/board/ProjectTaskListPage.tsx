@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
@@ -306,8 +306,17 @@ export function ProjectTaskListPage() {
   });
 
   const projectPermissions = useMemo(
-    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data),
-    [membersQuery.data, teamMembersQuery.data, user?.id]
+    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data, user?.systemRole === "ADMIN"),
+    [membersQuery.data, teamMembersQuery.data, user?.id, user?.systemRole]
+  );
+  const assignableMembers = useMemo(() => membersQuery.data ?? [], [membersQuery.data]);
+  const assignableMemberIds = useMemo(
+    () => new Set(assignableMembers.map((member) => member.user.id)),
+    [assignableMembers]
+  );
+  const defaultNewTaskAssigneeIds = useMemo(
+    () => (user?.id && assignableMemberIds.has(user.id) ? [user.id] : []),
+    [assignableMemberIds, user?.id]
   );
   const lists = listsQuery.data ?? [];
   const filteredLists = useMemo(
@@ -352,7 +361,7 @@ export function ProjectTaskListPage() {
     onSuccess: () => {
       setNewTaskTitle("");
       setNewTaskDescription("");
-      setNewTaskAssigneeIds(user?.id ? [user.id] : []);
+      setNewTaskAssigneeIds(defaultNewTaskAssigneeIds);
       setNewTaskStatus("TODO");
       setNewTaskPriority("MEDIUM");
       setNewTaskStartDate("");
@@ -379,10 +388,16 @@ export function ProjectTaskListPage() {
     }
 
     setNewTaskListId(taskListId);
-    setNewTaskAssigneeIds(user?.id ? [user.id] : []);
+    setNewTaskAssigneeIds(defaultNewTaskAssigneeIds);
     setNewTaskDateError("");
     setIsCreateTaskOpen(true);
   }
+
+  useEffect(() => {
+    setNewTaskAssigneeIds((current) =>
+      current.filter((assigneeId) => assignableMemberIds.has(assigneeId))
+    );
+  }, [assignableMemberIds]);
 
   function toggleNewTaskAssignee(userId: string, checked: boolean) {
     setNewTaskAssigneeIds((current) =>
@@ -411,7 +426,7 @@ export function ProjectTaskListPage() {
       taskListId: newTaskListId,
       title,
       description: newTaskDescription.trim() || null,
-      assigneeIds: newTaskAssigneeIds,
+      assigneeIds: newTaskAssigneeIds.filter((assigneeId) => assignableMemberIds.has(assigneeId)),
       status: newTaskStatus,
       priority: newTaskPriority,
       startDate: newTaskStartDate || null,
@@ -470,7 +485,7 @@ export function ProjectTaskListPage() {
         <select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)}>
           <option value="ALL">全部负责人</option>
           <option value="UNASSIGNED">未分配</option>
-          {(membersQuery.data ?? []).map((member) => (
+          {assignableMembers.map((member) => (
             <option key={member.user.id} value={member.user.id}>
               {member.user.name}
             </option>
@@ -582,7 +597,7 @@ export function ProjectTaskListPage() {
               <fieldset className="checkbox-field">
                 <legend>指派给</legend>
                 <div className="checkbox-list">
-                  {(membersQuery.data ?? []).map((member) => (
+                  {assignableMembers.map((member) => (
                     <label className="checkbox-row" key={member.user.id}>
                       <input
                         type="checkbox"
@@ -595,7 +610,7 @@ export function ProjectTaskListPage() {
                       <span>{member.user.name}</span>
                     </label>
                   ))}
-                  {(membersQuery.data ?? []).length === 0 ? (
+                  {assignableMembers.length === 0 ? (
                     <span className="muted">暂无可选成员</span>
                   ) : null}
                 </div>

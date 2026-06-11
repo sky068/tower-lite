@@ -5,6 +5,8 @@ import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createRefreshToken, hashToken, signAccessToken } from "../../utils/token.js";
+import { acceptPendingTeamAdminInvitationsForUser } from "../invitations/invitation.service.js";
+import { applyDefaultMemberships } from "../system/system.service.js";
 import type {
   FeishuAuthorizeQuery,
   FeishuCallbackInput,
@@ -23,12 +25,19 @@ function daysFromNow(days: number) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
-function toPublicUser(user: { id: string; email: string; name: string; avatarUrl: string | null }) {
+function toPublicUser(user: {
+  id: string;
+  email: string;
+  name: string;
+  avatarUrl: string | null;
+  systemRole?: string;
+}) {
   return {
     id: user.id,
     email: user.email,
     name: user.name,
-    avatarUrl: user.avatarUrl
+    avatarUrl: user.avatarUrl,
+    systemRole: user.systemRole ?? "USER"
   };
 }
 
@@ -170,6 +179,8 @@ export async function register(input: RegisterInput) {
       passwordHash
     }
   });
+  await applyDefaultMemberships(user.id);
+  await acceptPendingTeamAdminInvitationsForUser(user.id);
 
   const tokens = await issueTokens(user.id);
 
@@ -195,6 +206,8 @@ export async function login(input: LoginInput) {
   }
 
   const tokens = await issueTokens(user.id);
+  await applyDefaultMemberships(user.id);
+  await acceptPendingTeamAdminInvitationsForUser(user.id);
 
   return {
     ...tokens,
@@ -282,6 +295,8 @@ export async function loginWithFeishu(input: FeishuCallbackInput) {
     });
   });
   const tokens = await issueTokens(user.id);
+  await applyDefaultMemberships(user.id);
+  await acceptPendingTeamAdminInvitationsForUser(user.id);
 
   return {
     ...tokens,

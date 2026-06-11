@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { requireProjectManager } from "../projects/project.policy.js";
-import { requireTeamOwner } from "../teams/team.policy.js";
+import { requireTeamAdmin } from "../teams/team.policy.js";
 import type { ClearActivityLogsInput } from "./activity.schema.js";
 
 const teamActivityActions = [
@@ -58,7 +58,7 @@ export async function createActivityLog(input: CreateActivityInput) {
 }
 
 export async function listTeamActivity(userId: string, teamId: string) {
-  await requireTeamOwner(userId, teamId);
+  await requireTeamAdmin(userId, teamId);
 
   const rows = await prisma.activityLog.findMany({
     where: {
@@ -126,7 +126,7 @@ export async function listProjectActivity(userId: string, projectId: string) {
 }
 
 export async function clearTeamActivity(userId: string, teamId: string, input: ClearActivityLogsInput) {
-  await requireTeamOwner(userId, teamId);
+  await requireTeamAdmin(userId, teamId);
 
   const { start, exclusiveEnd } = parseDateRange(input);
   const result = await prisma.activityLog.deleteMany({

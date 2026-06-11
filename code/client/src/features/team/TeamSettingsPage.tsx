@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { MutationError } from "../../components/shared/MutationError";
 import { UserAvatar } from "../../components/shared/UserAvatar";
-import { activityApi, invitationApi, teamApi } from "../../lib/api";
+import { activityApi, invitationApi, systemApi, teamApi } from "../../lib/api";
 import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
 import { useAuthStore } from "../../stores/authStore";
 
@@ -15,9 +15,10 @@ export function TeamSettingsPage() {
   const user = useAuthStore((state) => state.user);
   const [teamName, setTeamName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"OWNER" | "ADMIN" | "MEMBER">("MEMBER");
+  const [role, setRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"OWNER" | "ADMIN" | "MEMBER">("MEMBER");
+  const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
+  const isSystemAdmin = user?.systemRole === "ADMIN";
 
   const membersQuery = useQuery({
     queryKey: ["team-members", teamId],
@@ -29,7 +30,7 @@ export function TeamSettingsPage() {
     queryFn: teamApi.list
   });
   const currentMember = (membersQuery.data ?? []).find((member) => member.user.id === user?.id);
-  const canManageTeam = currentMember?.role === "OWNER";
+  const canManageTeam = isSystemAdmin || currentMember?.role === "ADMIN";
   const team = (teamsQuery.data ?? []).find((item) => item.id === teamId);
 
   const invitationsQuery = useQuery({
@@ -79,7 +80,7 @@ export function TeamSettingsPage() {
   });
 
   const updateRoleMutation = useMutation({
-    mutationFn: (input: { userId: string; role: "OWNER" | "ADMIN" | "MEMBER" }) =>
+    mutationFn: (input: { userId: string; role: "ADMIN" | "MEMBER" }) =>
       teamApi.updateMemberRole(teamId!, input.userId, input.role),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
@@ -106,6 +107,13 @@ export function TeamSettingsPage() {
     mutationFn: (input: { startDate: string; endDate: string }) => activityApi.clearTeam(teamId!, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
+    }
+  });
+  const setDefaultTeamMutation = useMutation({
+    mutationFn: () =>
+      team?.isSystemDefault ? systemApi.clearDefaultTeam(teamId!) : systemApi.setDefaultTeam(teamId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["teams"] });
     }
   });
 
@@ -160,8 +168,20 @@ export function TeamSettingsPage() {
             保存
           </button>
         </form>
-        {!canManageTeam ? <span className="muted">只有团队 OWNER 可以修改团队信息。</span> : null}
+        {!canManageTeam ? <span className="muted">只有团队 ADMIN 或系统管理员可以修改团队信息。</span> : null}
         <MutationError error={updateTeamMutation.error} />
+        {isSystemAdmin ? (
+          <div className="segmented-actions">
+            <button
+              type="button"
+              disabled={setDefaultTeamMutation.isPending}
+              onClick={() => setDefaultTeamMutation.mutate()}
+            >
+              {team?.isSystemDefault ? "取消默认团队" : "设为默认团队"}
+            </button>
+          </div>
+        ) : null}
+        <MutationError error={setDefaultTeamMutation.error} />
       </section>
       <section className="panel">
         <h2>邀请成员</h2>
@@ -181,13 +201,12 @@ export function TeamSettingsPage() {
           >
             <option value="MEMBER">MEMBER</option>
             <option value="ADMIN">ADMIN</option>
-            <option value="OWNER">OWNER</option>
           </select>
           <button type="submit" disabled={!canManageTeam || createInvitationMutation.isPending}>
             创建邀请
           </button>
         </form>
-        {!canManageTeam ? <span className="muted">只有团队 OWNER 可以邀请成员。</span> : null}
+        {!canManageTeam ? <span className="muted">只有团队 ADMIN 或系统管理员可以邀请成员。</span> : null}
         <MutationError error={createInvitationMutation.error ?? revokeInvitationMutation.error} />
         {createInvitationMutation.data ? (
           <label className="copy-field">
@@ -250,11 +269,10 @@ export function TeamSettingsPage() {
           >
             <option value="MEMBER">MEMBER</option>
             <option value="ADMIN">ADMIN</option>
-            <option value="OWNER">OWNER</option>
           </select>
           <button type="submit" disabled={!canManageTeam || addMemberMutation.isPending}>添加</button>
         </form>
-        {!canManageTeam ? <span className="muted">只有团队 OWNER 可以管理成员。</span> : null}
+        {!canManageTeam ? <span className="muted">只有团队 ADMIN 或系统管理员可以管理成员。</span> : null}
         <MutationError error={addMemberMutation.error} />
       </section>
       <section className="panel">
@@ -274,11 +292,10 @@ export function TeamSettingsPage() {
                 onChange={(event) =>
                   updateRoleMutation.mutate({
                     userId: member.user.id,
-                    role: event.target.value as "OWNER" | "ADMIN" | "MEMBER"
+                    role: event.target.value as "ADMIN" | "MEMBER"
                   })
                 }
               >
-                <option value="OWNER">OWNER</option>
                 <option value="ADMIN">ADMIN</option>
                 <option value="MEMBER">MEMBER</option>
               </select>
@@ -308,7 +325,7 @@ export function TeamSettingsPage() {
           onClearRange={(input) => clearActivityMutation.mutate(input)}
         />
       ) : null}
-      {canManageTeam ? (
+      {isSystemAdmin ? (
         <section className="panel danger-zone">
           <h2>危险操作</h2>
           <MutationError error={deleteTeamMutation.error} />

@@ -5,7 +5,8 @@ export const createProjectSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().max(2000).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-  icon: z.string().max(40).optional()
+  icon: z.string().max(40).optional(),
+  projectAdminUserId: z.string().uuid().optional()
 });
 
 export const updateProjectSchema = createProjectSchema.partial();

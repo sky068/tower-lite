@@ -8,6 +8,7 @@ export type User = {
   email: string;
   name: string;
   avatarUrl: string | null;
+  systemRole: "USER" | "ADMIN";
 };
 
 export type CurrentUser = User & {
@@ -25,12 +26,14 @@ export type AuthResponse = {
 export type Team = {
   id: string;
   name: string;
-  role?: "OWNER" | "ADMIN" | "MEMBER";
+  role?: TeamRole | null;
+  isSystemAdmin?: boolean;
+  isSystemDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 };
 
-export type TeamRole = "OWNER" | "ADMIN" | "MEMBER";
+export type TeamRole = "ADMIN" | "MEMBER";
 export type ProjectRole = "ADMIN" | "EDITOR" | "VIEWER";
 
 export type Member = {
@@ -48,6 +51,7 @@ export type Project = {
   status: "ACTIVE" | "ARCHIVED";
   teamId: string;
   role?: ProjectRole;
+  isSystemDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -176,7 +180,7 @@ export type Invitation = {
   email: string;
   token: string;
   status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED";
-  teamRole: "OWNER" | "ADMIN" | "MEMBER" | null;
+  teamRole: TeamRole | null;
   projectRole: "ADMIN" | "EDITOR" | "VIEWER" | null;
   teamId: string;
   projectId: string | null;

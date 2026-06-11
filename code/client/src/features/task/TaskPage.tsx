@@ -53,7 +53,8 @@ function useTaskRouteData() {
   const { canEditProject } = getProjectPermissions(
     user?.id,
     projectMembersQuery.data,
-    teamMembersQuery.data
+    teamMembersQuery.data,
+    user?.systemRole === "ADMIN"
   );
   const isReadOnly = isArchived || !canEditProject;
   const readOnlyReason = isArchived
