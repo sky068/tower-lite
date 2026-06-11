@@ -2749,6 +2749,24 @@ select[multiple] {
   font-size: 20px;
 }
 
+.task-detail-close-button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  padding: 0;
+}
+
+.task-detail-close-button:hover:not(:disabled) {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
 .parent-trail {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2839,8 +2857,15 @@ select[multiple] {
 .detail-form label {
   display: grid;
   gap: 6px;
+  min-width: 0;
   color: #334155;
   font-size: 14px;
+}
+
+.detail-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .status-field-label {
@@ -3506,6 +3531,10 @@ select:not([multiple]):disabled {
   }
 
   .form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-form-row {
     grid-template-columns: 1fr;
   }
 

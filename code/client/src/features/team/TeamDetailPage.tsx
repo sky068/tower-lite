@@ -25,6 +25,7 @@ export function TeamDetailPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
   const [isProjectTrashOpen, setIsProjectTrashOpen] = useState(false);
+  const [teamSaveMessage, setTeamSaveMessage] = useState("");
   const isSystemAdmin = user?.systemRole === "ADMIN";
 
   const membersQuery = useQuery({
@@ -39,6 +40,8 @@ export function TeamDetailPage() {
   const currentMember = (membersQuery.data ?? []).find((member) => member.user.id === user?.id);
   const canManageTeam = isSystemAdmin || currentMember?.role === "ADMIN";
   const team = (teamsQuery.data ?? []).find((item) => item.id === teamId);
+  const normalizedTeamName = teamName.trim();
+  const isTeamNameDirty = Boolean(team && normalizedTeamName !== team.name);
 
   const invitationsQuery = useQuery({
     queryKey: ["team-invitations", teamId],
@@ -73,6 +76,7 @@ export function TeamDetailPage() {
   const updateTeamMutation = useMutation({
     mutationFn: () => teamApi.update(teamId!, { name: teamName.trim() }),
     onSuccess: () => {
+      setTeamSaveMessage("已保存");
       void queryClient.invalidateQueries({ queryKey: ["teams"] });
       void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     }
@@ -146,6 +150,8 @@ export function TeamDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ["team-project-trash", teamId] });
     }
   });
+  const canSaveTeam =
+    canManageTeam && Boolean(normalizedTeamName) && isTeamNameDirty && !updateTeamMutation.isPending;
 
   function handleAddMember(event: FormEvent) {
     event.preventDefault();
@@ -165,7 +171,7 @@ export function TeamDetailPage() {
   function handleUpdateTeam(event: FormEvent) {
     event.preventDefault();
 
-    if (teamName.trim() && canManageTeam) {
+    if (canSaveTeam) {
       updateTeamMutation.mutate();
     }
   }
@@ -175,6 +181,10 @@ export function TeamDetailPage() {
       setTeamName(team.name);
     }
   }, [team]);
+
+  useEffect(() => {
+    setTeamSaveMessage("");
+  }, [teamId]);
 
   return (
     <div className="page">
@@ -190,16 +200,20 @@ export function TeamDetailPage() {
             <input
               value={teamName}
               disabled={!canManageTeam}
-              onChange={(event) => setTeamName(event.target.value)}
+              onChange={(event) => {
+                setTeamName(event.target.value);
+                setTeamSaveMessage("");
+              }}
               required
             />
           </label>
           {canManageTeam ? (
-            <button type="submit" disabled={updateTeamMutation.isPending}>
-              保存
+            <button type="submit" disabled={!canSaveTeam}>
+              {updateTeamMutation.isPending ? "保存中..." : "保存"}
             </button>
           ) : null}
         </form>
+        {teamSaveMessage ? <span className="form-success inline-error">{teamSaveMessage}</span> : null}
         <MutationError error={updateTeamMutation.error} />
         {isSystemAdmin ? (
           <div className="segmented-actions">

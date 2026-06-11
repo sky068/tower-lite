@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi } from "../../lib/api";
-import { openDateInputPicker } from "../../lib/dateInput";
 import { formatRelativeTime } from "../../lib/dateTime";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
@@ -66,7 +65,6 @@ function DateInputBox({
         min={min}
         max={max}
         disabled={disabled}
-        onClick={(event) => openDateInputPicker(event.currentTarget)}
         onChange={(event) => onChange(event.target.value)}
       />
       {!value ? <span className="date-input-placeholder">未设置</span> : null}
@@ -698,8 +696,8 @@ export function TaskDetailPanel({
               </div>
             ) : null}
           </div>
-          <button className="text-button" type="button" onClick={onClose}>
-            关闭
+          <button className="task-detail-close-button" type="button" aria-label="关闭任务详情" onClick={onClose}>
+            <X size={18} aria-hidden="true" />
           </button>
         </header>
 
@@ -810,54 +808,58 @@ export function TaskDetailPanel({
                     ))}
                   </select>
                 </label>
-                <label>
-                  清单
-                  <select
-                    value={taskListId || task.taskListId}
-                    disabled={readOnly || moveTaskMutation.isPending}
-                    onChange={(event) => setTaskListId(event.target.value)}
-                  >
-                    {lists.map((list) => (
-                      <option key={list.id} value={list.id}>
-                        {list.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  优先级
-                  <select
-                    value={priority}
-                    disabled={readOnly}
-                    onChange={(event) => setPriority(event.target.value as typeof priority)}
-                  >
-                    {PRIORITY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  开始日期
-                  <DateInputBox
-                    ariaLabel="开始日期"
-                    value={startDate}
-                    max={dueDate || undefined}
-                    disabled={readOnly}
-                    onChange={setStartDate}
-                  />
-                </label>
-                <label>
-                  截止日期
-                  <DateInputBox
-                    ariaLabel="截止日期"
-                    value={dueDate}
-                    min={startDate || undefined}
-                    disabled={readOnly}
-                    onChange={setDueDate}
-                  />
-                </label>
+                <div className="detail-form-row">
+                  <label>
+                    优先级
+                    <select
+                      value={priority}
+                      disabled={readOnly}
+                      onChange={(event) => setPriority(event.target.value as typeof priority)}
+                    >
+                      {PRIORITY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    清单
+                    <select
+                      value={taskListId || task.taskListId}
+                      disabled={readOnly || moveTaskMutation.isPending}
+                      onChange={(event) => setTaskListId(event.target.value)}
+                    >
+                      {lists.map((list) => (
+                        <option key={list.id} value={list.id}>
+                          {list.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="detail-form-row">
+                  <label>
+                    开始日期
+                    <DateInputBox
+                      ariaLabel="开始日期"
+                      value={startDate}
+                      max={dueDate || undefined}
+                      disabled={readOnly}
+                      onChange={setStartDate}
+                    />
+                  </label>
+                  <label>
+                    截止日期
+                    <DateInputBox
+                      ariaLabel="截止日期"
+                      value={dueDate}
+                      min={startDate || undefined}
+                      disabled={readOnly}
+                      onChange={setDueDate}
+                    />
+                  </label>
+                </div>
                 {dateError ? <span className="form-error inline-error">{dateError}</span> : null}
                 {saveMessage ? <span className="form-success inline-error">{saveMessage}</span> : null}
                 <button

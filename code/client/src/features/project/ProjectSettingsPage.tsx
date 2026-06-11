@@ -54,6 +54,7 @@ export function ProjectSettingsPage() {
   const [feishuClearStartDate, setFeishuClearStartDate] = useState("");
   const [feishuClearEndDate, setFeishuClearEndDate] = useState("");
   const [feishuClearStatus, setFeishuClearStatus] = useState<FeishuDeliveryClearStatus>("ALL");
+  const [projectSaveMessage, setProjectSaveMessage] = useState("");
   const isSystemAdmin = user?.systemRole === "ADMIN";
 
   const projectQuery = useQuery({
@@ -115,8 +116,10 @@ export function ProjectSettingsPage() {
   );
 
   const updateProjectMutation = useMutation({
-    mutationFn: () => projectApi.update(projectId!, { name, description }),
+    mutationFn: () => projectApi.update(projectId!, { name: name.trim(), description: description.trim() }),
     onSuccess: () => {
+      setProjectSaveMessage("已保存");
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["projects"] });
       void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
@@ -226,6 +229,15 @@ export function ProjectSettingsPage() {
       void queryClient.invalidateQueries({ queryKey: ["teams"] });
     }
   });
+  const normalizedProjectName = name.trim();
+  const normalizedProjectDescription = description.trim();
+  const isProjectDirty = Boolean(
+    projectQuery.data &&
+      (normalizedProjectName !== projectQuery.data.name ||
+        normalizedProjectDescription !== (projectQuery.data.description ?? ""))
+  );
+  const canSaveProject =
+    canManageProject && Boolean(normalizedProjectName) && isProjectDirty && !updateProjectMutation.isPending;
 
   useEffect(() => {
     if (projectQuery.data) {
@@ -233,6 +245,10 @@ export function ProjectSettingsPage() {
       setDescription(projectQuery.data.description ?? "");
     }
   }, [projectQuery.data]);
+
+  useEffect(() => {
+    setProjectSaveMessage("");
+  }, [projectId]);
 
   if (projectQuery.error) {
     return (
@@ -244,7 +260,7 @@ export function ProjectSettingsPage() {
 
   function handleUpdateProject(event: FormEvent) {
     event.preventDefault();
-    if (canManageProject) {
+    if (canSaveProject) {
       updateProjectMutation.mutate();
     }
   }
@@ -311,7 +327,10 @@ export function ProjectSettingsPage() {
             <input
               value={name}
               disabled={!canManageProject}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                setProjectSaveMessage("");
+              }}
               required
             />
           </label>
@@ -320,13 +339,19 @@ export function ProjectSettingsPage() {
             <textarea
               value={description}
               disabled={!canManageProject}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => {
+                setDescription(event.target.value);
+                setProjectSaveMessage("");
+              }}
               rows={3}
             />
           </label>
-          <button type="submit" disabled={!canManageProject || updateProjectMutation.isPending}>保存</button>
+          <button type="submit" disabled={!canSaveProject}>
+            {updateProjectMutation.isPending ? "保存中..." : "保存"}
+          </button>
         </form>
         {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以修改项目基础信息。</span> : null}
+        {projectSaveMessage ? <span className="form-success inline-error">{projectSaveMessage}</span> : null}
         <MutationError error={updateProjectMutation.error} />
         {isSystemAdmin ? (
           <div className="segmented-actions">
