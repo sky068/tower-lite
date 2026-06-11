@@ -8,7 +8,7 @@ import { ProjectBoardPage } from "../features/board/ProjectBoardPage";
 import { ProjectGanttPage } from "../features/board/ProjectGanttPage";
 import { ProjectTaskListPage } from "../features/board/ProjectTaskListPage";
 import { RequireAuth } from "../features/auth/RequireAuth";
-import { TeamSettingsPage } from "../features/team/TeamSettingsPage";
+import { TeamDetailPage } from "../features/team/TeamDetailPage";
 import { ProjectSettingsPage } from "../features/project/ProjectSettingsPage";
 import { ProjectTrashPage } from "../features/project/ProjectTrashPage";
 import { TaskModalRoute, TaskPage } from "../features/task/TaskPage";
@@ -59,8 +59,8 @@ const routes = [
         element: <ProjectGanttPage />
       },
       {
-        path: "/teams/:teamId/settings",
-        element: <TeamSettingsPage />
+        path: "/teams/:teamId",
+        element: <TeamDetailPage />
       },
       {
         path: "/projects/:projectId/settings",

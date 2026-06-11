@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
+import { CopyableInviteLink } from "../../components/shared/CopyableInviteLink";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { UserAvatar } from "../../components/shared/UserAvatar";
@@ -375,10 +376,11 @@ export function ProjectSettingsPage() {
         {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以邀请项目成员。</span> : null}
         <MutationError error={createInvitationMutation.error ?? revokeInvitationMutation.error} />
         {createInvitationMutation.data ? (
-          <label className="copy-field">
-            邀请链接
-            <input readOnly value={getAcceptUrl(createInvitationMutation.data.acceptPath)} />
-          </label>
+          <CopyableInviteLink
+            label="邀请链接"
+            url={getAcceptUrl(createInvitationMutation.data.acceptPath)}
+            variant="field"
+          />
         ) : null}
       </section>
       <section className="panel">
@@ -393,7 +395,7 @@ export function ProjectSettingsPage() {
                   {invitation.projectRole ?? "VIEWER"} / {getInvitationStatusLabel(invitation.status)}
                 </span>
                 {invitation.status === "PENDING" ? (
-                  <span className="muted">{getAcceptUrl(invitation.acceptPath)}</span>
+                  <CopyableInviteLink url={getAcceptUrl(invitation.acceptPath)} />
                 ) : null}
               </div>
               {invitation.status === "PENDING" ? (

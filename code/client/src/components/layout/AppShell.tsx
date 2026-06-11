@@ -1,18 +1,14 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, ListChecks, LogOut, Settings, Trash2, Upload, X } from "lucide-react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bell, Building2, FolderKanban, ListChecks, LogOut, Plus, Settings, Trash2, Upload, X } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FormEvent, type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../shared/MutationError";
 import { UserAvatar } from "../shared/UserAvatar";
-import { authApi, userApi } from "../../lib/api";
+import { authApi, projectApi, teamApi, userApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
 import { useRealtimeEvents } from "../../lib/realtime";
 import { useAuthStore } from "../../stores/authStore";
-import type { Notification } from "../../types/api";
-
-const navItems = [
-  { to: "/dashboard", label: "工作台", icon: ListChecks }
-];
+import type { Notification, Project } from "../../types/api";
 
 const realtimeStatusLabels = {
   idle: "实时连接未启动",
@@ -33,7 +29,13 @@ export function AppShell() {
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
+  const [isCreatingTeam, setIsCreatingTeam] = useState(false);
+  const [creatingProjectTeamId, setCreatingProjectTeamId] = useState<string | null>(null);
   const [notificationCenterFilter, setNotificationCenterFilter] = useState<"ALL" | "UNREAD">("ALL");
+  const [newTeamName, setNewTeamName] = useState("");
+  const [newTeamAdminEmail, setNewTeamAdminEmail] = useState("");
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectAdminUserId, setNewProjectAdminUserId] = useState("");
   const [profileName, setProfileName] = useState(user?.name ?? "");
   const [profileEmail, setProfileEmail] = useState(user?.email ?? "");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(user?.avatarUrl ?? "");
@@ -46,6 +48,7 @@ export function AppShell() {
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const realtimeStatus = useRealtimeEvents();
+  const isSystemAdmin = user?.systemRole === "ADMIN";
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
@@ -64,6 +67,72 @@ export function AppShell() {
     mutationFn: userApi.markAllNotificationsRead,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    }
+  });
+  const teamsQuery = useQuery({
+    queryKey: ["teams"],
+    queryFn: teamApi.list,
+    enabled: Boolean(user)
+  });
+  const teams = teamsQuery.data ?? [];
+  const projectQueries = useQueries({
+    queries: teams.map((team) => ({
+      queryKey: ["projects", team.id],
+      queryFn: () => projectApi.list(team.id),
+      enabled: Boolean(user)
+    }))
+  });
+  const projectsByTeamId = useMemo(() => {
+    const next = new Map<string, Project[]>();
+
+    teams.forEach((team, index) => {
+      next.set(team.id, projectQueries[index]?.data ?? []);
+    });
+
+    return next;
+  }, [projectQueries, teams]);
+  const creatingProjectTeam = useMemo(
+    () => teams.find((team) => team.id === creatingProjectTeamId) ?? null,
+    [creatingProjectTeamId, teams]
+  );
+  const canCreateProjectForCurrentTeam = Boolean(
+    creatingProjectTeam && (isSystemAdmin || creatingProjectTeam.role === "ADMIN")
+  );
+  const projectAdminCandidatesQuery = useQuery({
+    queryKey: ["team-members", creatingProjectTeamId],
+    queryFn: () => teamApi.members(creatingProjectTeamId!),
+    enabled: Boolean(creatingProjectTeamId && canCreateProjectForCurrentTeam)
+  });
+
+  const createTeamMutation = useMutation({
+    mutationFn: () =>
+      teamApi.create({
+        name: newTeamName.trim(),
+        adminEmail: newTeamAdminEmail.trim()
+      }),
+    onSuccess: (team) => {
+      setNewTeamName("");
+      setNewTeamAdminEmail("");
+      setIsCreatingTeam(false);
+      void queryClient.invalidateQueries({ queryKey: ["teams"] });
+      navigate(`/teams/${team.id}`);
+    }
+  });
+  const createProjectMutation = useMutation({
+    mutationFn: () =>
+      projectApi.create(creatingProjectTeamId!, {
+        name: newProjectName.trim(),
+        projectAdminUserId: newProjectAdminUserId || undefined
+      }),
+    onSuccess: (project) => {
+      const teamId = creatingProjectTeamId;
+      setCreatingProjectTeamId(null);
+      setNewProjectName("");
+      setNewProjectAdminUserId("");
+      if (teamId) {
+        void queryClient.invalidateQueries({ queryKey: ["projects", teamId] });
+      }
+      navigate(`/projects/${project.id}/board`);
     }
   });
 
@@ -198,6 +267,28 @@ export function AppShell() {
     setAccountSettingsSaved(false);
   }
 
+  function handleCreateTeam(event: FormEvent) {
+    event.preventDefault();
+
+    if (isSystemAdmin && newTeamName.trim() && newTeamAdminEmail.trim()) {
+      createTeamMutation.mutate();
+    }
+  }
+
+  function handleCreateProject(event: FormEvent) {
+    event.preventDefault();
+
+    if (creatingProjectTeamId && canCreateProjectForCurrentTeam && newProjectName.trim()) {
+      createProjectMutation.mutate();
+    }
+  }
+
+  function handleCancelCreateProject() {
+    setCreatingProjectTeamId(null);
+    setNewProjectName("");
+    setNewProjectAdminUserId("");
+  }
+
   async function handleSaveAccountSettings(event: FormEvent) {
     event.preventDefault();
 
@@ -287,15 +378,176 @@ export function AppShell() {
       <aside className="sidebar">
         <div className="brand">Tower Lite</div>
         <nav className="nav-list">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink key={item.to} to={item.to} className="nav-item">
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
+          <NavLink to="/dashboard" className="nav-item">
+            <ListChecks size={18} />
+            <span>工作台</span>
+          </NavLink>
+          <section className="nav-section" aria-label="团队">
+            <header className="nav-section-header">
+              <span>团队</span>
+              {isSystemAdmin ? (
+                <button
+                  className="nav-section-action"
+                  type="button"
+                  aria-label="创建团队"
+                  title="创建团队"
+                  onClick={() => setIsCreatingTeam((current) => !current)}
+                >
+                  <Plus size={14} />
+                </button>
+              ) : null}
+            </header>
+            {isCreatingTeam && isSystemAdmin ? (
+              <form className="sidebar-create-form" onSubmit={handleCreateTeam}>
+                <input
+                  value={newTeamName}
+                  onChange={(event) => setNewTeamName(event.target.value)}
+                  placeholder="团队名称"
+                  required
+                />
+                <input
+                  value={newTeamAdminEmail}
+                  onChange={(event) => setNewTeamAdminEmail(event.target.value)}
+                  placeholder="管理员邮箱"
+                  type="email"
+                  required
+                />
+                <div className="sidebar-create-actions">
+                  <button className="sidebar-confirm-button" type="submit" disabled={createTeamMutation.isPending}>
+                    确定
+                  </button>
+                  <button
+                    className="sidebar-cancel-button"
+                    type="button"
+                    disabled={createTeamMutation.isPending}
+                    onClick={() => {
+                      setNewTeamName("");
+                      setNewTeamAdminEmail("");
+                      setIsCreatingTeam(false);
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+                <MutationError error={createTeamMutation.error} />
+              </form>
+            ) : null}
+            <div className="nav-sub-list">
+              {teamsQuery.isLoading ? <span className="nav-empty">团队加载中...</span> : null}
+              {teams.map((team) => (
+                <NavLink
+                  key={team.id}
+                  to={`/teams/${team.id}`}
+                  className={({ isActive }) =>
+                    isActive || location.pathname.startsWith(`/teams/${team.id}/`)
+                      ? "nav-sub-item active"
+                      : "nav-sub-item"
+                  }
+                >
+                  <Building2 size={15} />
+                  <span>{team.name}</span>
+                  {team.isSystemDefault ? <i>默认</i> : null}
+                </NavLink>
+              ))}
+              {!teamsQuery.isLoading && teams.length === 0 ? <span className="nav-empty">暂无团队</span> : null}
+            </div>
+          </section>
+          <section className="nav-section" aria-label="项目">
+            <header className="nav-section-header">
+              <span>项目</span>
+            </header>
+            <div className="nav-project-groups">
+              {teams.map((team) => {
+                const projects = projectsByTeamId.get(team.id) ?? [];
+                const canCreateProject = isSystemAdmin || team.role === "ADMIN";
+
+                if (projects.length === 0 && !canCreateProject) {
+                  return null;
+                }
+
+                return (
+                  <div className="nav-project-group" key={team.id}>
+                    <div className="nav-project-group-header">
+                      <span className="nav-project-team-name">{team.name}</span>
+                      {canCreateProject ? (
+                        <button
+                          className="nav-section-action"
+                          type="button"
+                          aria-label={`在${team.name}创建项目`}
+                          title="创建项目"
+                          onClick={() => {
+                            setCreatingProjectTeamId((current) => (current === team.id ? null : team.id));
+                            setNewProjectName("");
+                            setNewProjectAdminUserId("");
+                          }}
+                        >
+                          <Plus size={14} />
+                        </button>
+                      ) : null}
+                    </div>
+                    {creatingProjectTeamId === team.id && canCreateProject ? (
+                      <form className="sidebar-create-form" onSubmit={handleCreateProject}>
+                        <input
+                          value={newProjectName}
+                          onChange={(event) => setNewProjectName(event.target.value)}
+                          placeholder="项目名称"
+                          required
+                        />
+                        <select
+                          value={newProjectAdminUserId}
+                          onChange={(event) => setNewProjectAdminUserId(event.target.value)}
+                          required={isSystemAdmin}
+                          title={isSystemAdmin ? "系统管理员创建项目时必须指定项目管理员" : "不选则默认自己为项目管理员"}
+                        >
+                          <option value="">
+                            {isSystemAdmin ? "选择项目管理员" : "默认自己为项目管理员"}
+                          </option>
+                          {(projectAdminCandidatesQuery.data ?? []).map((member) => (
+                            <option key={member.user.id} value={member.user.id}>
+                              {member.user.name} / {member.user.email}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="sidebar-create-actions">
+                          <button
+                            className="sidebar-confirm-button"
+                            type="submit"
+                            disabled={createProjectMutation.isPending}
+                          >
+                            确定
+                          </button>
+                          <button
+                            className="sidebar-cancel-button"
+                            type="button"
+                            disabled={createProjectMutation.isPending}
+                            onClick={handleCancelCreateProject}
+                          >
+                            取消
+                          </button>
+                        </div>
+                        <MutationError error={createProjectMutation.error} />
+                      </form>
+                    ) : null}
+                    {projects.map((project) => (
+                      <NavLink
+                        key={project.id}
+                        to={`/projects/${project.id}/board`}
+                        className={() =>
+                          location.pathname.startsWith(`/projects/${project.id}/`)
+                            ? "nav-sub-item project active"
+                            : "nav-sub-item project"
+                        }
+                      >
+                        <FolderKanban size={15} />
+                        <span>{project.name}</span>
+                        {project.isSystemDefault ? <i>默认</i> : null}
+                      </NavLink>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         </nav>
       </aside>
       <main className="main">

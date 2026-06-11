@@ -282,6 +282,8 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await apiRequest("DELETE", `/projects/${restorableProject.id}`, {
     token: owner.token
   });
+  await page.goto(`/teams/${teamId}`);
+  await expect(page.getByRole("heading", { name: `E2E Team ${runId}` })).toBeVisible();
   await expect(page.getByRole("button", { name: "项目回收站" })).toBeVisible();
   await page.getByRole("button", { name: "项目回收站" }).click();
   const teamProjectTrash = page.getByRole("region", { name: "团队项目回收站" });
