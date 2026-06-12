@@ -367,7 +367,7 @@ export function TeamDetailPage() {
             </div>
           ))}
           {!projectsQuery.isLoading && (projectsQuery.data ?? []).length === 0 ? (
-            <span className="muted">这个团队还没有项目</span>
+            <span className="muted">暂无项目</span>
           ) : null}
         </div>
       </section>

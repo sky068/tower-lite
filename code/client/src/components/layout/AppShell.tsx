@@ -94,6 +94,11 @@ export function AppShell() {
 
     return next;
   }, [projectQueries, teams]);
+  const isProjectsLoading = projectQueries.some((query) => query.isLoading);
+  const totalProjectCount = useMemo(
+    () => Array.from(projectsByTeamId.values()).reduce((count, projects) => count + projects.length, 0),
+    [projectsByTeamId]
+  );
   const creatingProjectTeam = useMemo(
     () => teams.find((team) => team.id === creatingProjectTeamId) ?? null,
     [creatingProjectTeamId, teams]
@@ -547,6 +552,9 @@ export function AppShell() {
                   </div>
                 );
               })}
+              {!teamsQuery.isLoading && !isProjectsLoading && totalProjectCount === 0 ? (
+                <span className="nav-empty">暂无项目</span>
+              ) : null}
             </div>
           </section>
         </nav>
