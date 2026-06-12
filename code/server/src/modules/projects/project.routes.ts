@@ -98,14 +98,14 @@ projectRoutes.post(
 );
 
 projectRoutes.patch(
-  "/projects/:projectId/members/:userId/role",
+  "/projects/:projectId/members/:memberId/role",
   validate("params", projectMemberParamsSchema),
   validate("body", updateProjectMemberRoleSchema),
   asyncHandler(async (req, res) => {
     const data = await updateProjectMemberRole(
       getCurrentUserId(req),
       req.params.projectId,
-      req.params.userId,
+      req.params.memberId,
       req.body
     );
     return sendData(req, res, data);
@@ -113,13 +113,13 @@ projectRoutes.patch(
 );
 
 projectRoutes.delete(
-  "/projects/:projectId/members/:userId",
+  "/projects/:projectId/members/:memberId",
   validate("params", projectMemberParamsSchema),
   asyncHandler(async (req, res) => {
     const data = await removeProjectMember(
       getCurrentUserId(req),
       req.params.projectId,
-      req.params.userId
+      req.params.memberId
     );
     return sendData(req, res, data);
   })

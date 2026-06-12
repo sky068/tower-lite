@@ -79,8 +79,11 @@ CREATE TABLE "Team" (
 CREATE TABLE "TeamMember" (
     "id" TEXT NOT NULL,
     "role" "TeamRole" NOT NULL,
-    "userId" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "normalizedEmail" TEXT NOT NULL,
+    "userId" TEXT,
     "teamId" TEXT NOT NULL,
+    "claimedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "TeamMember_pkey" PRIMARY KEY ("id")
@@ -121,21 +124,13 @@ CREATE TABLE "ActivityLog" (
 );
 
 -- CreateTable
-CREATE TABLE "SystemSetting" (
-    "key" TEXT NOT NULL,
-    "value" TEXT,
-    "updatedById" TEXT,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "SystemSetting_pkey" PRIMARY KEY ("key")
-);
-
--- CreateTable
 CREATE TABLE "ProjectMember" (
     "id" TEXT NOT NULL,
     "role" "ProjectRole" NOT NULL,
     "projectId" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
+    "teamMemberId" TEXT NOT NULL,
+    "userId" TEXT,
+    "claimedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ProjectMember_pkey" PRIMARY KEY ("id")
@@ -201,11 +196,16 @@ CREATE TABLE "Task" (
 
 -- CreateTable
 CREATE TABLE "TaskAssignee" (
+    "id" TEXT NOT NULL,
     "taskId" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
+    "projectMemberId" TEXT,
+    "assigneeNameSnapshot" TEXT NOT NULL,
+    "assigneeEmailSnapshot" TEXT NOT NULL,
+    "assigneeAvatarSnapshot" TEXT,
+    "removedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "TaskAssignee_pkey" PRIMARY KEY ("taskId","userId")
+    CONSTRAINT "TaskAssignee_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -296,6 +296,19 @@ CREATE TABLE "NotificationDelivery" (
     CONSTRAINT "NotificationDelivery_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "FeishuEvent" (
+    "id" TEXT NOT NULL,
+    "eventId" TEXT NOT NULL,
+    "eventType" TEXT NOT NULL,
+    "payload" JSONB NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'RECEIVED',
+    "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "processedAt" TIMESTAMP(3),
+
+    CONSTRAINT "FeishuEvent_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
@@ -312,7 +325,13 @@ CREATE UNIQUE INDEX "RefreshToken_tokenHash_key" ON "RefreshToken"("tokenHash");
 CREATE INDEX "RefreshToken_userId_idx" ON "RefreshToken"("userId");
 
 -- CreateIndex
+CREATE INDEX "TeamMember_normalizedEmail_idx" ON "TeamMember"("normalizedEmail");
+
+-- CreateIndex
 CREATE INDEX "TeamMember_teamId_role_idx" ON "TeamMember"("teamId", "role");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TeamMember_teamId_normalizedEmail_key" ON "TeamMember"("teamId", "normalizedEmail");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TeamMember_userId_teamId_key" ON "TeamMember"("userId", "teamId");
@@ -333,6 +352,15 @@ CREATE INDEX "ActivityLog_taskId_createdAt_idx" ON "ActivityLog"("taskId", "crea
 CREATE INDEX "ProjectMember_userId_idx" ON "ProjectMember"("userId");
 
 -- CreateIndex
+CREATE INDEX "ProjectMember_teamMemberId_idx" ON "ProjectMember"("teamMemberId");
+
+-- CreateIndex
+CREATE INDEX "ProjectMember_projectId_role_idx" ON "ProjectMember"("projectId", "role");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ProjectMember_projectId_teamMemberId_key" ON "ProjectMember"("projectId", "teamMemberId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ProjectMember_projectId_userId_key" ON "ProjectMember"("projectId", "userId");
 
 -- CreateIndex
@@ -347,9 +375,6 @@ CREATE INDEX "Invitation_teamId_status_idx" ON "Invitation"("teamId", "status");
 -- CreateIndex
 CREATE INDEX "TaskList_projectId_sortKey_idx" ON "TaskList"("projectId", "sortKey");
 
--- Active task list names must be unique, but deleted lists can keep their original names in trash.
-CREATE UNIQUE INDEX "TaskList_projectId_name_active_key" ON "TaskList"("projectId", "name") WHERE "deletedAt" IS NULL;
-
 -- CreateIndex
 CREATE INDEX "Task_projectId_idx" ON "Task"("projectId");
 
@@ -363,7 +388,10 @@ CREATE INDEX "Task_parentId_idx" ON "Task"("parentId");
 CREATE INDEX "Task_status_idx" ON "Task"("status");
 
 -- CreateIndex
-CREATE INDEX "TaskAssignee_userId_idx" ON "TaskAssignee"("userId");
+CREATE INDEX "TaskAssignee_projectMemberId_idx" ON "TaskAssignee"("projectMemberId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TaskAssignee_taskId_projectMemberId_key" ON "TaskAssignee"("taskId", "projectMemberId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "TaskDependency_dependentTaskId_prerequisiteId_key" ON "TaskDependency"("dependentTaskId", "prerequisiteId");
@@ -392,11 +420,17 @@ CREATE INDEX "NotificationDelivery_status_channel_idx" ON "NotificationDelivery"
 -- CreateIndex
 CREATE INDEX "NotificationDelivery_notificationId_channel_idx" ON "NotificationDelivery"("notificationId", "channel");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "FeishuEvent_eventId_key" ON "FeishuEvent"("eventId");
+
+-- CreateIndex
+CREATE INDEX "FeishuEvent_eventType_receivedAt_idx" ON "FeishuEvent"("eventType", "receivedAt");
+
 -- AddForeignKey
 ALTER TABLE "RefreshToken" ADD CONSTRAINT "RefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "TeamMember" ADD CONSTRAINT "TeamMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "TeamMember" ADD CONSTRAINT "TeamMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "TeamMember" ADD CONSTRAINT "TeamMember_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -420,13 +454,13 @@ ALTER TABLE "ActivityLog" ADD CONSTRAINT "ActivityLog_teamId_fkey" FOREIGN KEY (
 ALTER TABLE "ActivityLog" ADD CONSTRAINT "ActivityLog_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "SystemSetting" ADD CONSTRAINT "SystemSetting_updatedById_fkey" FOREIGN KEY ("updatedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
 ALTER TABLE "ProjectMember" ADD CONSTRAINT "ProjectMember_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "ProjectMember" ADD CONSTRAINT "ProjectMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "ProjectMember" ADD CONSTRAINT "ProjectMember_teamMemberId_fkey" FOREIGN KEY ("teamMemberId") REFERENCES "TeamMember"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ProjectMember" ADD CONSTRAINT "ProjectMember_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Invitation" ADD CONSTRAINT "Invitation_teamId_fkey" FOREIGN KEY ("teamId") REFERENCES "Team"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -465,7 +499,7 @@ ALTER TABLE "Task" ADD CONSTRAINT "Task_parentId_fkey" FOREIGN KEY ("parentId") 
 ALTER TABLE "TaskAssignee" ADD CONSTRAINT "TaskAssignee_taskId_fkey" FOREIGN KEY ("taskId") REFERENCES "Task"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "TaskAssignee" ADD CONSTRAINT "TaskAssignee_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "TaskAssignee" ADD CONSTRAINT "TaskAssignee_projectMemberId_fkey" FOREIGN KEY ("projectMemberId") REFERENCES "ProjectMember"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "TaskDependency" ADD CONSTRAINT "TaskDependency_dependentTaskId_fkey" FOREIGN KEY ("dependentTaskId") REFERENCES "Task"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

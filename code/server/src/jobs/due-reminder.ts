@@ -9,12 +9,12 @@ export async function runDueReminderScan() {
   const now = new Date();
   const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const assignedRows = await prisma.$queryRaw<Array<{ taskId: string; userId: string }>>`
-    SELECT ta."taskId", ta."userId"
+    SELECT ta."taskId", pm."userId"
     FROM "TaskAssignee" ta
-    JOIN "Task" task ON task."id" = ta."taskId"
-    JOIN "ProjectMember" pm
-      ON pm."projectId" = task."projectId"
-      AND pm."userId" = ta."userId"
+    JOIN "ProjectMember" pm ON pm."id" = ta."projectMemberId"
+    JOIN "TeamMember" tm ON tm."id" = pm."teamMemberId"
+    WHERE pm."userId" IS NOT NULL
+      AND tm."userId" IS NOT NULL
   `;
   const assignedTaskIds = [...new Set(assignedRows.map((row) => row.taskId))];
   const assigneeMap = new Map<string, string[]>();

@@ -1,18 +1,118 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ActivityLogPanel } from "../../components/shared/ActivityLogPanel";
 import { CopyableInviteLink } from "../../components/shared/CopyableInviteLink";
 import { MutationError } from "../../components/shared/MutationError";
 import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
-import { activityApi, invitationApi, projectApi, systemApi, teamApi } from "../../lib/api";
+import { activityApi, getApiErrorMessage, projectApi, teamApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
-import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
+import { getAcceptUrl } from "../../lib/invitations";
+import { getMemberName, getMemberUser } from "../../lib/members";
 import { useAuthStore } from "../../stores/authStore";
+
+type TeamMemberImportRow = {
+  email: string;
+  lineNumber: number;
+  role: "ADMIN" | "MEMBER";
+};
 
 function formatDeletedBy(user: { name: string; email: string } | null) {
   return user ? `${user.name} / ${user.email}` : "未知成员";
+}
+
+function splitCsvLine(line: string) {
+  const values: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    const nextCharacter = line[index + 1];
+
+    if (character === "\"" && inQuotes && nextCharacter === "\"") {
+      current += "\"";
+      index += 1;
+      continue;
+    }
+
+    if (character === "\"") {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (character === "," && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  values.push(current.trim());
+  return values;
+}
+
+function normalizeImportRole(value: string, lineNumber: number): "ADMIN" | "MEMBER" {
+  const role = value.trim().toLowerCase();
+
+  if (["1", "admin", "管理员", "team_admin"].includes(role)) {
+    return "ADMIN";
+  }
+
+  if (["2", "member", "成员", "team_member"].includes(role)) {
+    return "MEMBER";
+  }
+
+  throw new Error(`第 ${lineNumber} 行权限无效，请填写 ADMIN / MEMBER，或 1 / 2。`);
+}
+
+function parseTeamMemberCsv(text: string): TeamMemberImportRow[] {
+  const rows = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const members: TeamMemberImportRow[] = [];
+  const seenEmails = new Set<string>();
+
+  rows.forEach((line, index) => {
+    const lineNumber = index + 1;
+
+    if (!line.trim()) {
+      return;
+    }
+
+    const [emailValue = "", roleValue = ""] = splitCsvLine(line);
+    const email = emailValue.trim().toLowerCase();
+
+    if (lineNumber === 1 && ["email", "邮箱"].includes(email)) {
+      return;
+    }
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error(`第 ${lineNumber} 行邮箱格式不正确。`);
+    }
+
+    if (!roleValue.trim()) {
+      throw new Error(`第 ${lineNumber} 行缺少权限，请填写 ADMIN / MEMBER，或 1 / 2。`);
+    }
+
+    if (seenEmails.has(email)) {
+      throw new Error(`第 ${lineNumber} 行邮箱重复：${email}`);
+    }
+
+    seenEmails.add(email);
+    members.push({
+      email,
+      lineNumber,
+      role: normalizeImportRole(roleValue, lineNumber)
+    });
+  });
+
+  if (members.length === 0) {
+    throw new Error("CSV 中没有可导入的成员。");
+  }
+
+  return members;
 }
 
 export function TeamDetailPage() {
@@ -23,8 +123,10 @@ export function TeamDetailPage() {
   const [teamName, setTeamName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
+  const [isBatchImportOpen, setIsBatchImportOpen] = useState(false);
+  const [batchImportRows, setBatchImportRows] = useState<TeamMemberImportRow[]>([]);
+  const [batchImportError, setBatchImportError] = useState("");
+  const [batchImportMessage, setBatchImportMessage] = useState("");
   const [isProjectTrashOpen, setIsProjectTrashOpen] = useState(false);
   const [teamSaveMessage, setTeamSaveMessage] = useState("");
   const isSystemAdmin = user?.systemRole === "ADMIN";
@@ -38,17 +140,12 @@ export function TeamDetailPage() {
     queryKey: ["teams"],
     queryFn: teamApi.list
   });
-  const currentMember = (membersQuery.data ?? []).find((member) => member.user.id === user?.id);
+  const currentMember = (membersQuery.data ?? []).find((member) => member.user?.id === user?.id);
   const canManageTeam = isSystemAdmin || currentMember?.role === "ADMIN";
   const team = (teamsQuery.data ?? []).find((item) => item.id === teamId);
   const normalizedTeamName = teamName.trim();
   const isTeamNameDirty = Boolean(team && normalizedTeamName !== team.name);
 
-  const invitationsQuery = useQuery({
-    queryKey: ["team-invitations", teamId],
-    queryFn: () => teamApi.invitations(teamId!),
-    enabled: Boolean(teamId) && canManageTeam
-  });
   const activityQuery = useQuery({
     queryKey: ["team-activity", teamId],
     queryFn: () => activityApi.team(teamId!),
@@ -74,6 +171,32 @@ export function TeamDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     }
   });
+  const batchImportMutation = useMutation({
+    mutationFn: async (rows: TeamMemberImportRow[]) => {
+      for (const row of rows) {
+        try {
+          await teamApi.addMember(teamId!, { email: row.email, role: row.role });
+        } catch (error) {
+          throw new Error(`第 ${row.lineNumber} 行导入失败：${row.email}，${getApiErrorMessage(error)}`);
+        }
+      }
+
+      return rows.length;
+    },
+    onSuccess: (count) => {
+      setBatchImportMessage(`已导入 ${count} 个成员`);
+      setBatchImportRows([]);
+      void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
+    },
+    onError: (error) => {
+      setBatchImportError(error instanceof Error ? error.message : "批量导入失败，请检查 CSV 内容。");
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
+    }
+  });
   const updateTeamMutation = useMutation({
     mutationFn: () => teamApi.update(teamId!, { name: teamName.trim() }),
     onSuccess: () => {
@@ -83,27 +206,9 @@ export function TeamDetailPage() {
     }
   });
 
-  const createInvitationMutation = useMutation({
-    mutationFn: () => teamApi.createInvitation(teamId!, { email: inviteEmail, role: inviteRole }),
-    onSuccess: () => {
-      setInviteEmail("");
-      setInviteRole("MEMBER");
-      void queryClient.invalidateQueries({ queryKey: ["team-invitations", teamId] });
-      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
-    }
-  });
-
-  const revokeInvitationMutation = useMutation({
-    mutationFn: invitationApi.revoke,
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["team-invitations", teamId] });
-      void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
-    }
-  });
-
   const updateRoleMutation = useMutation({
-    mutationFn: (input: { userId: string; role: "ADMIN" | "MEMBER" }) =>
-      teamApi.updateMemberRole(teamId!, input.userId, input.role),
+    mutationFn: (input: { memberId: string; role: "ADMIN" | "MEMBER" }) =>
+      teamApi.updateMemberRole(teamId!, input.memberId, input.role),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
       void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
@@ -111,7 +216,7 @@ export function TeamDetailPage() {
   });
 
   const removeMemberMutation = useMutation({
-    mutationFn: (userId: string) => teamApi.removeMember(teamId!, userId),
+    mutationFn: (memberId: string) => teamApi.removeMember(teamId!, memberId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
       void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
@@ -129,13 +234,6 @@ export function TeamDetailPage() {
     mutationFn: (input: { startDate: string; endDate: string }) => activityApi.clearTeam(teamId!, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
-    }
-  });
-  const setDefaultTeamMutation = useMutation({
-    mutationFn: () =>
-      team?.isSystemDefault ? systemApi.clearDefaultTeam(teamId!) : systemApi.setDefaultTeam(teamId!),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["teams"] });
     }
   });
   const restoreProjectMutation = useMutation({
@@ -161,12 +259,36 @@ export function TeamDetailPage() {
     }
   }
 
-  function handleCreateInvitation(event: FormEvent) {
+  async function handleBatchImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    setBatchImportRows([]);
+    setBatchImportError("");
+    setBatchImportMessage("");
+    batchImportMutation.reset();
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      setBatchImportRows(parseTeamMemberCsv(text));
+    } catch (error) {
+      setBatchImportError(error instanceof Error ? error.message : "CSV 解析失败，请检查文件内容。");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function handleBatchImport(event: FormEvent) {
     event.preventDefault();
 
-    if (canManageTeam) {
-      createInvitationMutation.mutate();
+    if (!canManageTeam || batchImportRows.length === 0) {
+      return;
     }
+
+    batchImportMutation.mutate(batchImportRows);
   }
 
   function handleUpdateTeam(event: FormEvent) {
@@ -191,7 +313,7 @@ export function TeamDetailPage() {
     <div className="page">
       <div className="page-heading">
         <h1>{team?.name ?? "团队详情"}</h1>
-        <p>查看团队信息、成员和项目；有权限时可管理成员、邀请和审计日志。</p>
+        <p>查看团队信息、成员和项目；有权限时可管理成员、注册链接和审计日志。</p>
       </div>
       <section className="panel">
         <h2>基础信息</h2>
@@ -216,18 +338,6 @@ export function TeamDetailPage() {
         </form>
         {teamSaveMessage ? <span className="form-success inline-error">{teamSaveMessage}</span> : null}
         <MutationError error={updateTeamMutation.error} />
-        {isSystemAdmin ? (
-          <div className="segmented-actions">
-            <button
-              type="button"
-              disabled={setDefaultTeamMutation.isPending}
-              onClick={() => setDefaultTeamMutation.mutate()}
-            >
-              {team?.isSystemDefault ? "取消默认团队" : "设为默认团队"}
-            </button>
-          </div>
-        ) : null}
-        <MutationError error={setDefaultTeamMutation.error} />
       </section>
       <section className="panel">
         <div className="panel-title-row">
@@ -249,10 +359,7 @@ export function TeamDetailPage() {
             <div className="member-row" key={project.id}>
               <div>
                 <strong>{project.name}</strong>
-                <span>
-                  {project.status === "ARCHIVED" ? "已归档" : "进行中"}
-                  {project.isSystemDefault ? " / 系统默认项目" : ""}
-                </span>
+                <span>{project.status === "ARCHIVED" ? "已归档" : "进行中"}</span>
               </div>
               <Link className="mini-link" to={`/projects/${project.id}/board`}>
                 看板
@@ -266,79 +373,8 @@ export function TeamDetailPage() {
       </section>
       {canManageTeam ? (
         <section className="panel">
-          <h2>邀请成员</h2>
-          <form className="settings-form inline" onSubmit={handleCreateInvitation}>
-            <input
-              type="email"
-              value={inviteEmail}
-              onChange={(event) => setInviteEmail(event.target.value)}
-              placeholder="成员邮箱"
-              required
-            />
-            <Select
-              value={inviteRole}
-              onChange={(value) => setInviteRole(value as typeof inviteRole)}
-              options={[
-                { value: "MEMBER", label: "MEMBER" },
-                { value: "ADMIN", label: "ADMIN" }
-              ]}
-            />
-            <button type="submit" disabled={createInvitationMutation.isPending}>
-              创建邀请
-            </button>
-          </form>
-          <MutationError error={createInvitationMutation.error ?? revokeInvitationMutation.error} />
-          {createInvitationMutation.data ? (
-            <CopyableInviteLink
-              label="邀请链接"
-              url={getAcceptUrl(createInvitationMutation.data.acceptPath)}
-              variant="field"
-            />
-          ) : null}
-        </section>
-      ) : null}
-      {canManageTeam ? (
-        <section className="panel">
-          <h2>邀请记录</h2>
-          <div className="list settings-scroll-list">
-            {(invitationsQuery.data ?? []).map((invitation) => (
-              <div className="member-row" key={invitation.id}>
-                <div>
-                  <strong>{invitation.email}</strong>
-                  <span>
-                    {invitation.project ? `项目：${invitation.project.name} / ` : "团队 / "}
-                    {invitation.projectRole ?? invitation.teamRole} / {getInvitationStatusLabel(invitation.status)}
-                  </span>
-                  {invitation.status === "PENDING" ? (
-                    <CopyableInviteLink url={getAcceptUrl(invitation.acceptPath)} />
-                  ) : null}
-                </div>
-                {invitation.status === "PENDING" ? (
-                  <button
-                    className="danger-button"
-                    type="button"
-                    disabled={revokeInvitationMutation.isPending}
-                    onClick={() => {
-                      if (window.confirm(`确认撤销发给 ${invitation.email} 的邀请？`)) {
-                        revokeInvitationMutation.mutate(invitation.id);
-                      }
-                    }}
-                  >
-                    撤销
-                  </button>
-                ) : null}
-              </div>
-            ))}
-            {!invitationsQuery.isLoading && (invitationsQuery.data ?? []).length === 0 ? (
-              <span className="muted">暂无邀请记录</span>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
-      {canManageTeam ? (
-        <section className="panel">
-          <h2>直接添加已有账号</h2>
-          <form className="settings-form inline" onSubmit={handleAddMember}>
+          <h2>添加成员</h2>
+          <form className="settings-form team-member-add-form" onSubmit={handleAddMember}>
             <input
               type="email"
               value={email}
@@ -354,8 +390,22 @@ export function TeamDetailPage() {
                 { value: "ADMIN", label: "ADMIN" }
               ]}
             />
+            <button
+              className="mini-button"
+              type="button"
+              onClick={() => {
+                setBatchImportRows([]);
+                setBatchImportError("");
+                setBatchImportMessage("");
+                batchImportMutation.reset();
+                setIsBatchImportOpen(true);
+              }}
+            >
+              批量导入
+            </button>
             <button type="submit" disabled={addMemberMutation.isPending}>添加</button>
           </form>
+          <span className="muted">邮箱未注册时会显示为未注册成员，可先分配项目和任务。</span>
           <MutationError error={addMemberMutation.error} />
         </section>
       ) : null}
@@ -363,47 +413,54 @@ export function TeamDetailPage() {
         <h2>成员</h2>
         <MutationError error={updateRoleMutation.error ?? removeMemberMutation.error} />
         <div className="list settings-scroll-list">
-          {(membersQuery.data ?? []).map((member) => (
-            <div className="member-row member-person-row" key={member.user.id}>
-              <UserAvatar user={member.user} size="md" />
-              <div className="member-info">
-                <strong>{member.user.name}</strong>
-                <span>{member.user.email}</span>
-              </div>
-              {canManageTeam ? (
-                <Select
-                  value={member.role}
-                  disabled={updateRoleMutation.isPending}
-                  onChange={(value) =>
-                    updateRoleMutation.mutate({
-                      userId: member.user.id,
-                      role: value as "ADMIN" | "MEMBER"
-                    })
-                  }
-                  options={[
-                    { value: "ADMIN", label: "ADMIN" },
-                    { value: "MEMBER", label: "MEMBER" }
-                  ]}
-                />
-              ) : (
-                <span className="role-pill">{member.role}</span>
-              )}
-              {canManageTeam ? (
-                <button
-                  className="danger-button"
-                  type="button"
-                  disabled={removeMemberMutation.isPending}
-                  onClick={() => {
-                    if (window.confirm(`确认移除 ${member.user.name}？`)) {
-                      removeMemberMutation.mutate(member.user.id);
+          {(membersQuery.data ?? []).map((member) => {
+            const memberUser = getMemberUser(member);
+
+            return (
+              <div className="member-row member-person-row" key={member.id}>
+                <UserAvatar user={memberUser} size="md" />
+                <div className="member-info">
+                  <strong>{getMemberName(member)}</strong>
+                  <span>{member.status === "PENDING" ? "待认领成员" : member.email}</span>
+                  {member.status === "PENDING" && member.inviteAcceptPath ? (
+                    <CopyableInviteLink url={getAcceptUrl(member.inviteAcceptPath)} />
+                  ) : null}
+                </div>
+                {canManageTeam ? (
+                  <Select
+                    value={member.role}
+                    disabled={updateRoleMutation.isPending}
+                    onChange={(value) =>
+                      updateRoleMutation.mutate({
+                        memberId: member.id,
+                        role: value as "ADMIN" | "MEMBER"
+                      })
                     }
-                  }}
-                >
-                  移除
-                </button>
-              ) : null}
-            </div>
-          ))}
+                    options={[
+                      { value: "ADMIN", label: "ADMIN" },
+                      { value: "MEMBER", label: "MEMBER" }
+                    ]}
+                  />
+                ) : (
+                  <span className="role-pill">{member.role}</span>
+                )}
+                {canManageTeam ? (
+                  <button
+                    className="danger-button"
+                    type="button"
+                    disabled={removeMemberMutation.isPending}
+                    onClick={() => {
+                      if (window.confirm(`确认移除 ${getMemberName(member)}？`)) {
+                        removeMemberMutation.mutate(member.id);
+                      }
+                    }}
+                  >
+                    移除
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </section>
       {canManageTeam ? (
@@ -497,6 +554,58 @@ export function TeamDetailPage() {
                 <span className="muted">暂无已删除项目</span>
               ) : null}
             </div>
+          </section>
+        </div>
+      ) : null}
+      {isBatchImportOpen && canManageTeam ? (
+        <div className="modal-backdrop">
+          <section className="modal" aria-label="批量导入团队成员">
+            <header className="modal-header">
+              <div>
+                <h2>批量导入团队成员</h2>
+                <p>上传 CSV 文件，第一列为邮箱，第二列为权限。</p>
+              </div>
+              <button className="modal-close-button" type="button" onClick={() => setIsBatchImportOpen(false)}>
+                ×
+              </button>
+            </header>
+            <form className="modal-form" onSubmit={handleBatchImport}>
+              <label>
+                CSV 文件
+                <input type="file" accept=".csv,text/csv" onChange={handleBatchImportFile} />
+              </label>
+              <div className="import-help">
+                <span>示例：email,role</span>
+                <span>alice@example.com,ADMIN</span>
+                <span>bob@example.com,2</span>
+                <span>权限支持：ADMIN / MEMBER，或 1=ADMIN、2=MEMBER。</span>
+              </div>
+              {batchImportRows.length > 0 ? (
+                <div className="list import-preview-list">
+                  {batchImportRows.map((row) => (
+                    <div className="import-preview-row" key={`${row.lineNumber}-${row.email}`}>
+                      <span>{row.email}</span>
+                      <strong>{row.role}</strong>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {batchImportError ? <div className="form-error">{batchImportError}</div> : null}
+              {batchImportMessage ? <span className="form-success">{batchImportMessage}</span> : null}
+              <div className="modal-action-row">
+                <button
+                  className="danger-button"
+                  type="button"
+                  disabled={batchImportMutation.isPending}
+                  onClick={() => setIsBatchImportOpen(false)}
+                >
+                  取消
+                </button>
+                <button type="submit" disabled={batchImportMutation.isPending || batchImportRows.length === 0}>
+                  {batchImportMutation.isPending ? "导入中..." : "开始导入"}
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       ) : null}

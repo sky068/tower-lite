@@ -28,7 +28,6 @@ export type Team = {
   name: string;
   role?: TeamRole | null;
   isSystemAdmin?: boolean;
-  isSystemDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -38,8 +37,13 @@ export type ProjectRole = "ADMIN" | "EDITOR" | "VIEWER";
 
 export type Member = {
   id: string;
+  teamMemberId?: string;
   role: TeamRole | ProjectRole;
-  user: User;
+  email: string;
+  normalizedEmail: string;
+  status: "ACTIVE" | "PENDING";
+  user: User | null;
+  inviteAcceptPath?: string | null;
 };
 
 export type Project = {
@@ -51,7 +55,6 @@ export type Project = {
   status: "ACTIVE" | "ARCHIVED";
   teamId: string;
   role?: ProjectRole;
-  isSystemDefault?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -84,7 +87,13 @@ export type Task = {
   completedBy: Pick<User, "id" | "name" | "avatarUrl"> | null;
   createdAt: string;
   updatedAt: string;
-  assignees?: Array<Pick<User, "id" | "name" | "avatarUrl"> & { isRemoved?: boolean }>;
+  assignees?: Array<
+    Pick<User, "id" | "name" | "avatarUrl"> & {
+      userId?: string | null;
+      email?: string;
+      status?: "ACTIVE" | "PENDING" | "REMOVED";
+    }
+  >;
   tags?: Tag[];
   subTaskCount?: number;
 };
@@ -124,7 +133,7 @@ export type MyTask = {
   priority: Task["priority"];
   dueDate: string | null;
   completedAt: string | null;
-  completedBy: (Pick<User, "id" | "name" | "avatarUrl"> & { isRemoved?: boolean }) | null;
+  completedBy: Pick<User, "id" | "name" | "avatarUrl"> | null;
   parentId: string | null;
   isAssignedToMe: boolean;
   parentTask: {
@@ -134,6 +143,10 @@ export type MyTask = {
   project: {
     id: string;
     name: string;
+    team: {
+      id: string;
+      name: string;
+    };
   };
   taskList: {
     id: string;

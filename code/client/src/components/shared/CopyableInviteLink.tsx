@@ -75,7 +75,7 @@ export function CopyableInviteLink({ url, label, variant = "inline" }: CopyableI
   if (variant === "field") {
     return (
       <label className="copy-field">
-        {label ?? "邀请链接"}
+        {label ?? "注册链接"}
         {content}
       </label>
     );

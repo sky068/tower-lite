@@ -8,8 +8,9 @@ import { ResourceState } from "../../components/shared/ResourceState";
 import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { UserSelect } from "../../components/shared/UserSelect";
-import { activityApi, invitationApi, projectApi, systemApi, teamApi } from "../../lib/api";
-import { getAcceptUrl, getInvitationStatusLabel } from "../../lib/invitations";
+import { activityApi, projectApi, teamApi } from "../../lib/api";
+import { getAcceptUrl } from "../../lib/invitations";
+import { getMemberName, getMemberUser } from "../../lib/members";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 import type { FeishuDelivery } from "../../types/api";
@@ -46,11 +47,8 @@ export function ProjectSettingsPage() {
   const user = useAuthStore((state) => state.user);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [memberUserId, setMemberUserId] = useState("");
+  const [selectedTeamMemberId, setSelectedTeamMemberId] = useState("");
   const [memberRole, setMemberRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteTeamRole, setInviteTeamRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
-  const [inviteProjectRole, setInviteProjectRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
   const [feishuDeliveryStatusFilter, setFeishuDeliveryStatusFilter] =
     useState<(typeof feishuDeliveryStatusFilters)[number]["value"]>("ALL");
   const [feishuClearStartDate, setFeishuClearStartDate] = useState("");
@@ -77,10 +75,6 @@ export function ProjectSettingsPage() {
     enabled: Boolean(projectQuery.data?.teamId)
   });
 
-  const availableTeamMembers = useMemo(() => {
-    const projectMemberIds = new Set((membersQuery.data ?? []).map((member) => member.user.id));
-    return (teamMembersQuery.data ?? []).filter((member) => !projectMemberIds.has(member.user.id));
-  }, [membersQuery.data, teamMembersQuery.data]);
   const { canManageProject } = getProjectPermissions(
     user?.id,
     membersQuery.data,
@@ -94,11 +88,6 @@ export function ProjectSettingsPage() {
     locationState?.returnTo?.startsWith(projectId ? `/projects/${projectId}/` : "") ? locationState.returnTo : fallbackReturnPath;
   const returnLabel = `← 返回 ${projectQuery.data?.name ?? "项目"}`;
 
-  const invitationsQuery = useQuery({
-    queryKey: ["project-invitations", projectId],
-    queryFn: () => projectApi.invitations(projectId!),
-    enabled: Boolean(projectId) && canManageProject
-  });
   const activityQuery = useQuery({
     queryKey: ["project-activity", projectId],
     queryFn: () => activityApi.project(projectId!),
@@ -116,6 +105,19 @@ export function ProjectSettingsPage() {
       ),
     [feishuDeliveriesQuery.data, feishuDeliveryStatusFilter]
   );
+  const availableProjectMemberCandidates = useMemo(() => {
+    const projectTeamMemberIds = new Set(
+      (membersQuery.data ?? []).map((member) => member.teamMemberId).filter(Boolean)
+    );
+    const projectMemberEmails = new Set((membersQuery.data ?? []).map((member) => member.normalizedEmail));
+
+    return (teamMembersQuery.data ?? [])
+      .filter((member) => !projectTeamMemberIds.has(member.id) && !projectMemberEmails.has(member.normalizedEmail))
+      .map((member) => ({
+        ...getMemberUser(member),
+        id: member.id
+      }));
+  }, [membersQuery.data, teamMembersQuery.data]);
 
   const updateProjectMutation = useMutation({
     mutationFn: () => projectApi.update(projectId!, { name: name.trim(), description: description.trim() }),
@@ -151,42 +153,19 @@ export function ProjectSettingsPage() {
   });
 
   const addMemberMutation = useMutation({
-    mutationFn: () => projectApi.addMember(projectId!, { userId: memberUserId, role: memberRole }),
+    mutationFn: () => projectApi.addMember(projectId!, { teamMemberId: selectedTeamMemberId, role: memberRole }),
     onSuccess: () => {
-      setMemberUserId("");
+      setSelectedTeamMemberId("");
       setMemberRole("EDITOR");
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
-      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
-    }
-  });
-
-  const createInvitationMutation = useMutation({
-    mutationFn: () =>
-      projectApi.createInvitation(projectId!, {
-        email: inviteEmail,
-        teamRole: inviteTeamRole,
-        projectRole: inviteProjectRole
-      }),
-    onSuccess: () => {
-      setInviteEmail("");
-      setInviteTeamRole("MEMBER");
-      setInviteProjectRole("EDITOR");
-      void queryClient.invalidateQueries({ queryKey: ["project-invitations", projectId] });
-      void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
-    }
-  });
-
-  const revokeInvitationMutation = useMutation({
-    mutationFn: invitationApi.revoke,
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["project-invitations", projectId] });
+      void queryClient.invalidateQueries({ queryKey: ["team-members", projectQuery.data?.teamId] });
       void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
     }
   });
 
   const updateRoleMutation = useMutation({
-    mutationFn: (input: { userId: string; role: "ADMIN" | "EDITOR" | "VIEWER" }) =>
-      projectApi.updateMemberRole(projectId!, input.userId, input.role),
+    mutationFn: (input: { memberId: string; role: "ADMIN" | "EDITOR" | "VIEWER" }) =>
+      projectApi.updateMemberRole(projectId!, input.memberId, input.role),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
@@ -194,7 +173,7 @@ export function ProjectSettingsPage() {
   });
 
   const removeMemberMutation = useMutation({
-    mutationFn: (userId: string) => projectApi.removeMember(projectId!, userId),
+    mutationFn: (memberId: string) => projectApi.removeMember(projectId!, memberId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
@@ -218,17 +197,6 @@ export function ProjectSettingsPage() {
     mutationFn: (input: { startDate: string; endDate: string }) => activityApi.clearProject(projectId!, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
-    }
-  });
-  const setDefaultProjectMutation = useMutation({
-    mutationFn: () =>
-      projectQuery.data?.isSystemDefault
-        ? systemApi.clearDefaultProject(projectId!)
-        : systemApi.setDefaultProject(projectId!),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      void queryClient.invalidateQueries({ queryKey: ["projects", projectQuery.data?.teamId] });
-      void queryClient.invalidateQueries({ queryKey: ["teams"] });
     }
   });
   const normalizedProjectName = name.trim();
@@ -270,19 +238,11 @@ export function ProjectSettingsPage() {
   function handleAddMember(event: FormEvent) {
     event.preventDefault();
 
-    if (!memberUserId || !canManageProject) {
+    if (!selectedTeamMemberId || !canManageProject) {
       return;
     }
 
     addMemberMutation.mutate();
-  }
-
-  function handleCreateInvitation(event: FormEvent) {
-    event.preventDefault();
-
-    if (canManageProject) {
-      createInvitationMutation.mutate();
-    }
   }
 
   function handleClearFeishuDeliveries(event: FormEvent) {
@@ -355,108 +315,19 @@ export function ProjectSettingsPage() {
         {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以修改项目基础信息。</span> : null}
         {projectSaveMessage ? <span className="form-success inline-error">{projectSaveMessage}</span> : null}
         <MutationError error={updateProjectMutation.error} />
-        {isSystemAdmin ? (
-          <div className="segmented-actions">
-            <button
-              type="button"
-              disabled={setDefaultProjectMutation.isPending || isArchived}
-              onClick={() => setDefaultProjectMutation.mutate()}
-            >
-              {projectQuery.data?.isSystemDefault ? "取消默认项目" : "设为默认项目"}
-            </button>
-          </div>
-        ) : null}
-        <MutationError error={setDefaultProjectMutation.error} />
       </section>
       <section className="panel">
-        <h2>邀请项目成员</h2>
-        <form className="settings-form invite-form" onSubmit={handleCreateInvitation}>
-          <input
-            type="email"
-            value={inviteEmail}
-            onChange={(event) => setInviteEmail(event.target.value)}
-            placeholder="成员邮箱"
-            disabled={!canManageProject}
-            required
-          />
-          <Select
-            value={inviteProjectRole}
-            disabled={!canManageProject}
-            onChange={(value) => setInviteProjectRole(value as typeof inviteProjectRole)}
-            options={[
-              { value: "ADMIN", label: "项目 ADMIN" },
-              { value: "EDITOR", label: "项目 EDITOR" },
-              { value: "VIEWER", label: "项目 VIEWER" }
-            ]}
-          />
-          <Select
-            value={inviteTeamRole}
-            disabled={!canManageProject}
-            onChange={(value) => setInviteTeamRole(value as typeof inviteTeamRole)}
-            options={[
-              { value: "MEMBER", label: "团队 MEMBER" },
-              { value: "ADMIN", label: "团队 ADMIN" }
-            ]}
-          />
-          <button type="submit" disabled={!canManageProject || createInvitationMutation.isPending}>
-            创建邀请
-          </button>
-        </form>
-        {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以邀请项目成员。</span> : null}
-        <MutationError error={createInvitationMutation.error ?? revokeInvitationMutation.error} />
-        {createInvitationMutation.data ? (
-          <CopyableInviteLink
-            label="邀请链接"
-            url={getAcceptUrl(createInvitationMutation.data.acceptPath)}
-            variant="field"
-          />
-        ) : null}
-      </section>
-      <section className="panel">
-        <h2>邀请记录</h2>
-        <div className="list settings-scroll-list">
-          {(invitationsQuery.data ?? []).map((invitation) => (
-            <div className="member-row" key={invitation.id}>
-              <div>
-                <strong>{invitation.email}</strong>
-                <span>
-                  团队 {invitation.teamRole ?? "MEMBER"} / 项目{" "}
-                  {invitation.projectRole ?? "VIEWER"} / {getInvitationStatusLabel(invitation.status)}
-                </span>
-                {invitation.status === "PENDING" ? (
-                  <CopyableInviteLink url={getAcceptUrl(invitation.acceptPath)} />
-                ) : null}
-              </div>
-              {invitation.status === "PENDING" ? (
-                <button
-                  className="danger-button"
-                  type="button"
-                  disabled={!canManageProject || revokeInvitationMutation.isPending}
-                  onClick={() => {
-                    if (window.confirm(`确认撤销发给 ${invitation.email} 的邀请？`)) {
-                      revokeInvitationMutation.mutate(invitation.id);
-                    }
-                  }}
-                >
-                  撤销
-                </button>
-              ) : null}
-            </div>
-          ))}
-          {!invitationsQuery.isLoading && (invitationsQuery.data ?? []).length === 0 ? (
-            <span className="muted">暂无邀请记录</span>
-          ) : null}
-        </div>
-      </section>
-      <section className="panel">
-        <h2>直接添加已有团队成员</h2>
+        <h2>添加项目成员</h2>
         <form className="settings-form inline" onSubmit={handleAddMember}>
           <UserSelect
-            value={memberUserId}
-            onChange={setMemberUserId}
-            disabled={!canManageProject || availableTeamMembers.length === 0}
+            value={selectedTeamMemberId}
+            users={availableProjectMemberCandidates}
+            onChange={setSelectedTeamMemberId}
             placeholder="选择团队成员"
-            users={availableTeamMembers.map((member) => member.user)}
+            emptyText={teamMembersQuery.isLoading ? "团队成员加载中..." : "暂无可添加团队成员"}
+            searchPlaceholder="按名字或邮箱筛选"
+            searchable
+            disabled={!canManageProject}
           />
           <Select
             value={memberRole}
@@ -470,57 +341,62 @@ export function ProjectSettingsPage() {
           />
           <button
             type="submit"
-            disabled={!canManageProject || addMemberMutation.isPending || availableTeamMembers.length === 0}
+            disabled={!canManageProject || addMemberMutation.isPending || !selectedTeamMemberId}
           >
             添加
           </button>
         </form>
         {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以管理项目成员。</span> : null}
-        {availableTeamMembers.length === 0 ? (
-          <span className="muted">所有团队成员都已经在项目里。</span>
-        ) : null}
+        <span className="muted">项目成员必须来自团队成员；如果找不到成员，请先在团队页面通过邮箱添加团队成员。</span>
         <MutationError error={addMemberMutation.error} />
       </section>
       <section className="panel">
         <h2>项目成员</h2>
         <MutationError error={updateRoleMutation.error ?? removeMemberMutation.error} />
         <div className="list settings-scroll-list">
-          {(membersQuery.data ?? []).map((member) => (
-            <div className="member-row member-person-row" key={member.user.id}>
-              <UserAvatar user={member.user} size="md" />
-              <div className="member-info">
-                <strong>{member.user.name}</strong>
-                <span>{member.user.email}</span>
-              </div>
-              <Select
-                value={member.role}
-                disabled={!canManageProject || updateRoleMutation.isPending}
-                onChange={(value) =>
-                  updateRoleMutation.mutate({
-                    userId: member.user.id,
-                    role: value as "ADMIN" | "EDITOR" | "VIEWER"
-                  })
-                }
-                options={[
-                  { value: "ADMIN", label: "ADMIN" },
-                  { value: "EDITOR", label: "EDITOR" },
-                  { value: "VIEWER", label: "VIEWER" }
-                ]}
-              />
-              <button
-                className="danger-button"
-                type="button"
-                disabled={!canManageProject || removeMemberMutation.isPending}
-                onClick={() => {
-                  if (window.confirm(`确认移除 ${member.user.name}？任务中的历史负责人会保留为“已移除”。`)) {
-                    removeMemberMutation.mutate(member.user.id);
+          {(membersQuery.data ?? []).map((member) => {
+            const memberUser = getMemberUser(member);
+
+            return (
+              <div className="member-row member-person-row" key={member.id}>
+                <UserAvatar user={memberUser} size="md" />
+                <div className="member-info">
+                  <strong>{getMemberName(member)}</strong>
+                  <span>{member.status === "PENDING" ? "待认领成员" : member.email}</span>
+                  {member.status === "PENDING" && member.inviteAcceptPath ? (
+                    <CopyableInviteLink url={getAcceptUrl(member.inviteAcceptPath)} />
+                  ) : null}
+                </div>
+                <Select
+                  value={member.role}
+                  disabled={!canManageProject || updateRoleMutation.isPending}
+                  onChange={(value) =>
+                    updateRoleMutation.mutate({
+                      memberId: member.id,
+                      role: value as "ADMIN" | "EDITOR" | "VIEWER"
+                    })
                   }
-                }}
-              >
-                移除
-              </button>
-            </div>
-          ))}
+                  options={[
+                    { value: "ADMIN", label: "ADMIN" },
+                    { value: "EDITOR", label: "EDITOR" },
+                    { value: "VIEWER", label: "VIEWER" }
+                  ]}
+                />
+                <button
+                  className="danger-button"
+                  type="button"
+                  disabled={!canManageProject || removeMemberMutation.isPending}
+                  onClick={() => {
+                    if (window.confirm(`确认移除 ${getMemberName(member)}？任务中的历史负责人会保留为“已移除”。`)) {
+                      removeMemberMutation.mutate(member.id);
+                    }
+                  }}
+                >
+                  移除
+                </button>
+              </div>
+            );
+          })}
         </div>
       </section>
       {canManageProject ? (

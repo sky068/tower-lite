@@ -83,14 +83,14 @@ teamRoutes.post(
 );
 
 teamRoutes.patch(
-  "/teams/:teamId/members/:userId/role",
+  "/teams/:teamId/members/:memberId/role",
   validate("params", teamMemberParamsSchema),
   validate("body", updateTeamMemberRoleSchema),
   asyncHandler(async (req, res) => {
     const data = await updateTeamMemberRole(
       getCurrentUserId(req),
       req.params.teamId,
-      req.params.userId,
+      req.params.memberId,
       req.body
     );
     return sendData(req, res, data);
@@ -98,10 +98,10 @@ teamRoutes.patch(
 );
 
 teamRoutes.delete(
-  "/teams/:teamId/members/:userId",
+  "/teams/:teamId/members/:memberId",
   validate("params", teamMemberParamsSchema),
   asyncHandler(async (req, res) => {
-    const data = await removeTeamMember(getCurrentUserId(req), req.params.teamId, req.params.userId);
+    const data = await removeTeamMember(getCurrentUserId(req), req.params.teamId, req.params.memberId);
     return sendData(req, res, data);
   })
 );

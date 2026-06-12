@@ -77,6 +77,15 @@ async function resolveTargetProject() {
         },
         include: {
           members: {
+            where: {
+              userId: {
+                not: null
+              }
+            },
+            include: {
+              user: true,
+              teamMember: true
+            },
             orderBy: {
               createdAt: "asc"
             }
@@ -90,6 +99,15 @@ async function resolveTargetProject() {
         },
         include: {
           members: {
+            where: {
+              userId: {
+                not: null
+              }
+            },
+            include: {
+              user: true,
+              teamMember: true
+            },
             orderBy: {
               createdAt: "asc"
             }
@@ -238,7 +256,7 @@ async function createTask(input: {
   dueDate?: Date | null;
   priority?: Priority;
   status?: TaskStatus;
-  assigneeIds?: string[];
+  projectMemberIds?: string[];
   completedAt?: Date | null;
   completedById?: string | null;
 }) {
@@ -257,10 +275,25 @@ async function createTask(input: {
       status: input.status ?? TaskStatus.TODO,
       completedAt: input.completedAt ?? null,
       completedById: input.completedById ?? null,
-      assignees: input.assigneeIds?.length
+      assignees: input.projectMemberIds?.length
         ? {
-            create: input.assigneeIds.map((userId) => ({
-              userId
+            create: await Promise.all(input.projectMemberIds.map(async (projectMemberId) => {
+              const member = await prisma.projectMember.findUnique({
+                where: {
+                  id: projectMemberId
+                },
+                include: {
+                  user: true,
+                  teamMember: true
+                }
+              });
+
+              return {
+                projectMemberId,
+                assigneeNameSnapshot: member?.user?.name ?? member?.teamMember.email ?? "未认领成员",
+                assigneeEmailSnapshot: member?.user?.email ?? member?.teamMember.email ?? "unknown@example.local",
+                assigneeAvatarSnapshot: member?.user?.avatarUrl ?? null
+              };
             }))
           }
         : undefined
@@ -270,7 +303,7 @@ async function createTask(input: {
 
 async function main() {
   const { project, creatorId, taskList } = await resolveTargetProject();
-  const projectMemberIds = project.members.map((member) => member.userId);
+  const projectMemberIds = project.members.map((member) => member.id);
   const today = startOfDay(new Date());
   let sortIndex = 100;
 
@@ -290,7 +323,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...singleScheduled,
     priority: Priority.HIGH,
-    assigneeIds: assigneesForCase(projectMemberIds, 1)
+    projectMemberIds: assigneesForCase(projectMemberIds, 1)
   });
   await createTask({
     ...baseTaskInput,
@@ -299,7 +332,7 @@ async function main() {
     parentId: singleScheduledRoot.id,
     sortIndex: sortIndex++,
     priority: Priority.LOW,
-    assigneeIds: assigneesForCase(projectMemberIds, 1)
+    projectMemberIds: assigneesForCase(projectMemberIds, 1)
   });
 
   const singleChildScheduledRoot = await createTask({
@@ -308,7 +341,7 @@ async function main() {
     description: "父任务无真实排期，子任务有排期；用于测试父任务汇总条。",
     sortIndex: sortIndex++,
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 2)
+    projectMemberIds: assigneesForCase(projectMemberIds, 2)
   });
   await createTask({
     ...baseTaskInput,
@@ -318,7 +351,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 4, 1),
     priority: Priority.HIGH,
-    assigneeIds: assigneesForCase(projectMemberIds, 2)
+    projectMemberIds: assigneesForCase(projectMemberIds, 2)
   });
 
   const singleUnscheduledRoot = await createTask({
@@ -327,7 +360,7 @@ async function main() {
     description: "父子任务都未排期，应整体出现在未排期任务区域。",
     sortIndex: sortIndex++,
     priority: Priority.LOW,
-    assigneeIds: assigneesForCase(projectMemberIds, 3)
+    projectMemberIds: assigneesForCase(projectMemberIds, 3)
   });
   await createTask({
     ...baseTaskInput,
@@ -336,7 +369,7 @@ async function main() {
     parentId: singleUnscheduledRoot.id,
     sortIndex: sortIndex++,
     priority: Priority.LOW,
-    assigneeIds: assigneesForCase(projectMemberIds, 3)
+    projectMemberIds: assigneesForCase(projectMemberIds, 3)
   });
 
   const multipleSummaryRoot = await createTask({
@@ -345,7 +378,7 @@ async function main() {
     description: "父任务无真实排期，多个子任务有不同排期；用于测试汇总条跨度。",
     sortIndex: sortIndex++,
     priority: Priority.HIGH,
-    assigneeIds: assigneesForCase(projectMemberIds, 4)
+    projectMemberIds: assigneesForCase(projectMemberIds, 4)
   });
   await createTask({
     ...baseTaskInput,
@@ -355,7 +388,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 7, 1),
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 4)
+    projectMemberIds: assigneesForCase(projectMemberIds, 4)
   });
   await createTask({
     ...baseTaskInput,
@@ -365,7 +398,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 10, 2),
     priority: Priority.URGENT,
-    assigneeIds: assigneesForCase(projectMemberIds, 4)
+    projectMemberIds: assigneesForCase(projectMemberIds, 4)
   });
 
   const multipleOwnRoot = await createTask({
@@ -375,7 +408,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 12, 2),
     priority: Priority.HIGH,
-    assigneeIds: assigneesForCase(projectMemberIds, 5)
+    projectMemberIds: assigneesForCase(projectMemberIds, 5)
   });
   await createTask({
     ...baseTaskInput,
@@ -384,7 +417,7 @@ async function main() {
     parentId: multipleOwnRoot.id,
     sortIndex: sortIndex++,
     priority: Priority.LOW,
-    assigneeIds: assigneesForCase(projectMemberIds, 5)
+    projectMemberIds: assigneesForCase(projectMemberIds, 5)
   });
   await createTask({
     ...baseTaskInput,
@@ -394,7 +427,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 15, 1),
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 5)
+    projectMemberIds: assigneesForCase(projectMemberIds, 5)
   });
 
   const multipleUnscheduledRoot = await createTask({
@@ -403,7 +436,7 @@ async function main() {
     description: "多子任务全未排期，用于测试未排期区域树形展示。",
     sortIndex: sortIndex++,
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 6)
+    projectMemberIds: assigneesForCase(projectMemberIds, 6)
   });
   for (const childName of ["子A无时间", "子B无时间"]) {
     await createTask({
@@ -413,7 +446,7 @@ async function main() {
       parentId: multipleUnscheduledRoot.id,
       sortIndex: sortIndex++,
       priority: Priority.LOW,
-      assigneeIds: assigneesForCase(projectMemberIds, 6)
+      projectMemberIds: assigneesForCase(projectMemberIds, 6)
     });
   }
 
@@ -423,7 +456,7 @@ async function main() {
     description: "父和子无真实排期，孙子任务有排期；用于测试多层汇总条。",
     sortIndex: sortIndex++,
     priority: Priority.HIGH,
-    assigneeIds: assigneesForCase(projectMemberIds, 7)
+    projectMemberIds: assigneesForCase(projectMemberIds, 7)
   });
   const grandchildSummaryChild = await createTask({
     ...baseTaskInput,
@@ -432,7 +465,7 @@ async function main() {
     parentId: grandchildSummaryRoot.id,
     sortIndex: sortIndex++,
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 7)
+    projectMemberIds: assigneesForCase(projectMemberIds, 7)
   });
   await createTask({
     ...baseTaskInput,
@@ -442,7 +475,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 18, 3),
     priority: Priority.URGENT,
-    assigneeIds: assigneesForCase(projectMemberIds, 7)
+    projectMemberIds: assigneesForCase(projectMemberIds, 7)
   });
 
   const grandchildOwnRoot = await createTask({
@@ -452,7 +485,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 21, 1),
     priority: Priority.HIGH,
-    assigneeIds: assigneesForCase(projectMemberIds, 8)
+    projectMemberIds: assigneesForCase(projectMemberIds, 8)
   });
   const grandchildOwnChild = await createTask({
     ...baseTaskInput,
@@ -461,7 +494,7 @@ async function main() {
     parentId: grandchildOwnRoot.id,
     sortIndex: sortIndex++,
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 8)
+    projectMemberIds: assigneesForCase(projectMemberIds, 8)
   });
   await createTask({
     ...baseTaskInput,
@@ -471,7 +504,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 24, 2),
     priority: Priority.HIGH,
-    assigneeIds: assigneesForCase(projectMemberIds, 8)
+    projectMemberIds: assigneesForCase(projectMemberIds, 8)
   });
 
   const grandchildUnassignedRoot = await createTask({
@@ -480,7 +513,7 @@ async function main() {
     description: "一级子任务有真实排期，二级子任务无排期。",
     sortIndex: sortIndex++,
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 9)
+    projectMemberIds: assigneesForCase(projectMemberIds, 9)
   });
   const grandchildUnassignedChild = await createTask({
     ...baseTaskInput,
@@ -490,7 +523,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 27, 2),
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 9)
+    projectMemberIds: assigneesForCase(projectMemberIds, 9)
   });
   await createTask({
     ...baseTaskInput,
@@ -499,7 +532,7 @@ async function main() {
     parentId: grandchildUnassignedChild.id,
     sortIndex: sortIndex++,
     priority: Priority.LOW,
-    assigneeIds: assigneesForCase(projectMemberIds, 9)
+    projectMemberIds: assigneesForCase(projectMemberIds, 9)
   });
 
   await createTask({
@@ -510,7 +543,7 @@ async function main() {
     ...scheduleFrom(today, 2, 0),
     priority: Priority.URGENT,
     status: TaskStatus.IN_PROGRESS,
-    assigneeIds: assigneesForCase(projectMemberIds, 10)
+    projectMemberIds: assigneesForCase(projectMemberIds, 10)
   });
 
   await createTask({
@@ -519,7 +552,7 @@ async function main() {
     description: "无子任务且无排期，用于测试未排期任务列表中的负责人展示。",
     sortIndex: sortIndex++,
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 11)
+    projectMemberIds: assigneesForCase(projectMemberIds, 11)
   });
 
   await createTask({
@@ -532,7 +565,7 @@ async function main() {
     status: TaskStatus.DONE,
     completedAt: addDays(today, -1),
     completedById: creatorId,
-    assigneeIds: assigneesForCase(projectMemberIds, 12)
+    projectMemberIds: assigneesForCase(projectMemberIds, 12)
   });
 
   const crossMonthRoot = await createTask({
@@ -542,7 +575,7 @@ async function main() {
     sortIndex: sortIndex++,
     priority: Priority.HIGH,
     status: TaskStatus.IN_PROGRESS,
-    assigneeIds: assigneesForCase(projectMemberIds, 13)
+    projectMemberIds: assigneesForCase(projectMemberIds, 13)
   });
   await createTask({
     ...baseTaskInput,
@@ -553,7 +586,7 @@ async function main() {
     ...scheduleFrom(today, 30, 45),
     priority: Priority.HIGH,
     status: TaskStatus.IN_PROGRESS,
-    assigneeIds: assigneesForCase(projectMemberIds, 13)
+    projectMemberIds: assigneesForCase(projectMemberIds, 13)
   });
   await createTask({
     ...baseTaskInput,
@@ -563,7 +596,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 50, 0),
     priority: Priority.URGENT,
-    assigneeIds: assigneesForCase(projectMemberIds, 13)
+    projectMemberIds: assigneesForCase(projectMemberIds, 13)
   });
 
   const mixedStatusRoot = await createTask({
@@ -573,7 +606,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 34, 7),
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 14)
+    projectMemberIds: assigneesForCase(projectMemberIds, 14)
   });
   await createTask({
     ...baseTaskInput,
@@ -584,7 +617,7 @@ async function main() {
     ...scheduleFrom(today, 35, 1),
     priority: Priority.LOW,
     status: TaskStatus.TODO,
-    assigneeIds: assigneesForCase(projectMemberIds, 14)
+    projectMemberIds: assigneesForCase(projectMemberIds, 14)
   });
   await createTask({
     ...baseTaskInput,
@@ -595,7 +628,7 @@ async function main() {
     ...scheduleFrom(today, 37, 2),
     priority: Priority.HIGH,
     status: TaskStatus.IN_PROGRESS,
-    assigneeIds: assigneesForCase(projectMemberIds, 14)
+    projectMemberIds: assigneesForCase(projectMemberIds, 14)
   });
   await createTask({
     ...baseTaskInput,
@@ -608,7 +641,7 @@ async function main() {
     status: TaskStatus.DONE,
     completedAt: addDays(today, -1),
     completedById: creatorId,
-    assigneeIds: assigneesForCase(projectMemberIds, 14)
+    projectMemberIds: assigneesForCase(projectMemberIds, 14)
   });
 
   const allUnscheduledDeepRoot = await createTask({
@@ -617,7 +650,7 @@ async function main() {
     description: "父、子、孙都无排期，用于测试未排期区域的深层树形折叠。",
     sortIndex: sortIndex++,
     priority: Priority.LOW,
-    assigneeIds: assigneesForCase(projectMemberIds, 15)
+    projectMemberIds: assigneesForCase(projectMemberIds, 15)
   });
   const allUnscheduledDeepChild = await createTask({
     ...baseTaskInput,
@@ -626,7 +659,7 @@ async function main() {
     parentId: allUnscheduledDeepRoot.id,
     sortIndex: sortIndex++,
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 15)
+    projectMemberIds: assigneesForCase(projectMemberIds, 15)
   });
   await createTask({
     ...baseTaskInput,
@@ -635,7 +668,7 @@ async function main() {
     parentId: allUnscheduledDeepChild.id,
     sortIndex: sortIndex++,
     priority: Priority.HIGH,
-    assigneeIds: assigneesForCase(projectMemberIds, 15)
+    projectMemberIds: assigneesForCase(projectMemberIds, 15)
   });
 
   const siblingRangeRoot = await createTask({
@@ -644,7 +677,7 @@ async function main() {
     description: "兄弟任务时间跨度分散，用于测试父级汇总条随最早和最晚子任务变化。",
     sortIndex: sortIndex++,
     priority: Priority.MEDIUM,
-    assigneeIds: assigneesForCase(projectMemberIds, 16)
+    projectMemberIds: assigneesForCase(projectMemberIds, 16)
   });
   await createTask({
     ...baseTaskInput,
@@ -654,7 +687,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, -8, 2),
     priority: Priority.LOW,
-    assigneeIds: assigneesForCase(projectMemberIds, 16)
+    projectMemberIds: assigneesForCase(projectMemberIds, 16)
   });
   await createTask({
     ...baseTaskInput,
@@ -664,7 +697,7 @@ async function main() {
     sortIndex: sortIndex++,
     ...scheduleFrom(today, 70, 5),
     priority: Priority.URGENT,
-    assigneeIds: assigneesForCase(projectMemberIds, 16)
+    projectMemberIds: assigneesForCase(projectMemberIds, 16)
   });
 
   const generatedTaskCount = await prisma.task.count({

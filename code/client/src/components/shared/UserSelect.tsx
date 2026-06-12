@@ -7,14 +7,37 @@ type UserSelectProps = {
   emptyText?: string;
   onChange: (userId: string) => void;
   placeholder: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
   users: User[];
   value: string;
 };
 
-export function UserSelect({ disabled, emptyText = "暂无可选成员", onChange, placeholder, users, value }: UserSelectProps) {
+export function UserSelect({
+  disabled,
+  emptyText = "暂无可选成员",
+  onChange,
+  placeholder,
+  searchable,
+  searchPlaceholder = "搜索成员",
+  users,
+  value
+}: UserSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [keyword, setKeyword] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const selectedUser = useMemo(() => users.find((user) => user.id === value) ?? null, [users, value]);
+  const filteredUsers = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+
+    if (!normalizedKeyword) {
+      return users;
+    }
+
+    return users.filter((user) =>
+      `${user.name} ${user.email}`.toLowerCase().includes(normalizedKeyword)
+    );
+  }, [keyword, users]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -30,6 +53,12 @@ export function UserSelect({ disabled, emptyText = "暂无可选成员", onChang
     document.addEventListener("pointerdown", handlePointerDown);
 
     return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setKeyword("");
+    }
   }, [isOpen]);
 
   return (
@@ -53,8 +82,17 @@ export function UserSelect({ disabled, emptyText = "暂无可选成员", onChang
       </button>
       {isOpen ? (
         <div className="user-select-menu" role="listbox">
-          {users.length > 0 ? (
-            users.map((user) => (
+          {searchable ? (
+            <input
+              className="user-select-search"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder={searchPlaceholder}
+              autoFocus
+            />
+          ) : null}
+          {filteredUsers.length > 0 ? (
+            filteredUsers.map((user) => (
               <button
                 className={user.id === value ? "user-select-option selected" : "user-select-option"}
                 key={user.id}
@@ -64,6 +102,7 @@ export function UserSelect({ disabled, emptyText = "暂无可选成员", onChang
                 onClick={() => {
                   onChange(user.id);
                   setIsOpen(false);
+                  setKeyword("");
                 }}
               >
                 <UserAvatar user={user} size="sm" />

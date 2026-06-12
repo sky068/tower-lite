@@ -6,7 +6,7 @@ export const createProjectSchema = z.object({
   description: z.string().max(2000).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   icon: z.string().max(40).optional(),
-  projectAdminUserId: z.string().uuid().optional()
+  projectAdminTeamMemberId: z.string().uuid().optional()
 });
 
 export const updateProjectSchema = createProjectSchema.partial();
@@ -26,11 +26,11 @@ export const teamProjectTrashParamsSchema = z.object({
 
 export const projectMemberParamsSchema = z.object({
   projectId: z.string().uuid(),
-  userId: z.string().uuid()
+  memberId: z.string().uuid()
 });
 
 export const addProjectMemberSchema = z.object({
-  userId: z.string().uuid(),
+  teamMemberId: z.string().uuid(),
   role: z.nativeEnum(ProjectRole).default(ProjectRole.EDITOR)
 });
 

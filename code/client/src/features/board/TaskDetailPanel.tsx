@@ -7,6 +7,7 @@ import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
+import { getMemberName, getMemberUser } from "../../lib/members";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
 import { useAuthStore } from "../../stores/authStore";
@@ -24,15 +25,15 @@ type TaskDetailPanelProps = {
   onClose: () => void;
 };
 
-function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
-  return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+function formatAssigneeName(assignee: { name: string; status?: string }) {
+  return assignee.status === "REMOVED" ? `${assignee.name}(已移除)` : assignee.name;
 }
 
 function formatFullDateTime(value: string) {
   return new Date(value).toLocaleString();
 }
 
-function AssigneeChip({ assignee }: { assignee: { name: string; avatarUrl: string | null; isRemoved?: boolean } }) {
+function AssigneeChip({ assignee }: { assignee: { name: string; avatarUrl: string | null; status?: string } }) {
   return (
     <span className="assignee-chip">
       <UserAvatar user={assignee} size="xs" />
@@ -104,17 +105,17 @@ export function TaskDetailPanel({
   const [commentMentionRange, setCommentMentionRange] = useState<{ start: number; end: number } | null>(null);
   const [isTaskAssigneeOpen, setIsTaskAssigneeOpen] = useState(false);
   const [isSubTaskCreateOpen, setIsSubTaskCreateOpen] = useState(false);
-  const [isSubTaskAssigneeOpen, setIsSubTaskAssigneeOpen] = useState(false);
+  const [isSubTaskProjectMemberOpen, setIsSubTaskProjectMemberOpen] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState("");
   const [subTaskListId, setSubTaskListId] = useState("");
   const [subTaskStatus, setSubTaskStatus] = useState<TaskStatus>("TODO");
-  const [subTaskAssigneeIds, setSubTaskAssigneeIds] = useState<string[]>([]);
+  const [subTaskProjectMemberIds, setSubTaskProjectMemberIds] = useState<string[]>([]);
   const [subTaskStartDate, setSubTaskStartDate] = useState("");
   const [subTaskDueDate, setSubTaskDueDate] = useState("");
   const [subTaskDateError, setSubTaskDateError] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
+  const [projectMemberIds, setProjectMemberIds] = useState<string[]>([]);
   const [status, setStatus] = useState<TaskStatus>("TODO");
   const [priority, setPriority] = useState<"LOW" | "MEDIUM" | "HIGH" | "URGENT">("MEDIUM");
   const [taskListId, setTaskListId] = useState("");
@@ -146,14 +147,14 @@ export function TaskDetailPanel({
   useEffect(() => {
     setIsTaskAssigneeOpen(false);
     setIsSubTaskCreateOpen(false);
-    setIsSubTaskAssigneeOpen(false);
+    setIsSubTaskProjectMemberOpen(false);
     setIsCommentMentionOpen(false);
     setComment("");
     setCommentMentionQuery("");
     setCommentMentionRange(null);
     setSubTaskTitle("");
     setSubTaskStatus("TODO");
-    setSubTaskAssigneeIds([]);
+    setSubTaskProjectMemberIds([]);
     setSubTaskStartDate("");
     setSubTaskDueDate("");
     setSubTaskDateError("");
@@ -162,13 +163,13 @@ export function TaskDetailPanel({
   useEffect(() => {
     if (readOnly) {
       setIsTaskAssigneeOpen(false);
-      setIsSubTaskAssigneeOpen(false);
+      setIsSubTaskProjectMemberOpen(false);
       setIsCommentMentionOpen(false);
     }
   }, [readOnly]);
 
   useEffect(() => {
-    if (!isTaskAssigneeOpen && !isSubTaskAssigneeOpen && !isCommentMentionOpen) {
+    if (!isTaskAssigneeOpen && !isSubTaskProjectMemberOpen && !isCommentMentionOpen) {
       return;
     }
 
@@ -181,7 +182,7 @@ export function TaskDetailPanel({
       }
 
       if (!subTaskAssigneeDropdownRef.current?.contains(event.target as Node)) {
-        setIsSubTaskAssigneeOpen(false);
+        setIsSubTaskProjectMemberOpen(false);
       }
 
       if (!commentMentionDropdownRef.current?.contains(event.target as Node)) {
@@ -192,7 +193,7 @@ export function TaskDetailPanel({
     document.addEventListener("pointerdown", handlePointerDown);
 
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isCommentMentionOpen, isTaskAssigneeOpen, isSubTaskAssigneeOpen]);
+  }, [isCommentMentionOpen, isTaskAssigneeOpen, isSubTaskProjectMemberOpen]);
 
   const taskQuery = useQuery({
     queryKey: ["task", activeTaskId],
@@ -219,45 +220,45 @@ export function TaskDetailPanel({
   const tags = useMemo(() => tagsQuery.data ?? [], [tagsQuery.data]);
   const isMaxSubTaskDepth = (task?.parentTrail.length ?? 0) >= 2;
   const canCreateSubTask = Boolean(task && !readOnly && !isMaxSubTaskDepth);
-  const memberUserIds = useMemo(
-    () => new Set((membersQuery.data ?? []).map((member) => member.user.id)),
+  const memberIds = useMemo(
+    () => new Set((membersQuery.data ?? []).map((member) => member.id)),
     [membersQuery.data]
   );
   const removedAssignees = useMemo(
     () =>
       (task?.assignees ?? []).filter(
-        (assignee) => assignee.isRemoved || !memberUserIds.has(assignee.id)
+        (assignee) => assignee.status === "REMOVED" || !memberIds.has(assignee.id)
       ),
-    [memberUserIds, task?.assignees]
+    [memberIds, task?.assignees]
   );
   const currentList = useMemo(
     () => lists.find((list) => list.id === task?.taskListId) ?? null,
     [lists, task?.taskListId]
   );
-  const taskAssigneeNames = useMemo(() => {
+  const taskProjectMemberNames = useMemo(() => {
     const members = membersQuery.data ?? [];
     const memberNames = members
-      .filter((member) => assigneeIds.includes(member.user.id))
-      .map((member) => member.user.name);
+      .filter((member) => projectMemberIds.includes(member.id))
+      .map(getMemberName);
     const removedNames = removedAssignees
-      .filter((assignee) => assigneeIds.includes(assignee.id))
+      .filter((assignee) => projectMemberIds.includes(assignee.id))
       .map(formatAssigneeName);
 
     return [...memberNames, ...removedNames];
-  }, [assigneeIds, membersQuery.data, removedAssignees]);
-  const taskAssigneeSummaryItems = useMemo(() => {
+  }, [projectMemberIds, membersQuery.data, removedAssignees]);
+  const taskProjectMemberSummaryItems = useMemo(() => {
     const activeAssignees = (membersQuery.data ?? [])
-      .filter((member) => assigneeIds.includes(member.user.id))
-      .map((member) => member.user);
-    const removedItems = removedAssignees.filter((assignee) => assigneeIds.includes(assignee.id));
+      .filter((member) => projectMemberIds.includes(member.id))
+      .map(getMemberUser);
+    const removedItems = removedAssignees.filter((assignee) => projectMemberIds.includes(assignee.id));
 
     return [...activeAssignees, ...removedItems];
-  }, [assigneeIds, membersQuery.data, removedAssignees]);
-  const subTaskAssigneeSummary = useMemo(() => {
+  }, [projectMemberIds, membersQuery.data, removedAssignees]);
+  const subTaskProjectMemberSummary = useMemo(() => {
     const members = membersQuery.data ?? [];
     const selectedNames = members
-      .filter((member) => subTaskAssigneeIds.includes(member.user.id))
-      .map((member) => member.user.name);
+      .filter((member) => subTaskProjectMemberIds.includes(member.id))
+      .map(getMemberName);
 
     if (selectedNames.length === 0) {
       return "选择负责人";
@@ -266,18 +267,18 @@ export function TaskDetailPanel({
     return selectedNames.length > 2
       ? `${selectedNames.slice(0, 2).join(", ")} 等 ${selectedNames.length} 人`
       : selectedNames.join(", ");
-  }, [membersQuery.data, subTaskAssigneeIds]);
+  }, [membersQuery.data, subTaskProjectMemberIds]);
   const commentMentionOptions = useMemo(() => {
     const query = commentMentionQuery.trim().toLowerCase();
-    const members = membersQuery.data ?? [];
+    const members = (membersQuery.data ?? []).filter((member) => member.user);
 
     if (!query) {
       return members;
     }
 
     return members.filter((member) =>
-      member.user.name.toLowerCase().includes(query) ||
-      member.user.email.toLowerCase().includes(query)
+      getMemberUser(member).name.toLowerCase().includes(query) ||
+      getMemberUser(member).email.toLowerCase().includes(query)
     );
   }, [commentMentionQuery, membersQuery.data]);
 
@@ -285,7 +286,7 @@ export function TaskDetailPanel({
     if (task) {
       setTitle(task.title);
       setDescription(task.description ?? "");
-      setAssigneeIds(
+      setProjectMemberIds(
         task.assignees && task.assignees.length > 0
           ? task.assignees.map((assignee) => assignee.id)
           : []
@@ -340,14 +341,14 @@ export function TaskDetailPanel({
   const createSubTaskMutation = useMutation({
     mutationFn: (input: {
       title: string;
-      assigneeIds: string[];
+      projectMemberIds: string[];
       startDate: string | null;
       dueDate: string | null;
     }) =>
       boardApi.createTask(projectId, {
         taskListId: subTaskListId || task!.taskListId,
         parentId: activeTaskId,
-        assigneeIds: input.assigneeIds,
+        projectMemberIds: input.projectMemberIds,
         status: subTaskStatus,
         title: input.title,
         startDate: input.startDate,
@@ -357,12 +358,12 @@ export function TaskDetailPanel({
       setSubTaskTitle("");
       setSubTaskListId(task?.taskListId ?? "");
       setSubTaskStatus("TODO");
-      setSubTaskAssigneeIds([]);
+      setSubTaskProjectMemberIds([]);
       setSubTaskStartDate("");
       setSubTaskDueDate("");
       setSubTaskDateError("");
       setIsSubTaskCreateOpen(false);
-      setIsSubTaskAssigneeOpen(false);
+      setIsSubTaskProjectMemberOpen(false);
       void queryClient.invalidateQueries({ queryKey: ["task", activeTaskId] });
       void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
@@ -374,7 +375,7 @@ export function TaskDetailPanel({
       boardApi.updateTask(activeTaskId, {
         title: title.trim(),
         description: description.trim() || null,
-        assigneeIds,
+        projectMemberIds: projectMemberIds.filter((projectMemberId) => !removedAssignees.some((assignee) => assignee.id === projectMemberId)),
         status,
         priority,
         startDate: startDate || null,
@@ -491,7 +492,7 @@ export function TaskDetailPanel({
     if (title && task && canCreateSubTask) {
       createSubTaskMutation.mutate({
         title,
-        assigneeIds: subTaskAssigneeIds,
+        projectMemberIds: subTaskProjectMemberIds,
         startDate: subTaskStartDate || null,
         dueDate: subTaskDueDate || null
       });
@@ -500,11 +501,11 @@ export function TaskDetailPanel({
 
   function handleCancelCreateSubTask() {
     setIsSubTaskCreateOpen(false);
-    setIsSubTaskAssigneeOpen(false);
+    setIsSubTaskProjectMemberOpen(false);
     setSubTaskTitle("");
     setSubTaskListId(task?.taskListId ?? "");
     setSubTaskStatus("TODO");
-    setSubTaskAssigneeIds([]);
+    setSubTaskProjectMemberIds([]);
     setSubTaskStartDate("");
     setSubTaskDueDate("");
     setSubTaskDateError("");
@@ -578,24 +579,24 @@ export function TaskDetailPanel({
     }
   }
 
-  function toggleTaskAssignee(userId: string, checked: boolean) {
+  function toggleTaskProjectMember(userId: string, checked: boolean) {
     const removedIds = removedAssignees.map((assignee) => assignee.id);
 
-    setAssigneeIds((current) => {
-      const activeIds = current.filter((assigneeId) => !removedIds.includes(assigneeId));
+    setProjectMemberIds((current) => {
+      const activeIds = current.filter((projectMemberId) => !removedIds.includes(projectMemberId));
       const nextActiveIds = checked
         ? [...activeIds, userId]
-        : activeIds.filter((assigneeId) => assigneeId !== userId);
+        : activeIds.filter((projectMemberId) => projectMemberId !== userId);
 
       return [...new Set([...nextActiveIds, ...removedIds])];
     });
   }
 
-  function toggleSubTaskAssignee(userId: string, checked: boolean) {
-    setSubTaskAssigneeIds((current) =>
+  function toggleSubTaskProjectMember(userId: string, checked: boolean) {
+    setSubTaskProjectMemberIds((current) =>
       checked
         ? [...new Set([...current, userId])]
-        : current.filter((assigneeId) => assigneeId !== userId)
+        : current.filter((projectMemberId) => projectMemberId !== userId)
     );
   }
 
@@ -635,7 +636,10 @@ export function TaskDetailPanel({
     updateCommentMentionState(value, caret);
   }
 
-  function insertCommentMention(member: { user: { id: string; name: string } }) {
+  function insertCommentMention(member: { user: { id: string; name: string } | null }) {
+    if (!member.user) {
+      return;
+    }
     const textarea = commentTextareaRef.current;
     const caret = textarea?.selectionStart ?? comment.length;
     const range = commentMentionRange ?? getMentionTrigger(comment, caret);
@@ -660,8 +664,8 @@ export function TaskDetailPanel({
     return [
       ...new Set(
         (membersQuery.data ?? [])
-          .filter((member) => content.includes(`@${member.user.name}`) || content.includes(`@${member.user.email}`))
-          .map((member) => member.user.id)
+          .filter((member) => member.user && (content.includes(`@${member.user.name}`) || content.includes(`@${member.user.email}`)))
+          .map((member) => member.user!.id)
       )
     ];
   }
@@ -741,12 +745,12 @@ export function TaskDetailPanel({
                       <div
                         className="readonly-value task-assignee-summary"
                         title={
-                          taskAssigneeNames.length > 0 ? taskAssigneeNames.join(", ") : "未分配"
+                          taskProjectMemberNames.length > 0 ? taskProjectMemberNames.join(", ") : "未分配"
                         }
                       >
-                        {taskAssigneeSummaryItems.length > 0 ? (
+                        {taskProjectMemberSummaryItems.length > 0 ? (
                           <span className="assignee-summary-list">
-                            {taskAssigneeSummaryItems.map((assignee) => (
+                            {taskProjectMemberSummaryItems.map((assignee) => (
                               <AssigneeChip assignee={assignee} key={assignee.id} />
                             ))}
                           </span>
@@ -769,16 +773,16 @@ export function TaskDetailPanel({
                     {isTaskAssigneeOpen && !readOnly ? (
                       <div className="checkbox-list assignee-dropdown-menu task-assignee-menu">
                         {(membersQuery.data ?? []).map((member) => (
-                          <label className="checkbox-row" key={member.user.id}>
+                          <label className="checkbox-row" key={member.id}>
                             <input
                               type="checkbox"
-                              checked={assigneeIds.includes(member.user.id)}
+                              checked={projectMemberIds.includes(member.id)}
                               onChange={(event) =>
-                                toggleTaskAssignee(member.user.id, event.target.checked)
+                                toggleTaskProjectMember(member.id, event.target.checked)
                               }
                             />
-                            <UserAvatar user={member.user} size="xs" />
-                            <span>{member.user.name}</span>
+                            <UserAvatar user={getMemberUser(member)} size="xs" />
+                            <span>{getMemberName(member)}</span>
                           </label>
                         ))}
                         {removedAssignees.map((assignee) => (
@@ -1059,27 +1063,27 @@ export function TaskDetailPanel({
                     <button
                       className="assignee-dropdown-trigger"
                       type="button"
-                      aria-expanded={isSubTaskAssigneeOpen}
+                      aria-expanded={isSubTaskProjectMemberOpen}
                       disabled={!canCreateSubTask}
-                      onClick={() => setIsSubTaskAssigneeOpen((current) => !current)}
+                      onClick={() => setIsSubTaskProjectMemberOpen((current) => !current)}
                     >
-                      <span>{subTaskAssigneeSummary}</span>
+                      <span>{subTaskProjectMemberSummary}</span>
                       <span aria-hidden="true">⌄</span>
                     </button>
-                    {isSubTaskAssigneeOpen ? (
+                    {isSubTaskProjectMemberOpen ? (
                       <div className="checkbox-list assignee-dropdown-menu">
                         {(membersQuery.data ?? []).map((member) => (
-                          <label className="checkbox-row" key={member.user.id}>
+                          <label className="checkbox-row" key={member.id}>
                             <input
                               type="checkbox"
-                              checked={subTaskAssigneeIds.includes(member.user.id)}
+                              checked={subTaskProjectMemberIds.includes(member.id)}
                               disabled={!canCreateSubTask}
                               onChange={(event) =>
-                                toggleSubTaskAssignee(member.user.id, event.target.checked)
+                                toggleSubTaskProjectMember(member.id, event.target.checked)
                               }
                             />
-                            <UserAvatar user={member.user} size="xs" />
-                            <span>{member.user.name}</span>
+                            <UserAvatar user={getMemberUser(member)} size="xs" />
+                            <span>{getMemberName(member)}</span>
                           </label>
                         ))}
                         {(membersQuery.data ?? []).length === 0 ? (
@@ -1175,12 +1179,12 @@ export function TaskDetailPanel({
                         <button
                           className="comment-mention-option"
                           type="button"
-                          key={member.user.id}
+                          key={member.id}
                           onClick={() => insertCommentMention(member)}
                         >
                           <UserAvatar user={member.user} size="xs" />
-                          <span>{member.user.name}</span>
-                          <small>{member.user.email}</small>
+                          <span>{member.user?.name}</span>
+                          <small>{member.user?.email}</small>
                         </button>
                       ))}
                       {commentMentionOptions.length === 0 ? (

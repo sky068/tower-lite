@@ -1,11 +1,16 @@
-import { InvitationStatus, Prisma, ProjectRole, TeamRole } from "@prisma/client";
+import { Prisma, ProjectRole, TeamRole } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
+import {
+  ensureTeamMemberForEmail,
+  ensureTeamMemberForEmailWithoutDowngrade,
+  normalizeEmail,
+  toMemberView
+} from "../memberships/membership.service.js";
 import { publishTeamEvent, publishToUsers } from "../realtime/realtime.service.js";
 import { requireSystemAdmin } from "../system/system.policy.js";
-import { clearDeletedDefaultTeam, getSystemDefaults } from "../system/system.service.js";
 import type {
   AddTeamMemberInput,
   CreateTeamInput,
@@ -14,16 +19,12 @@ import type {
 } from "./team.schema.js";
 import { requireTeamAdmin, requireTeamMember } from "./team.policy.js";
 
-function toTeamSummary(
-  team: { id: string; name: string; createdAt: Date; updatedAt: Date },
-  defaultTeamId?: string | null
-) {
+function toTeamSummary(team: { id: string; name: string; createdAt: Date; updatedAt: Date }) {
   return {
     id: team.id,
     name: team.name,
     createdAt: team.createdAt,
-    updatedAt: team.updatedAt,
-    isSystemDefault: defaultTeamId === team.id
+    updatedAt: team.updatedAt
   };
 }
 
@@ -55,40 +56,56 @@ function invitationExpiresAt() {
   return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 }
 
+function withInvitePath<T extends { email: string; status: string }>(
+  member: T,
+  invitationsByEmail: Map<string, { token: string }>
+) {
+  if (member.status !== "PENDING") {
+    return {
+      ...member,
+      inviteAcceptPath: null
+    };
+  }
+
+  const invitation = invitationsByEmail.get(normalizeEmail(member.email));
+  return {
+    ...member,
+    inviteAcceptPath: invitation ? `/invitations/accept?token=${encodeURIComponent(invitation.token)}` : null
+  };
+}
+
 export async function createTeam(userId: string, input: CreateTeamInput) {
   await requireSystemAdmin(userId);
   await assertTeamNameUnique(input.name);
-  const adminEmail = input.adminEmail;
-  const adminUser = await prisma.user.findUnique({
-    where: {
-      email: adminEmail
-    }
-  });
+  const adminEmail = normalizeEmail(input.adminEmail);
 
-  const team = await prisma.team.create({
-    data: {
-      name: input.name,
-      ...(adminUser
-        ? {
-            members: {
-              create: {
-                userId: adminUser.id,
-                role: TeamRole.ADMIN
-              }
-            }
-          }
-        : {
-            invites: {
-              create: {
-                email: adminEmail,
-                token: createInvitationToken(),
-                teamRole: TeamRole.ADMIN,
-                inviterId: userId,
-                expiresAt: invitationExpiresAt()
-              }
-            }
-          })
+  const team = await prisma.$transaction(async (tx) => {
+    const createdTeam = await tx.team.create({
+      data: {
+        name: input.name
+      }
+    });
+
+    const adminMember = await ensureTeamMemberForEmail(tx, {
+      teamId: createdTeam.id,
+      email: adminEmail,
+      role: TeamRole.ADMIN
+    });
+
+    if (!adminMember.userId) {
+      await tx.invitation.create({
+        data: {
+          email: adminEmail,
+          token: createInvitationToken(),
+          teamRole: TeamRole.ADMIN,
+          inviterId: userId,
+          teamId: createdTeam.id,
+          expiresAt: invitationExpiresAt()
+        }
+      });
     }
+
+    return createdTeam;
   });
 
   await publishTeamEvent(team.id, { type: "team.changed", teamId: team.id });
@@ -98,7 +115,6 @@ export async function createTeam(userId: string, input: CreateTeamInput) {
 
 export async function listMyTeams(userId: string) {
   const userIsSystemAdmin = await isUserSystemAdmin(userId);
-  const defaults = await getSystemDefaults();
 
   if (userIsSystemAdmin) {
     const teams = await prisma.team.findMany({
@@ -111,7 +127,7 @@ export async function listMyTeams(userId: string) {
     });
 
     return teams.map((team) => ({
-      ...toTeamSummary(team, defaults.defaultTeamId),
+      ...toTeamSummary(team),
       role: null,
       isSystemAdmin: true
     }));
@@ -133,7 +149,7 @@ export async function listMyTeams(userId: string) {
   });
 
   return memberships.map((membership) => ({
-    ...toTeamSummary(membership.team, defaults.defaultTeamId),
+    ...toTeamSummary(membership.team),
     role: membership.role,
     isSystemAdmin: false
   }));
@@ -210,8 +226,10 @@ export async function deleteTeam(userId: string, teamId: string) {
     }
   });
 
-  publishToUsers(members.map((member) => member.userId), { type: "team.changed", teamId });
-  await clearDeletedDefaultTeam(userId, teamId);
+  publishToUsers(
+    members.map((member) => member.userId).filter((memberUserId): memberUserId is string => Boolean(memberUserId)),
+    { type: "team.changed", teamId }
+  );
 
   return { ok: true };
 }
@@ -231,52 +249,71 @@ export async function listTeamMembers(userId: string, teamId: string) {
     }
   });
 
-  return members.map((member) => ({
-    id: member.id,
-    role: member.role,
-    user: {
-      id: member.user.id,
-      email: member.user.email,
-      name: member.user.name,
-      avatarUrl: member.user.avatarUrl
-    }
-  }));
+  const pendingEmails = members
+    .filter((member) => !member.userId)
+    .map((member) => member.normalizedEmail);
+  const invitations = pendingEmails.length
+    ? await prisma.invitation.findMany({
+        where: {
+          teamId,
+          projectId: null,
+          status: "PENDING",
+          email: {
+            in: pendingEmails
+          }
+        },
+        orderBy: {
+          createdAt: "desc"
+        },
+        select: {
+          email: true,
+          token: true
+        }
+      })
+    : [];
+  const invitationsByEmail = new Map(invitations.map((invitation) => [invitation.email, invitation]));
+
+  return members.map((member) => withInvitePath(toMemberView(member), invitationsByEmail));
 }
 
 export async function addTeamMember(userId: string, teamId: string, input: AddTeamMemberInput) {
   await requireTeamAdmin(userId, teamId);
 
-  const targetUser = await prisma.user.findUnique({
-    where: {
-      email: input.email
-    }
-  });
-
-  if (!targetUser) {
-    throw new AppError("RESOURCE_NOT_FOUND", "User with this email does not exist", 404);
-  }
+  const email = normalizeEmail(input.email);
 
   const member = await prisma.$transaction(async (tx) => {
-    const upsertedMember = await tx.teamMember.upsert({
+    await tx.invitation.updateMany({
       where: {
-        userId_teamId: {
-          userId: targetUser.id,
-          teamId
-        }
-      },
-      update: {
-        role: input.role
-      },
-      create: {
-        userId: targetUser.id,
+        email,
         teamId,
-        role: input.role
+        projectId: null,
+        status: "PENDING"
       },
-      include: {
-        user: true
+      data: {
+        status: "REVOKED"
       }
     });
-    await assertTeamKeepsAdminEntry(tx, teamId);
+
+    const upsertedMember = await ensureTeamMemberForEmailWithoutDowngrade(tx, {
+      teamId,
+      email,
+      role: input.role
+    });
+    if (!upsertedMember.userId) {
+      await tx.invitation.create({
+        data: {
+          email,
+          token: createInvitationToken(),
+          teamRole: input.role,
+          teamId,
+          inviterId: userId,
+          expiresAt: invitationExpiresAt()
+        }
+      });
+    }
+    if (input.role !== TeamRole.ADMIN) {
+      await assertTeamKeepsAdminEntry(tx, teamId);
+    }
     return upsertedMember;
   });
 
@@ -287,35 +324,26 @@ export async function addTeamMember(userId: string, teamId: string, input: AddTe
     targetType: "team_member",
     targetId: member.id,
     metadata: {
-      userId: targetUser.id,
-      email: targetUser.email,
-      name: targetUser.name,
+      userId: member.userId,
+      email: member.email,
+      name: member.user?.name,
       role: input.role
     }
   });
 
   await publishTeamEvent(teamId, { type: "team.changed", teamId });
 
-  return {
-    id: member.id,
-    role: member.role,
-    user: {
-      id: member.user.id,
-      email: member.user.email,
-      name: member.user.name,
-      avatarUrl: member.user.avatarUrl
-    }
-  };
+  return toMemberView(member);
 }
 
 export async function updateTeamMemberRole(
   userId: string,
   teamId: string,
-  targetUserId: string,
+  targetMemberId: string,
   input: UpdateTeamMemberRoleInput
 ) {
   await requireTeamAdmin(userId, teamId);
-  const member = await getExistingTeamMember(teamId, targetUserId);
+  const member = await getExistingTeamMember(teamId, targetMemberId);
   const updatedMember = await prisma.$transaction(async (tx) => {
     const updated = await tx.teamMember.update({
       where: {
@@ -339,38 +367,65 @@ export async function updateTeamMemberRole(
     targetType: "team_member",
     targetId: member.id,
     metadata: {
-      userId: targetUserId,
+      memberId: targetMemberId,
+      userId: member.userId,
       role: input.role
     }
   });
 
   await publishTeamEvent(teamId, { type: "team.changed", teamId });
 
-  return {
-    id: updatedMember.id,
-    role: updatedMember.role,
-    user: {
-      id: updatedMember.user.id,
-      email: updatedMember.user.email,
-      name: updatedMember.user.name,
-      avatarUrl: updatedMember.user.avatarUrl
-    }
-  };
+  return toMemberView(updatedMember);
 }
 
-export async function removeTeamMember(userId: string, teamId: string, targetUserId: string) {
+export async function removeTeamMember(userId: string, teamId: string, targetMemberId: string) {
   await requireTeamAdmin(userId, teamId);
-  const member = await getExistingTeamMember(teamId, targetUserId);
+  const member = await getExistingTeamMember(teamId, targetMemberId);
 
-  await assertTeamMemberRemovalKeepsProjectAdmins(teamId, targetUserId);
+  await assertTeamMemberRemovalKeepsProjectAdmins(teamId, member.id);
 
   await prisma.$transaction(async (tx) => {
-    await tx.projectMember.deleteMany({
+    const projectMembers = await tx.projectMember.findMany({
       where: {
-        userId: targetUserId,
+        teamMemberId: member.id,
         project: {
           teamId
         }
+      },
+      include: {
+        user: true,
+        teamMember: true
+      }
+    });
+
+    for (const projectMember of projectMembers) {
+      await tx.taskAssignee.updateMany({
+        where: {
+          projectMemberId: projectMember.id
+        },
+        data: {
+          projectMemberId: null,
+          removedAt: new Date()
+        }
+      });
+    }
+
+    await tx.projectMember.deleteMany({
+      where: {
+        teamMemberId: member.id,
+        project: {
+          teamId
+        }
+      }
+    });
+    await tx.invitation.updateMany({
+      where: {
+        email: member.normalizedEmail,
+        teamId,
+        status: "PENDING"
+      },
+      data: {
+        status: "REVOKED"
       }
     });
     await tx.teamMember.delete({
@@ -388,7 +443,8 @@ export async function removeTeamMember(userId: string, teamId: string, targetUse
     targetType: "team_member",
     targetId: member.id,
     metadata: {
-      userId: targetUserId,
+      memberId: targetMemberId,
+      userId: member.userId,
       role: member.role
     }
   });
@@ -398,13 +454,11 @@ export async function removeTeamMember(userId: string, teamId: string, targetUse
   return { ok: true };
 }
 
-async function getExistingTeamMember(teamId: string, userId: string) {
-  const member = await prisma.teamMember.findUnique({
+async function getExistingTeamMember(teamId: string, memberId: string) {
+  const member = await prisma.teamMember.findFirst({
     where: {
-      userId_teamId: {
-        userId,
-        teamId
-      }
+      id: memberId,
+      teamId
     }
   });
 
@@ -432,45 +486,39 @@ async function assertTeamKeepsAdminEntry(tx: Prisma.TransactionClient, teamId: s
   const adminCount = await tx.teamMember.count({
     where: {
       teamId,
-      role: TeamRole.ADMIN
-    }
-  });
-  const pendingAdminInvitationCount = await tx.invitation.count({
-    where: {
-      teamId,
-      projectId: null,
-      teamRole: TeamRole.ADMIN,
-      status: InvitationStatus.PENDING,
-      expiresAt: {
-        gt: new Date()
+      role: TeamRole.ADMIN,
+      userId: {
+        not: null
       }
     }
   });
-
-  if (adminCount + pendingAdminInvitationCount < 1) {
+  if (adminCount < 1) {
     throw new AppError(
       "BUSINESS_RULE_VIOLATION",
-      "团队至少需要保留一名管理员或一条待接受的管理员邀请。",
+      "团队至少需要保留一名已加入的管理员。",
       422
     );
   }
 }
 
-async function assertTeamMemberRemovalKeepsProjectAdmins(teamId: string, userId: string) {
+async function assertTeamMemberRemovalKeepsProjectAdmins(teamId: string, teamMemberId: string) {
   const projectsWithoutOtherAdmin = await prisma.project.findMany({
     where: {
       teamId,
       deletedAt: null,
       members: {
         some: {
-          userId,
+          teamMemberId,
           role: ProjectRole.ADMIN
         },
         none: {
-          userId: {
-            not: userId
+          teamMemberId: {
+            not: teamMemberId
           },
-          role: ProjectRole.ADMIN
+          role: ProjectRole.ADMIN,
+          userId: {
+            not: null
+          }
         }
       }
     },
@@ -483,7 +531,7 @@ async function assertTeamMemberRemovalKeepsProjectAdmins(teamId: string, userId:
   if (projectsWithoutOtherAdmin.length > 0) {
     throw new AppError(
       "BUSINESS_RULE_VIOLATION",
-      `Project "${projectsWithoutOtherAdmin[0].name}" must keep at least one admin`,
+      `项目「${projectsWithoutOtherAdmin[0].name}」至少需要保留一名已加入的管理员。`,
       422
     );
   }

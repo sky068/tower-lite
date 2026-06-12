@@ -72,17 +72,17 @@ type ProjectResponse = {
   status?: string;
 };
 
-type SystemDefaultsResponse = {
-  defaultTeamId: string | null;
-  defaultProjectId: string | null;
-};
-
 type MemberResponse = {
+  id: string;
+  teamMemberId?: string;
+  email: string;
+  inviteAcceptPath?: string | null;
+  status: "ACTIVE" | "PENDING";
   user: {
     id: string;
     email: string;
     name: string;
-  };
+  } | null;
   role: string;
 };
 
@@ -147,11 +147,9 @@ type TaskResponse = {
     name: string;
   } | null;
   assignees?: Array<{
-    user: {
-      id: string;
-      name: string;
-      isRemoved?: boolean;
-    };
+    id: string;
+    name: string;
+    status?: "ACTIVE" | "PENDING" | "REMOVED";
   }>;
 };
 
@@ -168,6 +166,14 @@ type MyTaskResponse = {
   taskList: {
     id: string;
     name: string;
+  };
+  project: {
+    id: string;
+    name: string;
+    team: {
+      id: string;
+      name: string;
+    };
   };
 };
 
@@ -192,24 +198,6 @@ type CommentResponse = {
     id: string;
     name: string;
   }>;
-};
-
-type InvitationResponse = {
-  id: string;
-  email: string;
-  token: string;
-  status: "PENDING" | "ACCEPTED" | "EXPIRED" | "REVOKED";
-  teamRole: string | null;
-  projectRole: string | null;
-  teamId: string;
-  projectId: string | null;
-  acceptPath: string;
-};
-
-type AcceptInvitationResponse = {
-  ok: boolean;
-  teamId: string;
-  projectId: string | null;
 };
 
 type TagResponse = {
@@ -360,10 +348,7 @@ async function cleanupRunData() {
     }),
     prisma.taskAssignee.deleteMany({
       where: {
-        OR: [
-          { userId: { in: userIds } },
-          { task: { projectId: { in: projectIds } } }
-        ]
+        task: { projectId: { in: projectIds } }
       }
     }),
     prisma.task.deleteMany({
@@ -555,8 +540,6 @@ describe("V0 HTTP integration", () => {
     const viewer = await registerUser("Viewer");
     const directAddedMember = await registerUser("DirectAddedMember");
     const invitedTeamMember = await registerUser("InvitedTeamMember");
-    const invitedProjectMember = await registerUser("InvitedProjectMember");
-    const concurrentProjectInvitee = await registerUser("ConcurrentProjectInvitee");
     const systemAdminOnly = await registerUser("SystemAdminOnly");
     await prisma.user.update({
       where: {
@@ -766,6 +749,25 @@ describe("V0 HTTP integration", () => {
       token: owner.token
     })).data;
     assert.ok(ownerTeams.some((item) => item.id === team.id));
+    const ownerTeamMember = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data.find((member) => member.user?.id === owner.id);
+    assert.ok(ownerTeamMember);
+    await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: `pending-last-admin@${emailDomain}`,
+        role: "ADMIN"
+      }
+    });
+    await request<MemberResponse>("PATCH", `/api/v1/teams/${team.id}/members/${ownerTeamMember.id}/role`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        role: "MEMBER"
+      }
+    });
 
     const disposableTeam = (await request<TeamResponse>("POST", "/api/v1/teams", {
       token: owner.token,
@@ -787,39 +789,49 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 404
     });
 
-    await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+    const editorTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
       token: owner.token,
       expectedStatus: 201,
       body: {
         email: editor.email,
         role: "MEMBER"
       }
-    });
-    await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+    })).data;
+    const viewerTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
       token: owner.token,
       expectedStatus: 201,
       body: {
         email: viewer.email,
         role: "MEMBER"
       }
-    });
+    })).data;
     await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
       token: owner.token,
-      expectedStatus: 404,
+      expectedStatus: 201,
       body: {
         email: `missing-user@${emailDomain}`,
         role: "MEMBER"
       }
     });
-    await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+    const directAddedTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
       token: owner.token,
       expectedStatus: 201,
       body: {
         email: ` ${directAddedMember.email.toUpperCase()} `,
         role: "MEMBER"
       }
-    });
-    await request<MemberResponse>("PATCH", `/api/v1/teams/${team.id}/members/${directAddedMember.id}/role`, {
+    })).data;
+    assert.equal(directAddedTeamMember.email, directAddedMember.email);
+    const duplicateCaseTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: directAddedMember.email.toUpperCase(),
+        role: "MEMBER"
+      }
+    })).data;
+    assert.equal(duplicateCaseTeamMember.id, directAddedTeamMember.id);
+    await request<MemberResponse>("PATCH", `/api/v1/teams/${team.id}/members/${directAddedTeamMember.id}/role`, {
       token: owner.token,
       body: {
         role: "ADMIN"
@@ -847,7 +859,7 @@ describe("V0 HTTP integration", () => {
       body: {
         name: `Integration Project ${runId}`,
         description: "V0 integration workflow",
-        projectAdminUserId: directAddedMember.id
+        projectAdminTeamMemberId: directAddedTeamMember.id
       }
     })).data;
     const projectMembersForSystemAdmin = (await request<MemberResponse[]>(
@@ -857,49 +869,122 @@ describe("V0 HTTP integration", () => {
         token: systemAdminOnly.token
       }
     )).data;
-    assert.ok(!projectMembersForSystemAdmin.some((member) => member.user.id === systemAdminOnly.id));
-    assert.ok(!projectMembersForSystemAdmin.some((member) => member.user.id === owner.id));
+    assert.ok(!projectMembersForSystemAdmin.some((member) => member.user?.id === systemAdminOnly.id));
+    assert.ok(!projectMembersForSystemAdmin.some((member) => member.user?.id === owner.id));
     assert.ok(
       projectMembersForSystemAdmin.some(
-        (member) => member.user.id === directAddedMember.id && member.role === "ADMIN"
+        (member) => member.user?.id === directAddedMember.id && member.role === "ADMIN"
       )
     );
+    const directProjectAdmin = projectMembersForSystemAdmin.find(
+      (member) => member.user?.id === directAddedMember.id && member.role === "ADMIN"
+    );
+    assert.ok(directProjectAdmin);
+    const readdedProjectAdmin = (await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        teamMemberId: directAddedTeamMember.id,
+        role: "EDITOR"
+      }
+    })).data;
+    assert.equal(readdedProjectAdmin.id, directProjectAdmin.id);
+    assert.equal(readdedProjectAdmin.role, "ADMIN");
+    const pendingProjectAdminTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: `pending-project-admin@${emailDomain}`,
+        role: "MEMBER"
+      }
+    })).data;
+    await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        teamMemberId: pendingProjectAdminTeamMember.id,
+        role: "ADMIN"
+      }
+    });
+    await request<MemberResponse>("PATCH", `/api/v1/projects/${project.id}/members/${directProjectAdmin.id}/role`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        role: "EDITOR"
+      }
+    });
     await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
       token: owner.token,
       expectedStatus: 422,
       body: {
         title: "Cannot assign system admin only",
-        assigneeIds: [systemAdminOnly.id]
+        projectMemberIds: [systemAdminOnly.id]
       }
-    });
-    const systemDefaults = (await request<SystemDefaultsResponse>(
-      "PATCH",
-      `/api/v1/projects/${project.id}/default`,
-      {
-        token: owner.token
-      }
-    )).data;
-    assert.equal(systemDefaults.defaultTeamId, team.id);
-    assert.equal(systemDefaults.defaultProjectId, project.id);
-    await request<SystemDefaultsResponse>("PATCH", `/api/v1/projects/${project.id}/default`, {
-      token: editor.token,
-      expectedStatus: 403
     });
     const defaultJoinUser = await registerUser("DefaultJoinUser");
     const defaultJoinTeams = (await request<TeamResponse[]>("GET", "/api/v1/teams", {
       token: defaultJoinUser.token
     })).data;
-    assert.ok(defaultJoinTeams.some((item) => item.id === team.id));
-    const defaultJoinProjects = (await request<ProjectResponse[]>("GET", `/api/v1/teams/${team.id}/projects`, {
+    assert.equal(defaultJoinTeams.some((item) => item.id === team.id), false);
+    await request<ProjectResponse[]>("GET", `/api/v1/teams/${team.id}/projects`, {
+      token: defaultJoinUser.token,
+      expectedStatus: 403
+    });
+    const emailUpdateClaimEmail = `email-update-claim@${emailDomain}`;
+    const emailUpdatePendingTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: emailUpdateClaimEmail,
+        role: "ADMIN"
+      }
+    })).data;
+    const emailUpdatePendingProjectMember = (await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        teamMemberId: emailUpdatePendingTeamMember.id,
+        role: "ADMIN"
+      }
+    })).data;
+    const emailUpdateClaimTask = (await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        title: "Email update claims pending assignment",
+        projectMemberIds: [emailUpdatePendingProjectMember.id]
+      }
+    })).data;
+    await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/email", {
+      token: defaultJoinUser.token,
+      body: {
+        email: emailUpdateClaimEmail
+      }
+    });
+    const emailUpdateClaimedTeamMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data;
+    assert.ok(
+      emailUpdateClaimedTeamMembers.some(
+        (member) => member.user?.id === defaultJoinUser.id && member.role === "ADMIN"
+      )
+    );
+    assert.equal(
+      emailUpdateClaimedTeamMembers.some(
+        (member) => member.email === emailUpdateClaimEmail && member.status === "PENDING"
+      ),
+      false
+    );
+    const emailUpdateClaimedTasks = (await request<MyTaskResponse[]>("GET", "/api/v1/users/me/tasks", {
       token: defaultJoinUser.token
     })).data;
-    assert.ok(defaultJoinProjects.some((item) => item.id === project.id));
+    assert.ok(emailUpdateClaimedTasks.some((item) => item.id === emailUpdateClaimTask.id));
     await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
       token: owner.token,
       expectedStatus: 422,
       body: {
         name: `Integration Project ${runId}`,
-        projectAdminUserId: directAddedMember.id
+        projectAdminTeamMemberId: directAddedTeamMember.id
       }
     });
     const restorableProject = (await request<ProjectResponse>("POST", `/api/v1/teams/${team.id}/projects`, {
@@ -907,7 +992,7 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 201,
       body: {
         name: `Restorable Project ${runId}`,
-        projectAdminUserId: directAddedMember.id
+        projectAdminTeamMemberId: directAddedTeamMember.id
       }
     })).data;
     await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${restorableProject.id}`, {
@@ -944,7 +1029,7 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 201,
       body: {
         name: `Purge Project ${runId}`,
-        projectAdminUserId: directAddedMember.id
+        projectAdminTeamMemberId: directAddedTeamMember.id
       }
     })).data;
     await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${purgeProject.id}`, {
@@ -971,7 +1056,7 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 201,
       body: {
         name: `Trash Conflict Project ${runId}`,
-        projectAdminUserId: directAddedMember.id
+        projectAdminTeamMemberId: directAddedTeamMember.id
       }
     })).data;
     await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${conflictProject.id}`, {
@@ -982,7 +1067,7 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 201,
       body: {
         name: `Trash Conflict Project ${runId}`,
-        projectAdminUserId: directAddedMember.id
+        projectAdminTeamMemberId: directAddedTeamMember.id
       }
     });
     await request<ProjectResponse>(
@@ -1007,18 +1092,21 @@ describe("V0 HTTP integration", () => {
     });
 
     const autoAdminEmail = `auto-admin@${emailDomain}`;
-    const autoAdminInvitation = (await request<InvitationResponse>(
-      "POST",
-      `/api/v1/teams/${team.id}/invitations`,
-      {
-        token: owner.token,
-        expectedStatus: 201,
-        body: {
-          email: autoAdminEmail,
-          role: "ADMIN"
-        }
+    const pendingAutoAdmin = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: autoAdminEmail,
+        role: "ADMIN"
       }
-    )).data;
+    })).data;
+    assert.equal(pendingAutoAdmin.status, "PENDING");
+    assert.equal(pendingAutoAdmin.role, "ADMIN");
+    const pendingAutoAdminListItem = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data.find((member) => member.id === pendingAutoAdmin.id);
+    assert.ok(pendingAutoAdminListItem?.inviteAcceptPath?.includes("token="));
+
     const autoAdmin = (await request<AuthResponse>("POST", "/api/v1/auth/register", {
       expectedStatus: 201,
       body: {
@@ -1031,69 +1119,18 @@ describe("V0 HTTP integration", () => {
       token: owner.token
     })).data;
     assert.ok(
-      autoAdminMembers.some((member) => member.user.id === autoAdmin.user.id && member.role === "ADMIN")
+      autoAdminMembers.some((member) => member.user?.id === autoAdmin.user.id && member.role === "ADMIN")
     );
-    const acceptedAutoAdminInvitation = await prisma.invitation.findUnique({
-      where: {
-        id: autoAdminInvitation.id
-      }
-    });
-    assert.equal(acceptedAutoAdminInvitation?.status, "ACCEPTED");
 
-    const teamInvitation = (await request<InvitationResponse>(
-      "POST",
-      `/api/v1/teams/${team.id}/invitations`,
-      {
-        token: owner.token,
-        expectedStatus: 201,
-        body: {
-          email: invitedTeamMember.email,
-          role: "MEMBER"
-        }
-      }
-    )).data;
-    assert.equal(teamInvitation.status, "PENDING");
-    assert.equal(teamInvitation.projectId, null);
-    assert.ok(teamInvitation.acceptPath.includes(teamInvitation.token));
-
-    const teamInvitations = (await request<InvitationResponse[]>(
-      "GET",
-      `/api/v1/teams/${team.id}/invitations`,
-      {
-        token: owner.token
-      }
-    )).data;
-    assert.ok(teamInvitations.some((invitation) => invitation.id === teamInvitation.id));
-
-    const acceptedTeamInvitation = (await request<AcceptInvitationResponse>(
-      "POST",
-      "/api/v1/invitations/accept",
-      {
-        token: invitedTeamMember.token,
-        body: {
-          token: teamInvitation.acceptPath.split("token=")[1]
-        }
-      }
-    )).data;
-    assert.equal(acceptedTeamInvitation.teamId, team.id);
-    assert.equal(acceptedTeamInvitation.projectId, null);
-
-    const acceptedTeamInvitationAgain = (await request<AcceptInvitationResponse>(
-      "POST",
-      "/api/v1/invitations/accept",
-      {
-        token: invitedTeamMember.token,
-        body: {
-          token: teamInvitation.token
-        }
-      }
-    )).data;
-    assert.equal(acceptedTeamInvitationAgain.teamId, team.id);
-
-    await request<InvitationResponse>("PATCH", `/api/v1/invitations/${teamInvitation.id}/revoke`, {
+    const registeredTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
       token: owner.token,
-      expectedStatus: 422
-    });
+      expectedStatus: 201,
+      body: {
+        email: invitedTeamMember.email,
+        role: "MEMBER"
+      }
+    })).data;
+    assert.equal(registeredTeamMember.status, "ACTIVE");
 
     const invitedTeamProjects = (await request<ProjectResponse[]>(
       "GET",
@@ -1109,146 +1146,218 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 403
     });
 
-    const mismatchedInvitation = (await request<InvitationResponse>(
-      "POST",
-      `/api/v1/teams/${team.id}/invitations`,
-      {
-        token: owner.token,
-        expectedStatus: 201,
-        body: {
-          email: `not-${viewer.email}`,
-          role: "MEMBER"
-        }
-      }
-    )).data;
-    await request<AcceptInvitationResponse>("POST", "/api/v1/invitations/accept", {
-      token: viewer.token,
-      expectedStatus: 422,
+    const pendingTeamEmail = `pending-team-member@${emailDomain}`;
+    const pendingTeamMemberForSignup = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
       body: {
-        token: mismatchedInvitation.token
+        email: pendingTeamEmail,
+        role: "MEMBER"
+      }
+    })).data;
+    assert.equal(pendingTeamMemberForSignup.status, "PENDING");
+    const pendingTeamMemberListItem = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data.find((member) => member.id === pendingTeamMemberForSignup.id);
+    assert.ok(pendingTeamMemberListItem?.inviteAcceptPath?.includes("token="));
+
+    const claimedTeamOnlyUser = (await request<AuthResponse>("POST", "/api/v1/auth/register", {
+      expectedStatus: 201,
+      body: {
+        email: pendingTeamEmail,
+        name: "Pending Team Member",
+        password: "Password123!"
+      }
+    })).data;
+    const claimedTeamMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data;
+    assert.ok(
+      claimedTeamMembers.some(
+        (member) => member.user?.id === claimedTeamOnlyUser.user.id && member.status === "ACTIVE"
+      )
+    );
+
+    const pendingRemovalTeam = (await request<TeamResponse>("POST", "/api/v1/teams", {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: `Pending Removal Team ${runId}`,
+        adminEmail: owner.email
+      }
+    })).data;
+    const removedPendingEmail = `removed-pending@${emailDomain}`;
+    const removedPendingMember = (await request<MemberResponse>("POST", `/api/v1/teams/${pendingRemovalTeam.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: removedPendingEmail,
+        role: "MEMBER"
+      }
+    })).data;
+    await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${pendingRemovalTeam.id}/members/${removedPendingMember.id}`, {
+      token: owner.token
+    });
+    const revokedRegistrationLink = await prisma.invitation.findFirst({
+      where: {
+        email: removedPendingEmail,
+        teamId: pendingRemovalTeam.id,
+        status: "REVOKED"
       }
     });
-
-    const revokeInvitation = (await request<InvitationResponse>(
-      "POST",
-      `/api/v1/teams/${team.id}/invitations`,
-      {
-        token: owner.token,
-        expectedStatus: 201,
-        body: {
-          email: `revoked-${invitedTeamMember.email}`,
-          role: "MEMBER"
-        }
+    assert.ok(revokedRegistrationLink);
+    const removedPendingUser = (await request<AuthResponse>("POST", "/api/v1/auth/register", {
+      expectedStatus: 201,
+      body: {
+        email: removedPendingEmail,
+        name: "Removed Pending Member",
+        password: "Password123!"
       }
-    )).data;
-    const revokedInvitation = (await request<InvitationResponse>(
-      "PATCH",
-      `/api/v1/invitations/${revokeInvitation.id}/revoke`,
-      {
-        token: owner.token
-      }
-    )).data;
-    assert.equal(revokedInvitation.status, "REVOKED");
+    })).data;
+    const removedPendingTeams = (await request<TeamResponse[]>("GET", "/api/v1/teams", {
+      token: removedPendingUser.accessToken
+    })).data;
+    assert.equal(removedPendingTeams.some((item) => item.id === pendingRemovalTeam.id), false);
+    await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${pendingRemovalTeam.id}`, {
+      token: owner.token
+    });
 
     await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${team.id}`, {
       token: owner.token,
       expectedStatus: 422
     });
 
-    const projectInvitation = (await request<InvitationResponse>(
-      "POST",
-      `/api/v1/projects/${project.id}/invitations`,
-      {
-        token: owner.token,
-        expectedStatus: 201,
-        body: {
-          email: invitedProjectMember.email,
-          teamRole: "MEMBER",
-          projectRole: "EDITOR"
-        }
+    const pendingProjectEmail = `pending-project-member@${emailDomain}`;
+    const pendingProjectTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: pendingProjectEmail,
+        role: "MEMBER"
       }
-    )).data;
-    assert.equal(projectInvitation.status, "PENDING");
-    assert.equal(projectInvitation.projectId, project.id);
-
-    const projectInvitations = (await request<InvitationResponse[]>(
+    })).data;
+    const pendingProjectMemberForSignup = (await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        teamMemberId: pendingProjectTeamMember.id,
+        role: "EDITOR"
+      }
+    })).data;
+    assert.equal(pendingProjectMemberForSignup.status, "PENDING");
+    assert.equal(pendingProjectMemberForSignup.role, "EDITOR");
+    const pendingProjectMemberListItem = (await request<MemberResponse[]>(
       "GET",
-      `/api/v1/projects/${project.id}/invitations`,
+      `/api/v1/projects/${project.id}/members`,
       {
         token: owner.token
       }
-    )).data;
-    assert.ok(projectInvitations.some((invitation) => invitation.id === projectInvitation.id));
+    )).data.find((member) => member.id === pendingProjectMemberForSignup.id);
+    assert.ok(pendingProjectMemberListItem?.inviteAcceptPath?.includes("token="));
+    assert.equal(pendingProjectTeamMember?.status, "PENDING");
+    assert.equal(pendingProjectTeamMember?.role, "MEMBER");
 
-    const acceptedProjectInvitation = (await request<AcceptInvitationResponse>(
-      "POST",
-      "/api/v1/invitations/accept",
-      {
-        token: invitedProjectMember.token,
-        body: {
-          token: projectInvitation.acceptPath.split("token=")[1]
-        }
+    const claimedProjectOnlyUser = (await request<AuthResponse>("POST", "/api/v1/auth/register", {
+      expectedStatus: 201,
+      body: {
+        email: pendingProjectEmail,
+        name: "Pending Project Member",
+        password: "Password123!"
       }
-    )).data;
-    assert.equal(acceptedProjectInvitation.teamId, team.id);
-    assert.equal(acceptedProjectInvitation.projectId, project.id);
+    })).data;
 
-    const concurrentProjectInvitation = (await request<InvitationResponse>(
-      "POST",
-      `/api/v1/projects/${project.id}/invitations`,
-      {
-        token: owner.token,
-        expectedStatus: 201,
-        body: {
-          email: concurrentProjectInvitee.email,
-          teamRole: "MEMBER",
-          projectRole: "VIEWER"
-        }
-      }
-    )).data;
-
-    const [firstConcurrentAccept, secondConcurrentAccept] = await Promise.all([
-      request<AcceptInvitationResponse>("POST", "/api/v1/invitations/accept", {
-        token: concurrentProjectInvitee.token,
-        body: {
-          token: concurrentProjectInvitation.token
-        }
-      }),
-      request<AcceptInvitationResponse>("POST", "/api/v1/invitations/accept", {
-        token: concurrentProjectInvitee.token,
-        body: {
-          token: concurrentProjectInvitation.token
-        }
-      })
-    ]);
-    assert.equal(firstConcurrentAccept.data.projectId, project.id);
-    assert.equal(secondConcurrentAccept.data.projectId, project.id);
-
-    const invitedProjectMembers = (await request<MemberResponse[]>(
+    const claimedProjectMembers = (await request<MemberResponse[]>(
       "GET",
       `/api/v1/projects/${project.id}/members`,
       {
         token: owner.token
       }
     )).data;
-    assert.ok(invitedProjectMembers.some((member) => member.user.id === invitedProjectMember.id));
+    assert.ok(
+      claimedProjectMembers.some(
+        (member) => member.user?.id === claimedProjectOnlyUser.user.id && member.status === "ACTIVE"
+      )
+    );
 
+    const ownerTeamMemberBeforeProjectAdd = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data.find((member) => member.user?.id === owner.id);
+    assert.ok(ownerTeamMemberBeforeProjectAdd);
     await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        userId: editor.id,
+        teamMemberId: ownerTeamMemberBeforeProjectAdd.id,
         role: "EDITOR"
       }
     });
+    const ownerMemberAfterProjectAdd = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data.find((member) => member.user?.id === owner.id);
+    assert.equal(ownerMemberAfterProjectAdd?.role, "ADMIN");
+
+    const editorProjectMember = (await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        teamMemberId: editorTeamMember.id,
+        role: "EDITOR"
+      }
+    })).data;
     await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
       token: owner.token,
       expectedStatus: 201,
       body: {
-        userId: viewer.id,
+        teamMemberId: viewerTeamMember.id,
         role: "VIEWER"
       }
     });
+
+    const pendingAssigneeEmail = `pending-assignee@${emailDomain}`;
+    const pendingTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        email: pendingAssigneeEmail,
+        role: "MEMBER"
+      }
+    })).data;
+    assert.equal(pendingTeamMember.status, "PENDING");
+    const pendingProjectMember = (await request<MemberResponse>("POST", `/api/v1/projects/${project.id}/members`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        teamMemberId: pendingTeamMember.id,
+        role: "EDITOR"
+      }
+    })).data;
+    assert.equal(pendingProjectMember.status, "PENDING");
+    const pendingAssignedTask = (await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        title: "Pending member can be assigned before signup",
+        projectMemberIds: [pendingProjectMember.id]
+      }
+    })).data;
+    assert.equal(pendingAssignedTask.assignees?.[0]?.status, "PENDING");
+
+    const claimedPendingUser = (await request<AuthResponse>("POST", "/api/v1/auth/register", {
+      expectedStatus: 201,
+      body: {
+        email: pendingAssigneeEmail,
+        name: "Pending Assignee",
+        password: "Password123!"
+      }
+    })).data;
+    const claimedTasks = (await request<MyTaskResponse[]>("GET", "/api/v1/users/me/tasks", {
+      token: claimedPendingUser.accessToken
+    })).data;
+    assert.ok(claimedTasks.some((item) => item.id === pendingAssignedTask.id));
+    const claimedNotifications = (await request<NotificationResponse[]>("GET", "/api/v1/users/me/notifications", {
+      token: claimedPendingUser.accessToken
+    })).data;
+    assert.equal(claimedNotifications.some((notification) => notification.type === "TASK_ASSIGNED"), false);
 
     const lists = (await request<TaskListResponse[]>("GET", `/api/v1/projects/${project.id}/lists`, {
       token: owner.token
@@ -1257,7 +1366,6 @@ describe("V0 HTTP integration", () => {
     const initialDefaultList = lists[0];
     assert.equal(initialDefaultList.name, "默认清单");
     assert.equal(initialDefaultList.isDefault, true);
-    assert.equal(initialDefaultList.tasks.length, 0);
 
     const defaultedTask = (await request<TaskResponse>("POST", `/api/v1/projects/${project.id}/tasks`, {
       token: owner.token,
@@ -1410,7 +1518,7 @@ describe("V0 HTTP integration", () => {
         title: "Assigned integration task",
         description: "Created by owner and assigned to editor",
         priority: "HIGH",
-        assigneeIds: [editor.id]
+        projectMemberIds: [editorProjectMember.id]
       }
     })).data;
     assert.equal(task.title, "Assigned integration task");
@@ -1581,7 +1689,7 @@ describe("V0 HTTP integration", () => {
         taskListId: task.taskListId,
         parentId: task.id,
         title: "One level subtask",
-        assigneeIds: [editor.id]
+        projectMemberIds: [editorProjectMember.id]
       }
     })).data;
     assert.equal(subTask.parentId, task.id);
@@ -1726,7 +1834,7 @@ describe("V0 HTTP integration", () => {
         taskListId: task.taskListId,
         title: "Due soon task",
         dueDate: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        assigneeIds: [editor.id]
+        projectMemberIds: [editorProjectMember.id]
       }
     })).data;
     await runDueReminderScan();

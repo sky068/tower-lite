@@ -2,6 +2,12 @@ import bcrypt from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
+import { acceptPendingInvitationsForUser } from "../invitations/invitation.service.js";
+import {
+  claimPendingMembershipsForUserInTransaction,
+  normalizeEmail,
+  publishMembershipClaimSideEffects
+} from "../memberships/membership.service.js";
 import type { BindFeishuInput, UpdateEmailInput, UpdatePasswordInput, UpdateProfileInput } from "./user.schema.js";
 
 function toPublicUser(user: {
@@ -103,14 +109,36 @@ export async function updateEmail(userId: string, input: UpdateEmailInput) {
     throw new AppError("CONFLICT", "Email is already registered", 409);
   }
 
-  const updatedUser = await prisma.user.update({
-    where: {
-      id: userId
-    },
-    data: {
-      email: input.email
-    }
+  const normalizedEmail = normalizeEmail(input.email);
+  const { updatedUser, claim } = await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: {
+        id: userId
+      },
+      data: {
+        email: input.email
+      }
+    });
+    const membershipClaim = await claimPendingMembershipsForUserInTransaction(tx, userId);
+
+    await tx.teamMember.updateMany({
+      where: {
+        userId
+      },
+      data: {
+        email: input.email,
+        normalizedEmail
+      }
+    });
+
+    return {
+      updatedUser: updated,
+      claim: membershipClaim
+    };
   });
+
+  await publishMembershipClaimSideEffects(claim);
+  await acceptPendingInvitationsForUser(userId);
 
   return toCurrentUser(updatedUser);
 }
@@ -192,16 +220,14 @@ export async function listMyTasks(userId: string) {
     JOIN "TeamMember" team_member
       ON team_member."teamId" = project."teamId"
       AND team_member."userId" = ${userId}
-    LEFT JOIN "ProjectMember" project_member
-      ON project_member."projectId" = project."id"
+    JOIN "ProjectMember" project_member
+      ON project_member."id" = ta."projectMemberId"
+      AND project_member."projectId" = project."id"
       AND project_member."userId" = ${userId}
-    WHERE ta."userId" = ${userId}
+    WHERE ta."projectMemberId" IS NOT NULL
       AND task."deletedAt" IS NULL
       AND project."deletedAt" IS NULL
-      AND (
-        team_member."role" = 'ADMIN'
-        OR project_member."id" IS NOT NULL
-      )
+      AND team_member."userId" IS NOT NULL
   `;
   const assignedTaskIds = assignedRows.map((row) => row.taskId);
 
@@ -213,7 +239,11 @@ export async function listMyTasks(userId: string) {
       }
     },
     include: {
-      project: true,
+      project: {
+        include: {
+          team: true
+        }
+      },
       taskList: true,
       completedBy: true,
       parent: {
@@ -250,7 +280,11 @@ export async function listMyTasks(userId: string) {
           deletedAt: null
         },
         include: {
-          project: true,
+          project: {
+            include: {
+              team: true
+            }
+          },
           taskList: true,
           completedBy: true,
           parent: {
@@ -288,7 +322,11 @@ export async function listMyTasks(userId: string) {
       : null,
     project: {
       id: task.project.id,
-      name: task.project.name
+      name: task.project.name,
+      team: {
+        id: task.project.team.id,
+        name: task.project.team.name
+      }
     },
     taskList: {
       id: task.taskList.id,

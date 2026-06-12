@@ -2703,6 +2703,55 @@ select[multiple] {
   padding: 0 14px;
 }
 
+.modal-action-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.modal-action-row button {
+  min-height: 38px;
+}
+
+.import-help {
+  display: grid;
+  gap: 3px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.import-preview-list {
+  max-height: 230px;
+  overflow-y: auto;
+}
+
+.import-preview-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.import-preview-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-preview-row strong {
+  color: #0f172a;
+  font-size: 12px;
+}
+
 .account-settings-modal {
   width: min(680px, 100%);
 }
@@ -3329,6 +3378,24 @@ select[multiple] {
   align-items: end;
 }
 
+.settings-form.team-member-add-form {
+  grid-template-columns: minmax(220px, 360px) 132px max-content max-content;
+  align-items: end;
+}
+
+.settings-form.team-member-add-form button {
+  justify-self: start;
+  min-width: 86px;
+  width: auto;
+  padding: 0 12px;
+}
+
+@media (max-width: 760px) {
+  .settings-form.team-member-add-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .settings-form.invite-form {
   grid-template-columns: minmax(180px, 1fr) minmax(130px, auto) minmax(130px, auto) auto;
   align-items: end;
@@ -3621,6 +3688,24 @@ select[multiple] {
   background: #ffffff;
   box-shadow: 0 12px 30px rgb(15 23 42 / 16%);
   padding: 6px;
+}
+
+.user-select-search {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #334155;
+  padding: 0 9px;
+  font-size: 13px;
+}
+
+.user-select-search:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+  outline: none;
 }
 
 .user-select-option,

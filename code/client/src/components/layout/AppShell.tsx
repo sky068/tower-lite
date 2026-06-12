@@ -8,6 +8,7 @@ import { UserAvatar } from "../shared/UserAvatar";
 import { UserSelect } from "../shared/UserSelect";
 import { authApi, projectApi, teamApi, userApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
+import { getMemberUser } from "../../lib/members";
 import { useRealtimeEvents } from "../../lib/realtime";
 import { useAuthStore } from "../../stores/authStore";
 import type { Notification, Project } from "../../types/api";
@@ -37,7 +38,7 @@ export function AppShell() {
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamAdminEmail, setNewTeamAdminEmail] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
-  const [newProjectAdminUserId, setNewProjectAdminUserId] = useState("");
+  const [newProjectAdminMemberId, setNewProjectAdminMemberId] = useState("");
   const [profileName, setProfileName] = useState(user?.name ?? "");
   const [profileEmail, setProfileEmail] = useState(user?.email ?? "");
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(user?.avatarUrl ?? "");
@@ -124,13 +125,13 @@ export function AppShell() {
     mutationFn: () =>
       projectApi.create(creatingProjectTeamId!, {
         name: newProjectName.trim(),
-        projectAdminUserId: newProjectAdminUserId || undefined
+        projectAdminTeamMemberId: newProjectAdminMemberId || undefined
       }),
     onSuccess: (project) => {
       const teamId = creatingProjectTeamId;
       setCreatingProjectTeamId(null);
       setNewProjectName("");
-      setNewProjectAdminUserId("");
+      setNewProjectAdminMemberId("");
       if (teamId) {
         void queryClient.invalidateQueries({ queryKey: ["projects", teamId] });
       }
@@ -284,7 +285,7 @@ export function AppShell() {
       creatingProjectTeamId &&
       canCreateProjectForCurrentTeam &&
       newProjectName.trim() &&
-      (!isSystemAdmin || newProjectAdminUserId)
+      (!isSystemAdmin || newProjectAdminMemberId)
     ) {
       createProjectMutation.mutate();
     }
@@ -293,7 +294,7 @@ export function AppShell() {
   function handleCancelCreateProject() {
     setCreatingProjectTeamId(null);
     setNewProjectName("");
-    setNewProjectAdminUserId("");
+    setNewProjectAdminMemberId("");
   }
 
   async function handleSaveAccountSettings(event: FormEvent) {
@@ -453,7 +454,6 @@ export function AppShell() {
                 >
                   <Building2 size={15} />
                   <span>{team.name}</span>
-                  {team.isSystemDefault ? <i>默认</i> : null}
                 </NavLink>
               ))}
               {!teamsQuery.isLoading && teams.length === 0 ? <span className="nav-empty">暂无团队</span> : null}
@@ -485,7 +485,7 @@ export function AppShell() {
                           onClick={() => {
                             setCreatingProjectTeamId((current) => (current === team.id ? null : team.id));
                             setNewProjectName("");
-                            setNewProjectAdminUserId("");
+                            setNewProjectAdminMemberId("");
                           }}
                         >
                           <Plus size={14} />
@@ -501,17 +501,20 @@ export function AppShell() {
                           required
                         />
                         <UserSelect
-                          value={newProjectAdminUserId}
-                          onChange={setNewProjectAdminUserId}
+                          value={newProjectAdminMemberId}
+                          onChange={setNewProjectAdminMemberId}
                           disabled={projectAdminCandidatesQuery.isLoading}
                           placeholder={isSystemAdmin ? "选择项目管理员" : "默认自己为项目管理员"}
-                          users={(projectAdminCandidatesQuery.data ?? []).map((member) => member.user)}
+                          users={(projectAdminCandidatesQuery.data ?? []).map((member) => ({
+                            ...getMemberUser(member),
+                            id: member.id
+                          }))}
                         />
                         <div className="sidebar-create-actions">
                           <button
                             className="sidebar-confirm-button"
                             type="submit"
-                            disabled={createProjectMutation.isPending || (isSystemAdmin && !newProjectAdminUserId)}
+                            disabled={createProjectMutation.isPending || (isSystemAdmin && !newProjectAdminMemberId)}
                           >
                             确定
                           </button>
@@ -539,7 +542,6 @@ export function AppShell() {
                       >
                         <FolderKanban size={15} />
                         <span>{project.name}</span>
-                        {project.isSystemDefault ? <i>默认</i> : null}
                       </NavLink>
                     ))}
                   </div>

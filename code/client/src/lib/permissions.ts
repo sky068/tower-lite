@@ -17,8 +17,8 @@ export function getProjectPermissions(
   teamMembers: Member[] = [],
   isSystemAdmin = false
 ): ProjectPermissions {
-  const currentProjectMember = projectMembers.find((member) => member.user.id === userId);
-  const currentTeamMember = teamMembers.find((member) => member.user.id === userId);
+  const currentProjectMember = projectMembers.find((member) => member.user?.id === userId);
+  const currentTeamMember = teamMembers.find((member) => member.user?.id === userId);
   const isTeamAdmin = teamAdminRoles.has(currentTeamMember?.role as TeamRole);
   const isProjectEditor = projectEditorRoles.has(currentProjectMember?.role as ProjectRole);
 

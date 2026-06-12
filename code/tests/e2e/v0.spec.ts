@@ -220,7 +220,7 @@ test.beforeAll(async () => {
   });
   teamId = team.data.id;
 
-  await apiRequest("POST", `/teams/${teamId}/members`, {
+  const editorTeamMember = await apiRequest<{ id: string }>("POST", `/teams/${teamId}/members`, {
     token: owner.token,
     expectedStatus: 201,
     data: {
@@ -228,7 +228,7 @@ test.beforeAll(async () => {
       role: "MEMBER"
     }
   });
-  await apiRequest("POST", `/teams/${teamId}/members`, {
+  const viewerTeamMember = await apiRequest<{ id: string }>("POST", `/teams/${teamId}/members`, {
     token: owner.token,
     expectedStatus: 201,
     data: {
@@ -251,7 +251,7 @@ test.beforeAll(async () => {
     token: owner.token,
     expectedStatus: 201,
     data: {
-      userId: editor.id,
+      teamMemberId: editorTeamMember.data.id,
       role: "EDITOR"
     }
   });
@@ -259,7 +259,7 @@ test.beforeAll(async () => {
     token: owner.token,
     expectedStatus: 201,
     data: {
-      userId: viewer.id,
+      teamMemberId: viewerTeamMember.data.id,
       role: "VIEWER"
     }
   });

@@ -59,7 +59,7 @@ export const createTaskSchema = z.object({
   taskListId: z.string().uuid().optional(),
   title: z.string().min(1).max(200),
   description: z.string().max(5000).optional(),
-  assigneeIds: z.array(z.string().uuid()).default([]),
+  projectMemberIds: z.array(z.string().uuid()).default([]),
   status: z.nativeEnum(TaskStatus).default(TaskStatus.TODO),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   startDate: optionalDateSchema,
@@ -71,7 +71,7 @@ export const createTaskSchema = z.object({
 export const updateTaskSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(5000).nullable().optional(),
-  assigneeIds: z.array(z.string().uuid()).optional(),
+  projectMemberIds: z.array(z.string().uuid()).optional(),
   status: z.nativeEnum(TaskStatus).optional(),
   priority: z.nativeEnum(Priority).optional(),
   startDate: nullableDateSchema,

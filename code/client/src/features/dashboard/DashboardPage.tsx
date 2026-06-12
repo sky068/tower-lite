@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Select } from "../../components/shared/Select";
 import { userApi } from "../../lib/api";
@@ -39,7 +39,7 @@ function formatCompletedByName(completedBy: MyTask["completedBy"]) {
     return "未知成员";
   }
 
-  return completedBy.isRemoved ? `${completedBy.name}(已移除)` : completedBy.name;
+  return completedBy.name;
 }
 
 function formatMyTaskDate(task: MyTask) {
@@ -168,6 +168,7 @@ function MyTaskTreeRow({
 export function DashboardPage() {
   const location = useLocation();
   const [taskSearch, setTaskSearch] = useState("");
+  const [taskTeamFilter, setTaskTeamFilter] = useState("ALL");
   const [taskProjectFilter, setTaskProjectFilter] = useState("ALL");
   const [taskStatusFilter, setTaskStatusFilter] = useState<"OPEN" | "DONE" | "ALL">("OPEN");
   const [myTaskExpanded, setMyTaskExpanded] = useState<Record<string, boolean>>(() => readStoredMyTaskExpanded());
@@ -176,11 +177,24 @@ export function DashboardPage() {
     queryKey: ["my-tasks"],
     queryFn: userApi.myTasks
   });
+  const myTaskTeams = useMemo(() => {
+    const teams = new Map<string, string>();
+
+    for (const task of myTasksQuery.data ?? []) {
+      if (task.isAssignedToMe) {
+        teams.set(task.project.team.id, task.project.team.name);
+      }
+    }
+
+    return Array.from(teams, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name, "zh-CN")
+    );
+  }, [myTasksQuery.data]);
   const myTaskProjects = useMemo(() => {
     const projects = new Map<string, string>();
 
     for (const task of myTasksQuery.data ?? []) {
-      if (task.isAssignedToMe) {
+      if (task.isAssignedToMe && (taskTeamFilter === "ALL" || task.project.team.id === taskTeamFilter)) {
         projects.set(task.project.id, task.project.name);
       }
     }
@@ -188,7 +202,13 @@ export function DashboardPage() {
     return Array.from(projects, ([id, name]) => ({ id, name })).sort((a, b) =>
       a.name.localeCompare(b.name, "zh-CN")
     );
-  }, [myTasksQuery.data]);
+  }, [myTasksQuery.data, taskTeamFilter]);
+
+  useEffect(() => {
+    if (taskProjectFilter !== "ALL" && !myTaskProjects.some((project) => project.id === taskProjectFilter)) {
+      setTaskProjectFilter("ALL");
+    }
+  }, [myTaskProjects, taskProjectFilter]);
 
   const myTaskDisplay = useMemo(() => {
     const keyword = taskSearch.trim().toLowerCase();
@@ -212,11 +232,13 @@ export function DashboardPage() {
         !keyword ||
         task.title.toLowerCase().includes(keyword) ||
         task.parentTask?.title.toLowerCase().includes(keyword) ||
+        task.project.team.name.toLowerCase().includes(keyword) ||
         task.project.name.toLowerCase().includes(keyword) ||
         task.taskList.name.toLowerCase().includes(keyword);
+      const matchesTeam = taskTeamFilter === "ALL" || task.project.team.id === taskTeamFilter;
       const matchesProject = taskProjectFilter === "ALL" || task.project.id === taskProjectFilter;
 
-      return task.isAssignedToMe && matchesTreeStatus(task) && matchesKeyword && matchesProject;
+      return task.isAssignedToMe && matchesTreeStatus(task) && matchesKeyword && matchesTeam && matchesProject;
     });
 
     for (const task of visibleAssignedTasks) {
@@ -236,7 +258,7 @@ export function DashboardPage() {
       ),
       visibleAssignedTasks
     };
-  }, [myTasksQuery.data, taskProjectFilter, taskSearch, taskStatusFilter]);
+  }, [myTasksQuery.data, taskProjectFilter, taskSearch, taskStatusFilter, taskTeamFilter]);
 
   const myTaskTree = useMemo(() => {
     const taskMap = new Map(myTaskDisplay.tasks.map((task) => [task.id, task]));
@@ -288,6 +310,16 @@ export function DashboardPage() {
           <div className="panel-title-row">
             <h2>我的任务</h2>
             <div className="panel-title-actions">
+              <Select
+                className="project-filter-select"
+                ariaLabel="我的任务团队筛选"
+                value={taskTeamFilter}
+                onChange={setTaskTeamFilter}
+                options={[
+                  { value: "ALL", label: "全部团队" },
+                  ...myTaskTeams.map((team) => ({ value: team.id, label: team.name }))
+                ]}
+              />
               <Select
                 className="project-filter-select"
                 ariaLabel="我的任务项目筛选"

@@ -14,7 +14,7 @@ export const teamIdParamsSchema = z.object({
 
 export const teamMemberParamsSchema = z.object({
   teamId: z.string().uuid(),
-  userId: z.string().uuid()
+  memberId: z.string().uuid()
 });
 
 export const updateTeamSchema = z.object({

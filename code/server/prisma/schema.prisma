@@ -26,7 +26,6 @@ model User {
   createdProjects     Project[]      @relation("ProjectCreator")
   deletedProjects     Project[]      @relation("ProjectDeleter")
   invitationsSent     Invitation[]   @relation("InvitationInviter")
-  taskAssignments     TaskAssignee[]
   createdTasks        Task[]         @relation("TaskCreator")
   completedTasks      Task[]         @relation("TaskCompleter")
   comments            Comment[]
@@ -37,7 +36,6 @@ model User {
   activityLogs        ActivityLog[]  @relation("ActivityActor")
   deletedTaskLists    TaskList[]     @relation("TaskListDeleter")
   deletedTasks        Task[]         @relation("TaskDeleter")
-  systemSettings      SystemSetting[]
 }
 
 enum SystemRole {
@@ -72,16 +70,22 @@ model Team {
 }
 
 model TeamMember {
-  id        String   @id @default(uuid())
-  role      TeamRole
-  userId    String
-  teamId    String
-  createdAt DateTime @default(now())
+  id              String          @id @default(uuid())
+  role            TeamRole
+  email           String
+  normalizedEmail String
+  userId          String?
+  teamId          String
+  claimedAt       DateTime?
+  createdAt       DateTime        @default(now())
 
-  user      User     @relation(fields: [userId], references: [id])
-  team      Team     @relation(fields: [teamId], references: [id])
+  user            User?           @relation(fields: [userId], references: [id])
+  team            Team            @relation(fields: [teamId], references: [id])
+  projectMembers  ProjectMember[]
 
+  @@unique([teamId, normalizedEmail])
   @@unique([userId, teamId])
+  @@index([normalizedEmail])
   @@index([teamId, role])
 }
 
@@ -138,32 +142,30 @@ model ActivityLog {
   @@index([taskId, createdAt])
 }
 
-model SystemSetting {
-  key         String   @id
-  value       String?
-  updatedById String?
-  updatedAt   DateTime @updatedAt
-
-  updatedBy   User?    @relation(fields: [updatedById], references: [id])
-}
-
 enum ProjectStatus {
   ACTIVE
   ARCHIVED
 }
 
 model ProjectMember {
-  id        String      @id @default(uuid())
-  role      ProjectRole
-  projectId String
-  userId    String
-  createdAt DateTime    @default(now())
+  id           String         @id @default(uuid())
+  role         ProjectRole
+  projectId    String
+  teamMemberId String
+  userId       String?
+  claimedAt    DateTime?
+  createdAt    DateTime       @default(now())
 
-  project   Project     @relation(fields: [projectId], references: [id])
-  user      User        @relation(fields: [userId], references: [id])
+  project      Project        @relation(fields: [projectId], references: [id])
+  teamMember   TeamMember     @relation(fields: [teamMemberId], references: [id])
+  user         User?          @relation(fields: [userId], references: [id])
+  assignments  TaskAssignee[]
 
+  @@unique([projectId, teamMemberId])
   @@unique([projectId, userId])
   @@index([userId])
+  @@index([teamMemberId])
+  @@index([projectId, role])
 }
 
 enum ProjectRole {
@@ -266,15 +268,20 @@ enum TaskStatus {
 }
 
 model TaskAssignee {
-  taskId    String
-  userId    String
-  createdAt DateTime @default(now())
+  id                    String         @id @default(uuid())
+  taskId                String
+  projectMemberId       String?
+  assigneeNameSnapshot   String
+  assigneeEmailSnapshot  String
+  assigneeAvatarSnapshot String?
+  removedAt             DateTime?
+  createdAt             DateTime       @default(now())
 
-  task      Task     @relation(fields: [taskId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
+  task                  Task           @relation(fields: [taskId], references: [id])
+  projectMember         ProjectMember? @relation(fields: [projectMemberId], references: [id], onDelete: SetNull)
 
-  @@id([taskId, userId])
-  @@index([userId])
+  @@unique([taskId, projectMemberId])
+  @@index([projectMemberId])
 }
 
 enum Priority {

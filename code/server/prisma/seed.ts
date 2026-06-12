@@ -45,16 +45,27 @@ async function main() {
         create: [
           {
             userId: user.id,
+            email: user.email,
+            normalizedEmail: user.email,
+            claimedAt: new Date(),
             role: TeamRole.ADMIN
           },
           {
             userId: teammate.id,
+            email: teammate.email,
+            normalizedEmail: teammate.email,
+            claimedAt: new Date(),
             role: TeamRole.MEMBER
           }
         ]
       }
+    },
+    include: {
+      members: true
     }
   });
+  const adminTeamMember = team.members.find((member) => member.userId === user.id)!;
+  const teammateTeamMember = team.members.find((member) => member.userId === teammate.id)!;
 
   const project = await prisma.project.create({
     data: {
@@ -65,15 +76,27 @@ async function main() {
       members: {
         create: [
           {
+            teamMemberId: adminTeamMember.id,
             userId: user.id,
+            claimedAt: new Date(),
             role: ProjectRole.ADMIN
           },
           {
+            teamMemberId: teammateTeamMember.id,
             userId: teammate.id,
+            claimedAt: new Date(),
             role: ProjectRole.EDITOR
           }
         ]
       }
+    }
+  });
+  const projectMembers = await prisma.projectMember.findMany({
+    where: {
+      projectId: project.id
+    },
+    orderBy: {
+      createdAt: "asc"
     }
   });
 
@@ -97,14 +120,12 @@ async function main() {
       creatorId: user.id,
       sortKey: new Prisma.Decimal(1000),
       assignees: {
-        create: [
-          {
-            userId: user.id
-          },
-          {
-            userId: teammate.id
-          }
-        ]
+        create: projectMembers.map((member) => ({
+          projectMemberId: member.id,
+          assigneeNameSnapshot: member.userId === user.id ? user.name : teammate.name,
+          assigneeEmailSnapshot: member.userId === user.id ? user.email : teammate.email,
+          assigneeAvatarSnapshot: null
+        }))
       }
     }
   });

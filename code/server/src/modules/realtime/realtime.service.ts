@@ -126,12 +126,14 @@ export async function publishProjectEvent(projectId: string, event: RealtimeEven
       WHERE project."id" = ${projectId}
         AND project."deletedAt" IS NULL
         AND team_member."role" = 'ADMIN'
+        AND team_member."userId" IS NOT NULL
       UNION
       SELECT project_member."userId"
       FROM "ProjectMember" project_member
       JOIN "Project" project ON project."id" = project_member."projectId"
       WHERE project."id" = ${projectId}
         AND project."deletedAt" IS NULL
+        AND project_member."userId" IS NOT NULL
     ) candidate
   `;
   const systemAdmins = await prisma.user.findMany({
@@ -169,5 +171,11 @@ export async function publishTeamEvent(teamId: string, event: RealtimeEvent) {
     }
   });
 
-  publishToUsers([...members.map((member) => member.userId), ...systemAdmins.map((user) => user.id)], event);
+  publishToUsers(
+    [
+      ...members.map((member) => member.userId).filter((memberUserId): memberUserId is string => Boolean(memberUserId)),
+      ...systemAdmins.map((user) => user.id)
+    ],
+    event
+  );
 }

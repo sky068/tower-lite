@@ -46,14 +46,14 @@ export function AcceptInvitationPage() {
   return (
     <div className="page">
       <div className="page-heading">
-        <h1>接受邀请</h1>
-        <p>系统会将当前登录账号加入对应团队或项目。</p>
+        <h1>注册链接</h1>
+        <p>系统会用当前登录账号认领同邮箱的团队或项目成员身份。</p>
       </div>
       <section className="panel invite-accept-panel">
         {!token ? (
           <>
-            <h2>邀请链接无效</h2>
-            <span className="muted">链接中缺少邀请凭证，请确认你打开的是完整邀请链接。</span>
+            <h2>注册链接无效</h2>
+            <span className="muted">链接中缺少注册凭证，请确认你打开的是完整注册链接。</span>
             <Link className="text-link inline" to="/dashboard">
               返回工作台
             </Link>
@@ -61,13 +61,13 @@ export function AcceptInvitationPage() {
         ) : null}
         {token && status === "pending" ? (
           <>
-            <h2>正在接受邀请...</h2>
+            <h2>正在认领成员身份...</h2>
             <span className="muted">请稍候。</span>
           </>
         ) : null}
         {status === "success" ? (
           <>
-            <h2>邀请已接受</h2>
+            <h2>成员身份已认领</h2>
             <span className="form-success">你已经加入对应团队或项目。</span>
             <div className="segmented-actions">
               {acceptedProjectId ? (
@@ -83,7 +83,7 @@ export function AcceptInvitationPage() {
         ) : null}
         {status === "error" ? (
           <>
-            <h2>无法接受邀请</h2>
+            <h2>无法认领成员身份</h2>
             <MutationError error={error} />
             <Link className="text-link inline" to="/dashboard">
               返回工作台

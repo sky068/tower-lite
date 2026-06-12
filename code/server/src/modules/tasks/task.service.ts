@@ -98,16 +98,17 @@ function toTask(task: {
     id: string;
     name: string;
     avatarUrl: string | null;
-    isRemoved?: boolean;
   } | null;
   createdAt: Date;
   updatedAt: Date;
   assignees?: Array<{
     user: {
       id: string;
+      userId?: string | null;
       name: string;
+      email?: string;
       avatarUrl: string | null;
-      isRemoved?: boolean;
+      status?: "ACTIVE" | "PENDING" | "REMOVED";
     };
   }>;
   tags?: Array<{
@@ -140,8 +141,7 @@ function toTask(task: {
       ? {
           id: task.completedBy.id,
           name: task.completedBy.name,
-          avatarUrl: task.completedBy.avatarUrl,
-          isRemoved: task.completedBy.isRemoved
+          avatarUrl: task.completedBy.avatarUrl
         }
       : null,
     createdAt: task.createdAt,
@@ -149,9 +149,11 @@ function toTask(task: {
     assignees:
       task.assignees?.map(({ user }) => ({
         id: user.id,
+        userId: user.userId,
         name: user.name,
+        email: user.email,
         avatarUrl: user.avatarUrl,
-        isRemoved: user.isRemoved
+        status: user.status ?? "ACTIVE"
       })) ?? [],
     tags: task.tags?.map(({ tag }) => tag) ?? [],
     subTaskCount: task._count?.subTasks ?? 0
@@ -256,36 +258,36 @@ function getCompletionPatch(input: { nextStatus: TaskStatus; currentStatus?: Tas
   return {};
 }
 
-function normalizeAssigneeIds(input: { assigneeIds?: string[] }) {
-  return [...new Set(input.assigneeIds ?? [])];
+function normalizeProjectMemberIds(input: { projectMemberIds?: string[] }) {
+  return [...new Set(input.projectMemberIds ?? [])];
 }
 
 async function assertAssigneesAreProjectMembers(
-  assigneeIds: string[],
+  projectMemberIds: string[],
   projectId: string,
-  existingAssigneeIds: string[] = []
+  existingProjectMemberIds: string[] = []
 ) {
-  if (assigneeIds.length === 0) {
+  if (projectMemberIds.length === 0) {
     return;
   }
 
-  const existingAssigneeSet = new Set(existingAssigneeIds);
-  const assigneeIdsToValidate = assigneeIds.filter((assigneeId) => !existingAssigneeSet.has(assigneeId));
+  const existingProjectMemberSet = new Set(existingProjectMemberIds);
+  const projectMemberIdsToValidate = projectMemberIds.filter((projectMemberId) => !existingProjectMemberSet.has(projectMemberId));
 
-  if (assigneeIdsToValidate.length === 0) {
+  if (projectMemberIdsToValidate.length === 0) {
     return;
   }
 
   const count = await prisma.projectMember.count({
     where: {
       projectId,
-      userId: {
-        in: assigneeIdsToValidate
+      id: {
+        in: projectMemberIdsToValidate
       }
     }
   });
 
-  if (count !== assigneeIdsToValidate.length) {
+  if (count !== projectMemberIdsToValidate.length) {
     throw new AppError("BUSINESS_RULE_VIOLATION", "Assignees must be project members", 422);
   }
 }
@@ -366,10 +368,13 @@ async function getTaskParentTrail(parentId: string | null, projectId: string) {
 
 type TaskAssigneeUser = {
   taskId: string;
-  userId: string;
+  id: string;
+  projectMemberId: string | null;
+  userId: string | null;
   name: string;
+  email: string;
   avatarUrl: string | null;
-  isRemoved: boolean;
+  status: "ACTIVE" | "PENDING" | "REMOVED";
 };
 
 async function getTaskAssigneeMap(taskIds: string[]) {
@@ -380,16 +385,20 @@ async function getTaskAssigneeMap(taskIds: string[]) {
   const rows = await prisma.$queryRaw<TaskAssigneeUser[]>`
     SELECT
       ta."taskId",
-      u."id" AS "userId",
-      u."name",
-      u."avatarUrl",
-      CASE WHEN pm."id" IS NULL THEN TRUE ELSE FALSE END AS "isRemoved"
+      ta."id",
+      ta."projectMemberId",
+      pm."userId",
+      COALESCE(u."name", ta."assigneeNameSnapshot") AS "name",
+      COALESCE(u."email", ta."assigneeEmailSnapshot") AS "email",
+      COALESCE(u."avatarUrl", ta."assigneeAvatarSnapshot") AS "avatarUrl",
+      CASE
+        WHEN pm."id" IS NULL THEN 'REMOVED'
+        WHEN pm."userId" IS NULL THEN 'PENDING'
+        ELSE 'ACTIVE'
+      END AS "status"
     FROM "TaskAssignee" ta
-    JOIN "Task" task ON task."id" = ta."taskId"
-    JOIN "User" u ON u."id" = ta."userId"
-    LEFT JOIN "ProjectMember" pm
-      ON pm."projectId" = task."projectId"
-      AND pm."userId" = ta."userId"
+    LEFT JOIN "ProjectMember" pm ON pm."id" = ta."projectMemberId"
+    LEFT JOIN "User" u ON u."id" = pm."userId"
     WHERE ta."taskId" IN (${Prisma.join(taskIds)})
     ORDER BY ta."createdAt" ASC
   `;
@@ -410,10 +419,12 @@ function attachAssignees<T extends { id: string }>(
 ) {
   const assignees = assigneeMap.get(task.id)?.map((user) => ({
     user: {
-      id: user.userId,
+      id: user.projectMemberId ?? user.id,
+      userId: user.userId,
       name: user.name,
+      email: user.email,
       avatarUrl: user.avatarUrl,
-      isRemoved: user.isRemoved
+      status: user.status
     }
   }));
 
@@ -424,21 +435,88 @@ function attachAssignees<T extends { id: string }>(
 }
 
 async function replaceTaskAssignees(
-  tx: Prisma.TransactionClient,
+  tx: Prisma.TransactionClient | typeof prisma,
   taskId: string,
-  assigneeIds: string[]
+  projectMemberIds: string[]
 ) {
-  await tx.$executeRaw`DELETE FROM "TaskAssignee" WHERE "taskId" = ${taskId}`;
+  await tx.taskAssignee.deleteMany({
+    where: {
+      taskId,
+      projectMemberId: {
+        not: null
+      }
+    }
+  });
 
-  await Promise.all(
-    assigneeIds.map((assigneeId) =>
-      tx.$executeRaw`
-        INSERT INTO "TaskAssignee" ("taskId", "userId")
-        VALUES (${taskId}, ${assigneeId})
-        ON CONFLICT DO NOTHING
-      `
-    )
-  );
+  if (projectMemberIds.length === 0) {
+    return;
+  }
+
+  const members = await tx.projectMember.findMany({
+    where: {
+      id: {
+        in: projectMemberIds
+      }
+    },
+    include: {
+      user: true,
+      teamMember: {
+        include: {
+          user: true
+        }
+      }
+    }
+  });
+  const memberMap = new Map(members.map((member) => [member.id, member]));
+
+  await tx.taskAssignee.createMany({
+    data: projectMemberIds
+      .map((projectMemberId) => {
+        const member = memberMap.get(projectMemberId);
+
+        if (!member) {
+          return null;
+        }
+
+        const displayName = member.user?.name ?? member.teamMember.email;
+        const displayEmail = member.user?.email ?? member.teamMember.email;
+
+        return {
+          taskId,
+          projectMemberId: member.id,
+          assigneeNameSnapshot: displayName,
+          assigneeEmailSnapshot: displayEmail,
+          assigneeAvatarSnapshot: member.user?.avatarUrl ?? null
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+    skipDuplicates: true
+  });
+}
+
+async function getActiveProjectMemberRecipientIds(projectId: string, projectMemberIds: string[]) {
+  const uniqueProjectMemberIds = [...new Set(projectMemberIds)];
+
+  if (uniqueProjectMemberIds.length === 0) {
+    return [];
+  }
+
+  const rows = await prisma.$queryRaw<Array<{ userId: string }>>`
+    SELECT DISTINCT project_member."userId"
+    FROM (
+      SELECT UNNEST(ARRAY[${Prisma.join(uniqueProjectMemberIds)}]::text[]) AS "projectMemberId"
+    ) candidate
+    JOIN "ProjectMember" project_member
+      ON project_member."id" = candidate."projectMemberId"
+      AND project_member."projectId" = ${projectId}
+      AND project_member."userId" IS NOT NULL
+    JOIN "Project" project ON project."id" = project_member."projectId"
+    JOIN "TeamMember" team_member ON team_member."id" = project_member."teamMemberId"
+    WHERE project."deletedAt" IS NULL
+      AND team_member."userId" IS NOT NULL
+  `;
+
+  return [...new Set(rows.map((row) => row.userId))];
 }
 
 async function filterActiveProjectRecipients(projectId: string, userIds: string[]) {
@@ -448,34 +526,34 @@ async function filterActiveProjectRecipients(projectId: string, userIds: string[
     return [];
   }
 
-  const rows = await prisma.$queryRaw<Array<{ userId: string }>>`
-    SELECT DISTINCT candidate."userId"
-    FROM (
-      SELECT UNNEST(ARRAY[${Prisma.join(uniqueUserIds)}]::text[]) AS "userId"
-    ) candidate
-    JOIN "Project" project ON project."id" = ${projectId}
-    JOIN "TeamMember" team_member
-      ON team_member."teamId" = project."teamId"
-      AND team_member."userId" = candidate."userId"
-    LEFT JOIN "ProjectMember" project_member
-      ON project_member."projectId" = project."id"
-      AND project_member."userId" = candidate."userId"
-    WHERE project."deletedAt" IS NULL
-      AND (
-        team_member."role" = 'ADMIN'
-        OR project_member."id" IS NOT NULL
-      )
-  `;
-
-  const activeUserIds = new Set(rows.map((row) => row.userId));
+  const rows = await prisma.projectMember.findMany({
+    where: {
+      projectId,
+      userId: {
+        in: uniqueUserIds
+      },
+      project: {
+        deletedAt: null
+      },
+      teamMember: {
+        userId: {
+          not: null
+        }
+      }
+    },
+    select: {
+      userId: true
+    }
+  });
+  const activeUserIds = new Set(rows.map((row) => row.userId).filter(Boolean));
   return uniqueUserIds.filter((userId) => activeUserIds.has(userId));
 }
 
-async function getActiveTaskAssigneeIds(taskId: string) {
+async function getActiveTaskAssigneeUserIds(taskId: string) {
   const assigneeMap = await getTaskAssigneeMap([taskId]);
   return assigneeMap.get(taskId)
-    ?.filter((assignee) => !assignee.isRemoved)
-    .map((assignee) => assignee.userId) ?? [];
+    ?.filter((assignee) => assignee.status === "ACTIVE" && assignee.userId)
+    .map((assignee) => assignee.userId!) ?? [];
 }
 
 async function createTaskAssignedNotifications(input: {
@@ -483,10 +561,10 @@ async function createTaskAssignedNotifications(input: {
   projectId: string;
   taskId: string;
   taskTitle: string;
-  assigneeIds: string[];
+  projectMemberIds: string[];
   dedupeSuffix?: string;
 }) {
-  const recipientIds = await filterActiveProjectRecipients(input.projectId, input.assigneeIds);
+  const recipientIds = await getActiveProjectMemberRecipientIds(input.projectId, input.projectMemberIds);
 
   await Promise.all(
     recipientIds.map((recipientId) =>
@@ -1238,14 +1316,14 @@ export async function reorderTaskLists(
 
 export async function createTask(userId: string, projectId: string, input: CreateTaskInput) {
   const { project } = await requireActiveProjectEditor(userId, projectId);
-  const assigneeIds = normalizeAssigneeIds(input);
+  const projectMemberIds = normalizeProjectMemberIds(input);
   const normalizedDates = normalizeTaskDateRange(input.startDate, input.dueDate);
   assertValidDateRange(normalizedDates.startDate, normalizedDates.dueDate);
   const taskList = input.taskListId
     ? await assertTaskListInProject(input.taskListId, projectId)
     : await getOrCreateDefaultTaskList(projectId);
   const taskStatus = input.status ?? TaskStatus.TODO;
-  await assertAssigneesAreProjectMembers(assigneeIds, projectId);
+  await assertAssigneesAreProjectMembers(projectMemberIds, projectId);
   await assertTagsInProject(input.tagIds, projectId);
   await assertV01ParentTask(input.parentId, projectId);
 
@@ -1271,14 +1349,14 @@ export async function createTask(userId: string, projectId: string, input: Creat
     }
   });
 
-  await replaceTaskAssignees(prisma, task.id, assigneeIds);
+  await replaceTaskAssignees(prisma, task.id, projectMemberIds);
 
   await createTaskAssignedNotifications({
     actorId: userId,
     projectId,
     taskId: task.id,
     taskTitle: task.title,
-    assigneeIds
+    projectMemberIds
   });
 
   await publishProjectEvent(projectId, { type: "task.changed", projectId, taskId: task.id });
@@ -1294,7 +1372,7 @@ export async function createTask(userId: string, projectId: string, input: Creat
       title: task.title,
       parentId: task.parentId,
       taskListId: task.taskListId,
-      assigneeIds
+      projectMemberIds
     }
   });
 
@@ -1394,11 +1472,11 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
   }
 
   const { project } = await requireActiveProjectEditor(userId, task.projectId);
-  const shouldUpdateAssignees = input.assigneeIds !== undefined;
-  const assigneeIds = shouldUpdateAssignees ? normalizeAssigneeIds(input) : undefined;
-  const previousAssigneeMap = await getTaskAssigneeMap([taskId]);
-  const previousAssigneeIds = new Set([
-    ...(previousAssigneeMap.get(taskId)?.map((assignee) => assignee.userId) ?? [])
+  const shouldUpdateAssignees = input.projectMemberIds !== undefined;
+  const projectMemberIds = shouldUpdateAssignees ? normalizeProjectMemberIds(input) : undefined;
+  const previousProjectMemberMap = await getTaskAssigneeMap([taskId]);
+  const previousProjectMemberIds = new Set([
+    ...(previousProjectMemberMap.get(taskId)?.map((assignee) => assignee.projectMemberId).filter((id): id is string => Boolean(id)) ?? [])
   ]);
   const shouldUpdateDates = input.startDate !== undefined || input.dueDate !== undefined;
   const nextDates = normalizeTaskDateRange(
@@ -1406,8 +1484,8 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
     input.dueDate !== undefined ? input.dueDate : task.dueDate
   );
   assertValidDateRange(nextDates.startDate, nextDates.dueDate);
-  if (assigneeIds) {
-    await assertAssigneesAreProjectMembers(assigneeIds, task.projectId, [...previousAssigneeIds]);
+  if (projectMemberIds) {
+    await assertAssigneesAreProjectMembers(projectMemberIds, task.projectId, [...previousProjectMemberIds]);
   }
   await assertTagsInProject(input.tagIds, task.projectId);
 
@@ -1440,8 +1518,8 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
       }
     });
 
-    if (assigneeIds) {
-      await replaceTaskAssignees(tx, taskId, assigneeIds);
+    if (projectMemberIds) {
+      await replaceTaskAssignees(tx, taskId, projectMemberIds);
     }
 
     if (input.tagIds) {
@@ -1461,7 +1539,7 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
     return result;
   });
 
-  const addedAssigneeIds = assigneeIds?.filter((assigneeId) => !previousAssigneeIds.has(assigneeId)) ?? [];
+  const addedProjectMemberIds = projectMemberIds?.filter((projectMemberId) => !previousProjectMemberIds.has(projectMemberId)) ?? [];
   const hasStatusChanged = Boolean(input.status && input.status !== task.status);
 
   await createTaskAssignedNotifications({
@@ -1469,7 +1547,7 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
     projectId: task.projectId,
     taskId,
     taskTitle: updatedTask.title,
-    assigneeIds: addedAssigneeIds,
+    projectMemberIds: addedProjectMemberIds,
     dedupeSuffix: updatedTask.updatedAt.toISOString()
   });
 
@@ -1477,7 +1555,7 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
     try {
       const recipientIds = await filterActiveProjectRecipients(
         task.projectId,
-        await getActiveTaskAssigneeIds(taskId)
+        await getActiveTaskAssigneeUserIds(taskId)
       );
 
       await Promise.all(
@@ -1516,8 +1594,8 @@ export async function updateTask(userId: string, taskId: string, input: UpdateTa
       title: updatedTask.title,
       fromStatus: hasStatusChanged ? task.status : undefined,
       toStatus: hasStatusChanged ? input.status : undefined,
-      assigneeIds: assigneeIds ?? undefined,
-      addedAssigneeIds
+      projectMemberIds: projectMemberIds ?? undefined,
+      addedProjectMemberIds
     }
   });
 
@@ -1667,7 +1745,10 @@ export async function createComment(userId: string, taskId: string, input: Creat
 
   const projectMembers = await prisma.projectMember.findMany({
     where: {
-      projectId: task.projectId
+      projectId: task.projectId,
+      userId: {
+        not: null
+      }
     },
     include: {
       user: true
@@ -1675,11 +1756,16 @@ export async function createComment(userId: string, taskId: string, input: Creat
   });
   const contentMentionIds = projectMembers
     .filter((member) => {
-      const nameToken = `@${member.user.name}`;
-      const emailToken = `@${member.user.email}`;
+      if (!member.user) {
+        return false;
+      }
+      const user = member.user;
+      const nameToken = `@${user.name}`;
+      const emailToken = `@${user.email}`;
       return input.content.includes(nameToken) || input.content.includes(emailToken);
     })
-    .map((member) => member.userId);
+    .map((member) => member.userId)
+    .filter((mentionedUserId): mentionedUserId is string => Boolean(mentionedUserId));
   const mentionIds = [...new Set([...requestedMentionIds, ...contentMentionIds])];
 
   const comment = await prisma.$transaction(async (tx) =>
@@ -1858,10 +1944,10 @@ async function createTaskCommentNotifications(input: {
   content: string;
   excludeUserIds: string[];
 }) {
-  const assigneeIds = await getActiveTaskAssigneeIds(input.taskId);
+  const assigneeUserIds = await getActiveTaskAssigneeUserIds(input.taskId);
   const recipientIds = await filterActiveProjectRecipients(input.projectId, [
     input.creatorId,
-    ...assigneeIds
+    ...assigneeUserIds
   ]);
   const excludedUserIds = new Set(input.excludeUserIds);
 

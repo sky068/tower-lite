@@ -9,6 +9,7 @@ import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
+import { getMemberName, getMemberUser } from "../../lib/members";
 import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { useAuthStore } from "../../stores/authStore";
@@ -202,8 +203,8 @@ function getGanttTaskEnd(task: GanttTask) {
   return task.barEnd;
 }
 
-function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
-  return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+function formatAssigneeName(assignee: { name: string; status?: string }) {
+  return assignee.status === "REMOVED" ? `${assignee.name}(已移除)` : assignee.name;
 }
 
 function GanttAssigneeAvatars({ assignees }: { assignees: Task["assignees"] }) {
@@ -890,10 +891,10 @@ export function ProjectGanttPage() {
             { value: "ALL", label: "全部负责人" },
             { value: "UNASSIGNED", label: "未分配" },
             ...(membersQuery.data ?? []).map((member) => ({
-              value: member.user.id,
-              label: member.user.name,
-              description: member.user.email,
-              user: member.user
+              value: member.id,
+              label: getMemberName(member),
+              description: member.email,
+              user: getMemberUser(member)
             }))
           ]}
         />

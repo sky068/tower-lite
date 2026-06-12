@@ -9,14 +9,15 @@ import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
 import { formatCalendarDate } from "../../lib/dateTime";
+import { getMemberName, getMemberUser } from "../../lib/members";
 import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
 import { useAuthStore } from "../../stores/authStore";
 import type { Task, TaskList, TaskStatus } from "../../types/api";
 
-function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
-  return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+function formatAssigneeName(assignee: { name: string; status?: string }) {
+  return assignee.status === "REMOVED" ? `${assignee.name}(已移除)` : assignee.name;
 }
 
 function formatDateRange(task: Task) {
@@ -55,7 +56,7 @@ function buildTaskTree(tasks: Task[]) {
 
 function getFilteredTreeTasks(tasks: Task[], filters: {
   keyword: string;
-  assigneeId: string;
+  projectMemberId: string;
   priority: string;
   completion: "OPEN" | "DONE" | "ALL";
 }) {
@@ -70,9 +71,9 @@ function getFilteredTreeTasks(tasks: Task[], filters: {
       (task.assignees ?? []).some((assignee) => assignee.name.toLowerCase().includes(keyword)) ||
       (task.tags ?? []).some((tag) => tag.name.toLowerCase().includes(keyword));
     const matchesAssignee =
-      filters.assigneeId === "ALL" ||
-      (filters.assigneeId === "UNASSIGNED" && (task.assignees?.length ?? 0) === 0) ||
-      (task.assignees ?? []).some((assignee) => assignee.id === filters.assigneeId);
+      filters.projectMemberId === "ALL" ||
+      (filters.projectMemberId === "UNASSIGNED" && (task.assignees?.length ?? 0) === 0) ||
+      (task.assignees ?? []).some((assignee) => assignee.id === filters.projectMemberId);
     const matchesPriority = filters.priority === "ALL" || task.priority === filters.priority;
     const matchesCompletion =
       filters.completion === "ALL" ||
@@ -280,7 +281,7 @@ export function ProjectTaskListPage() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDescription, setNewTaskDescription] = useState("");
   const [newTaskListId, setNewTaskListId] = useState("");
-  const [newTaskAssigneeIds, setNewTaskAssigneeIds] = useState<string[]>([]);
+  const [newTaskProjectMemberIds, setNewTaskProjectMemberIds] = useState<string[]>([]);
   const [newTaskStatus, setNewTaskStatus] = useState<TaskStatus>("TODO");
   const [newTaskPriority, setNewTaskPriority] = useState<Task["priority"]>("MEDIUM");
   const [newTaskStartDate, setNewTaskStartDate] = useState("");
@@ -317,12 +318,16 @@ export function ProjectTaskListPage() {
   );
   const assignableMembers = useMemo(() => membersQuery.data ?? [], [membersQuery.data]);
   const assignableMemberIds = useMemo(
-    () => new Set(assignableMembers.map((member) => member.user.id)),
+    () => new Set(assignableMembers.map((member) => member.id)),
     [assignableMembers]
   );
-  const defaultNewTaskAssigneeIds = useMemo(
-    () => (user?.id && assignableMemberIds.has(user.id) ? [user.id] : []),
-    [assignableMemberIds, user?.id]
+  const currentUserProjectMember = useMemo(
+    () => assignableMembers.find((member) => member.user?.id === user?.id),
+    [assignableMembers, user?.id]
+  );
+  const defaultNewTaskProjectMemberIds = useMemo(
+    () => (currentUserProjectMember ? [currentUserProjectMember.id] : []),
+    [currentUserProjectMember]
   );
   const lists = listsQuery.data ?? [];
   const filteredLists = useMemo(
@@ -331,7 +336,7 @@ export function ProjectTaskListPage() {
         ...list,
         tasks: getFilteredTreeTasks(list.tasks, {
           keyword: taskSearch,
-          assigneeId: assigneeFilter,
+          projectMemberId: assigneeFilter,
           priority: priorityFilter,
           completion: completionFilter
         })
@@ -348,7 +353,7 @@ export function ProjectTaskListPage() {
       taskListId: string;
       title: string;
       description?: string | null;
-      assigneeIds?: string[];
+      projectMemberIds?: string[];
       status?: TaskStatus;
       priority?: Task["priority"];
       startDate?: string | null;
@@ -358,7 +363,7 @@ export function ProjectTaskListPage() {
         taskListId: input.taskListId,
         title: input.title,
         description: input.description ?? undefined,
-        assigneeIds: input.assigneeIds,
+        projectMemberIds: input.projectMemberIds,
         status: input.status,
         priority: input.priority,
         startDate: input.startDate,
@@ -367,7 +372,7 @@ export function ProjectTaskListPage() {
     onSuccess: () => {
       setNewTaskTitle("");
       setNewTaskDescription("");
-      setNewTaskAssigneeIds(defaultNewTaskAssigneeIds);
+      setNewTaskProjectMemberIds(defaultNewTaskProjectMemberIds);
       setNewTaskStatus("TODO");
       setNewTaskPriority("MEDIUM");
       setNewTaskStartDate("");
@@ -394,22 +399,22 @@ export function ProjectTaskListPage() {
     }
 
     setNewTaskListId(taskListId);
-    setNewTaskAssigneeIds(defaultNewTaskAssigneeIds);
+    setNewTaskProjectMemberIds(defaultNewTaskProjectMemberIds);
     setNewTaskDateError("");
     setIsCreateTaskOpen(true);
   }
 
   useEffect(() => {
-    setNewTaskAssigneeIds((current) =>
-      current.filter((assigneeId) => assignableMemberIds.has(assigneeId))
+    setNewTaskProjectMemberIds((current) =>
+      current.filter((projectMemberId) => assignableMemberIds.has(projectMemberId))
     );
   }, [assignableMemberIds]);
 
-  function toggleNewTaskAssignee(userId: string, checked: boolean) {
-    setNewTaskAssigneeIds((current) =>
+  function toggleNewTaskProjectMember(userId: string, checked: boolean) {
+    setNewTaskProjectMemberIds((current) =>
       checked
         ? [...new Set([...current, userId])]
-        : current.filter((assigneeId) => assigneeId !== userId)
+        : current.filter((projectMemberId) => projectMemberId !== userId)
     );
   }
 
@@ -432,7 +437,7 @@ export function ProjectTaskListPage() {
       taskListId: newTaskListId,
       title,
       description: newTaskDescription.trim() || null,
-      assigneeIds: newTaskAssigneeIds.filter((assigneeId) => assignableMemberIds.has(assigneeId)),
+      projectMemberIds: newTaskProjectMemberIds.filter((projectMemberId) => assignableMemberIds.has(projectMemberId)),
       status: newTaskStatus,
       priority: newTaskPriority,
       startDate: newTaskStartDate || null,
@@ -495,10 +500,10 @@ export function ProjectTaskListPage() {
             { value: "ALL", label: "全部负责人" },
             { value: "UNASSIGNED", label: "未分配" },
             ...assignableMembers.map((member) => ({
-              value: member.user.id,
-              label: member.user.name,
-              description: member.user.email,
-              user: member.user
+              value: member.id,
+              label: getMemberName(member),
+              description: member.email,
+              user: getMemberUser(member)
             }))
           ]}
         />
@@ -603,16 +608,16 @@ export function ProjectTaskListPage() {
                 <legend>指派给</legend>
                 <div className="checkbox-list">
                   {assignableMembers.map((member) => (
-                    <label className="checkbox-row" key={member.user.id}>
+                    <label className="checkbox-row" key={member.id}>
                       <input
                         type="checkbox"
-                        checked={newTaskAssigneeIds.includes(member.user.id)}
+                        checked={newTaskProjectMemberIds.includes(member.id)}
                         onChange={(event) =>
-                          toggleNewTaskAssignee(member.user.id, event.target.checked)
+                          toggleNewTaskProjectMember(member.id, event.target.checked)
                         }
                       />
-                      <UserAvatar user={member.user} size="xs" />
-                      <span>{member.user.name}</span>
+                      <UserAvatar user={getMemberUser(member)} size="xs" />
+                      <span>{getMemberName(member)}</span>
                     </label>
                   ))}
                   {assignableMembers.length === 0 ? (

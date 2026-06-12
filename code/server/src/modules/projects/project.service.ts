@@ -1,11 +1,16 @@
-import { NotificationType, Prisma, ProjectRole } from "@prisma/client";
+import { randomBytes } from "node:crypto";
+import { InvitationStatus, NotificationType, Prisma, ProjectRole, TeamRole } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
+import {
+  mergeProjectRole,
+  normalizeEmail,
+  toMemberView
+} from "../memberships/membership.service.js";
 import { createNotification } from "../notifications/notification.service.js";
 import { publishProjectEvent, publishTeamEvent } from "../realtime/realtime.service.js";
 import { isSystemAdmin } from "../system/system.policy.js";
-import { clearDeletedDefaultProject, getSystemDefaults } from "../system/system.service.js";
 import { requireTeamAdmin, requireTeamMember } from "../teams/team.policy.js";
 import { requireProjectAccess, requireProjectManager } from "./project.policy.js";
 import type {
@@ -14,6 +19,32 @@ import type {
   UpdateProjectInput,
   UpdateProjectMemberRoleInput
 } from "./project.schema.js";
+
+function createInvitationToken() {
+  return randomBytes(24).toString("base64url");
+}
+
+function invitationExpiresAt() {
+  return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+}
+
+function withInvitePath<T extends { email: string; status: string }>(
+  member: T,
+  invitationsByEmail: Map<string, { token: string }>
+) {
+  if (member.status !== "PENDING") {
+    return {
+      ...member,
+      inviteAcceptPath: null
+    };
+  }
+
+  const invitation = invitationsByEmail.get(normalizeEmail(member.email));
+  return {
+    ...member,
+    inviteAcceptPath: invitation ? `/invitations/accept?token=${encodeURIComponent(invitation.token)}` : null
+  };
+}
 
 function toProjectSummary(project: {
   id: string;
@@ -25,7 +56,7 @@ function toProjectSummary(project: {
   teamId: string;
   createdAt: Date;
   updatedAt: Date;
-}, defaultProjectId?: string | null) {
+}) {
   return {
     id: project.id,
     name: project.name,
@@ -35,8 +66,7 @@ function toProjectSummary(project: {
     status: project.status,
     teamId: project.teamId,
     createdAt: project.createdAt,
-    updatedAt: project.updatedAt,
-    isSystemDefault: defaultProjectId === project.id
+    updatedAt: project.updatedAt
   };
 }
 
@@ -119,15 +149,15 @@ async function assertProjectNameUnique(teamId: string, name: string, excludeProj
 export async function createProject(userId: string, teamId: string, input: CreateProjectInput) {
   const teamMember = await requireTeamAdmin(userId, teamId);
   const userIsSystemAdmin = teamMember === null && await isSystemAdmin(userId);
-  const projectAdminUserId = input.projectAdminUserId ?? (userIsSystemAdmin ? undefined : userId);
+  const projectAdminTeamMemberId = input.projectAdminTeamMemberId ?? (userIsSystemAdmin ? undefined : teamMember?.id);
 
-  if (!projectAdminUserId) {
+  if (!projectAdminTeamMemberId) {
     throw new AppError("BUSINESS_RULE_VIOLATION", "创建项目时需要指定项目管理员。", 422);
   }
 
   const projectAdminTeamMember = await prisma.teamMember.findFirst({
     where: {
-      userId: projectAdminUserId,
+      id: projectAdminTeamMemberId,
       teamId,
       team: {
         deletedAt: null
@@ -137,6 +167,10 @@ export async function createProject(userId: string, teamId: string, input: Creat
 
   if (!projectAdminTeamMember) {
     throw new AppError("BUSINESS_RULE_VIOLATION", "项目管理员必须是当前团队成员。", 422);
+  }
+
+  if (!projectAdminTeamMember.userId) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "项目管理员必须是已注册并认领的团队成员。", 422);
   }
 
   await assertProjectNameUnique(teamId, input.name);
@@ -158,7 +192,9 @@ export async function createProject(userId: string, teamId: string, input: Creat
       },
       members: {
         create: {
-          userId: projectAdminUserId,
+          teamMemberId: projectAdminTeamMember.id,
+          userId: projectAdminTeamMember.userId,
+          claimedAt: projectAdminTeamMember.userId ? projectAdminTeamMember.claimedAt ?? new Date() : null,
           role: ProjectRole.ADMIN
         }
       }
@@ -216,9 +252,8 @@ export async function listTeamProjects(userId: string, teamId: string) {
     }
   });
 
-  const defaults = await getSystemDefaults();
   return projects.map((project) => ({
-    ...toProjectSummary(project, defaults.defaultProjectId),
+    ...toProjectSummary(project),
     role: project.members?.[0]?.role
   }));
 }
@@ -255,8 +290,7 @@ export async function listTeamProjectTrash(userId: string, teamId: string) {
 
 export async function getProject(userId: string, projectId: string) {
   const { project } = await requireProjectAccess(userId, projectId);
-  const defaults = await getSystemDefaults();
-  return toProjectSummary(project, defaults.defaultProjectId);
+  return toProjectSummary(project);
 }
 
 export async function updateProject(userId: string, projectId: string, input: UpdateProjectInput) {
@@ -289,7 +323,6 @@ export async function updateProject(userId: string, projectId: string, input: Up
     projectId,
     teamId: project.teamId
   });
-  await clearDeletedDefaultProject(userId, projectId, project.teamId);
 
   return toProjectSummary(project);
 }
@@ -390,7 +423,6 @@ export async function deleteProject(userId: string, projectId: string) {
     projectId,
     teamId: project.teamId
   });
-  await clearDeletedDefaultProject(userId, projectId, project.teamId);
 
   return { ok: true };
 }
@@ -586,7 +618,6 @@ export async function purgeDeletedProject(userId: string, teamId: string, projec
     projectId,
     teamId
   });
-  await clearDeletedDefaultProject(userId, projectId, teamId);
 
   return { ok: true };
 }
@@ -599,23 +630,58 @@ export async function listProjectMembers(userId: string, projectId: string) {
       projectId
     },
     include: {
-      user: true
+      user: true,
+      teamMember: {
+        include: {
+          user: true
+        }
+      },
+      project: {
+        select: {
+          teamId: true
+        }
+      }
     },
     orderBy: {
       createdAt: "asc"
     }
   });
 
-  return members.map((member) => ({
-    id: member.id,
-    role: member.role,
-    user: {
-      id: member.user.id,
-      email: member.user.email,
-      name: member.user.name,
-      avatarUrl: member.user.avatarUrl
-    }
-  }));
+  const memberViews = members.map((member) =>
+    toMemberView({
+      id: member.id,
+      teamMemberId: member.teamMemberId,
+      role: member.role,
+      email: member.teamMember.email,
+      normalizedEmail: member.teamMember.normalizedEmail,
+      user: member.user
+    })
+  );
+  const pendingEmails = memberViews
+    .filter((member) => member.status === "PENDING")
+    .map((member) => normalizeEmail(member.email));
+  const invitations = pendingEmails.length
+    ? await prisma.invitation.findMany({
+        where: {
+          teamId: members[0]?.project.teamId,
+          projectId: null,
+          status: InvitationStatus.PENDING,
+          email: {
+            in: pendingEmails
+          }
+        },
+        orderBy: {
+          createdAt: "desc"
+        },
+        select: {
+          email: true,
+          token: true
+        }
+      })
+    : [];
+  const invitationsByEmail = new Map(invitations.map((invitation) => [invitation.email, invitation]));
+
+  return memberViews.map((member) => withInvitePath(member, invitationsByEmail));
 }
 
 export async function addProjectMember(
@@ -625,37 +691,86 @@ export async function addProjectMember(
 ) {
   const { project } = await requireProjectManager(userId, projectId);
 
-  const teamMember = await prisma.teamMember.findUnique({
-    where: {
-      userId_teamId: {
-        userId: input.userId,
+  const { member, existingMember } = await prisma.$transaction(async (tx) => {
+    const teamMember = await tx.teamMember.findFirst({
+      where: {
+        id: input.teamMemberId,
         teamId: project.teamId
+      },
+      include: {
+        user: true
+      }
+    });
+
+    if (!teamMember) {
+      throw new AppError("BUSINESS_RULE_VIOLATION", "项目成员必须属于当前团队。", 422);
+    }
+
+    if (!teamMember.userId) {
+      const pendingInvitationCount = await tx.invitation.count({
+        where: {
+          email: teamMember.normalizedEmail,
+          teamId: project.teamId,
+          projectId: null,
+          status: InvitationStatus.PENDING
+        }
+      });
+
+      if (pendingInvitationCount === 0) {
+        await tx.invitation.create({
+          data: {
+            email: teamMember.normalizedEmail,
+            token: createInvitationToken(),
+            teamRole: teamMember.role,
+            teamId: project.teamId,
+            inviterId: userId,
+            expiresAt: invitationExpiresAt()
+          }
+        });
       }
     }
-  });
 
-  if (!teamMember) {
-    throw new AppError("BUSINESS_RULE_VIOLATION", "Project member must belong to the team", 422);
-  }
-
-  const member = await prisma.projectMember.upsert({
-    where: {
-      projectId_userId: {
-        projectId,
-        userId: input.userId
+    const existing = await tx.projectMember.findUnique({
+      where: {
+        projectId_teamMemberId: {
+          projectId,
+          teamMemberId: teamMember.id
+        }
       }
-    },
-    update: {
-      role: input.role
-    },
-    create: {
-      projectId,
-      userId: input.userId,
-      role: input.role
-    },
-    include: {
-      user: true
-    }
+    });
+    const projectMember = existing
+      ? await tx.projectMember.update({
+          where: {
+            id: existing.id
+          },
+          data: {
+            role: mergeProjectRole(existing.role, input.role),
+            userId: teamMember.userId,
+            claimedAt: teamMember.userId ? teamMember.claimedAt ?? new Date() : null
+          },
+          include: {
+            user: true,
+            teamMember: true
+          }
+        })
+      : await tx.projectMember.create({
+          data: {
+            projectId,
+            teamMemberId: teamMember.id,
+            userId: teamMember.userId,
+            claimedAt: teamMember.userId ? teamMember.claimedAt ?? new Date() : null,
+            role: input.role
+          },
+          include: {
+            user: true,
+            teamMember: true
+          }
+        });
+
+    return {
+      member: projectMember,
+      existingMember: existing
+    };
   });
 
   await createActivityLog({
@@ -664,54 +779,58 @@ export async function addProjectMember(
     projectId,
     action: "project_member.added",
     targetType: "project_member",
-    targetId: member.id,
-    metadata: {
-      userId: input.userId,
-      email: member.user.email,
-      name: member.user.name,
-      role: input.role
+      targetId: member.id,
+      metadata: {
+      teamMemberId: member.teamMemberId,
+      userId: member.userId,
+      email: member.teamMember.email,
+      name: member.user?.name,
+      role: member.role,
+      requestedRole: input.role
     }
   });
 
-  await createProjectJoinedNotification({
-    actorId: userId,
-    recipientId: input.userId,
-    projectId,
-    projectName: project.name
-  });
+  if (!existingMember && member.userId) {
+    await createProjectJoinedNotification({
+      actorId: userId,
+      recipientId: member.userId,
+      projectId,
+      projectName: project.name
+    });
+  }
 
   await publishProjectEvent(projectId, {
     type: "project.changed",
     projectId,
     teamId: project.teamId
   });
+  await publishTeamEvent(project.teamId, {
+    type: "team.changed",
+    teamId: project.teamId
+  });
 
-  return {
+  return toMemberView({
     id: member.id,
+    teamMemberId: member.teamMemberId,
     role: member.role,
-    user: {
-      id: member.user.id,
-      email: member.user.email,
-      name: member.user.name,
-      avatarUrl: member.user.avatarUrl
-    }
-  };
+    email: member.teamMember.email,
+    normalizedEmail: member.teamMember.normalizedEmail,
+    user: member.user
+  });
 }
 
 export async function updateProjectMemberRole(
   userId: string,
   projectId: string,
-  targetUserId: string,
+  targetMemberId: string,
   input: UpdateProjectMemberRoleInput
 ) {
   const { project } = await requireProjectManager(userId, projectId);
 
-  const member = await prisma.projectMember.findUnique({
+  const member = await prisma.projectMember.findFirst({
     where: {
-      projectId_userId: {
-        projectId,
-        userId: targetUserId
-      }
+      id: targetMemberId,
+      projectId
     }
   });
 
@@ -720,7 +839,7 @@ export async function updateProjectMemberRole(
   }
 
   if (member.role === ProjectRole.ADMIN && input.role !== ProjectRole.ADMIN) {
-    await assertProjectKeepsAdmin(projectId);
+    await assertProjectKeepsAdmin(projectId, member.id);
   }
 
   const updatedMember = await prisma.projectMember.update({
@@ -731,7 +850,8 @@ export async function updateProjectMemberRole(
       role: input.role
     },
     include: {
-      user: true
+      user: true,
+      teamMember: true
     }
   });
 
@@ -743,34 +863,31 @@ export async function updateProjectMemberRole(
     targetType: "project_member",
     targetId: member.id,
     metadata: {
-      userId: targetUserId,
+      projectMemberId: targetMemberId,
+      userId: member.userId,
       role: input.role
     }
   });
 
   await publishProjectEvent(projectId, { type: "project.changed", projectId, teamId: project.teamId });
 
-  return {
+  return toMemberView({
     id: updatedMember.id,
+    teamMemberId: updatedMember.teamMemberId,
     role: updatedMember.role,
-    user: {
-      id: updatedMember.user.id,
-      email: updatedMember.user.email,
-      name: updatedMember.user.name,
-      avatarUrl: updatedMember.user.avatarUrl
-    }
-  };
+    email: updatedMember.teamMember.email,
+    normalizedEmail: updatedMember.teamMember.normalizedEmail,
+    user: updatedMember.user
+  });
 }
 
-export async function removeProjectMember(userId: string, projectId: string, targetUserId: string) {
+export async function removeProjectMember(userId: string, projectId: string, targetMemberId: string) {
   const { project } = await requireProjectManager(userId, projectId);
 
-  const member = await prisma.projectMember.findUnique({
+  const member = await prisma.projectMember.findFirst({
     where: {
-      projectId_userId: {
-        projectId,
-        userId: targetUserId
-      }
+      id: targetMemberId,
+      projectId
     }
   });
 
@@ -779,13 +896,25 @@ export async function removeProjectMember(userId: string, projectId: string, tar
   }
 
   if (member.role === ProjectRole.ADMIN) {
-    await assertProjectKeepsAdmin(projectId);
+    await assertProjectKeepsAdmin(projectId, member.id);
   }
 
-  await prisma.projectMember.delete({
-    where: {
-      id: member.id
-    }
+  await prisma.$transaction(async (tx) => {
+    await tx.taskAssignee.updateMany({
+      where: {
+        projectMemberId: member.id
+      },
+      data: {
+        projectMemberId: null,
+        removedAt: new Date()
+      }
+    });
+
+    await tx.projectMember.delete({
+      where: {
+        id: member.id
+      }
+    });
   });
 
   await createActivityLog({
@@ -796,7 +925,8 @@ export async function removeProjectMember(userId: string, projectId: string, tar
     targetType: "project_member",
     targetId: member.id,
     metadata: {
-      userId: targetUserId,
+      projectMemberId: targetMemberId,
+      userId: member.userId,
       role: member.role
     }
   });
@@ -806,15 +936,25 @@ export async function removeProjectMember(userId: string, projectId: string, tar
   return { ok: true };
 }
 
-async function assertProjectKeepsAdmin(projectId: string) {
+async function assertProjectKeepsAdmin(projectId: string, excludedProjectMemberId?: string) {
   const adminCount = await prisma.projectMember.count({
     where: {
       projectId,
-      role: ProjectRole.ADMIN
+      role: ProjectRole.ADMIN,
+      userId: {
+        not: null
+      },
+      ...(excludedProjectMemberId
+        ? {
+            id: {
+              not: excludedProjectMemberId
+            }
+          }
+        : {})
     }
   });
 
-  if (adminCount <= 1) {
-    throw new AppError("BUSINESS_RULE_VIOLATION", "Project must keep at least one admin", 422);
+  if (adminCount < 1) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "项目至少需要保留一名已加入的管理员。", 422);
   }
 }

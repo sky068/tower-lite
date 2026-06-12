@@ -9,6 +9,7 @@ import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
 import { formatCalendarDate } from "../../lib/dateTime";
+import { getMemberName, getMemberUser } from "../../lib/members";
 import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
@@ -19,11 +20,11 @@ function formatDate(value: string | null) {
   return value ? new Date(value).toLocaleDateString() : null;
 }
 
-function formatAssigneeName(assignee: { name: string; isRemoved?: boolean }) {
-  return assignee.isRemoved ? `${assignee.name}(已移除)` : assignee.name;
+function formatAssigneeName(assignee: { name: string; status?: string }) {
+  return assignee.status === "REMOVED" ? `${assignee.name}(已移除)` : assignee.name;
 }
 
-function AssigneeChip({ assignee }: { assignee: { name: string; avatarUrl: string | null; isRemoved?: boolean } }) {
+function AssigneeChip({ assignee }: { assignee: { name: string; avatarUrl: string | null; status?: string } }) {
   return (
     <span className="assignee-chip">
       <UserAvatar user={assignee} size="xs" />
@@ -59,7 +60,7 @@ export function ProjectBoardPage() {
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskDescription, setNewTaskDescription] = useState("");
   const [newTaskListId, setNewTaskListId] = useState("");
-  const [newTaskAssigneeIds, setNewTaskAssigneeIds] = useState<string[]>([]);
+  const [newTaskProjectMemberIds, setNewTaskProjectMemberIds] = useState<string[]>([]);
   const [newTaskStatus, setNewTaskStatus] = useState<TaskStatus>("TODO");
   const [newTaskPriority, setNewTaskPriority] = useState<"LOW" | "MEDIUM" | "HIGH" | "URGENT">("MEDIUM");
   const [newTaskStartDate, setNewTaskStartDate] = useState("");
@@ -102,12 +103,16 @@ export function ProjectBoardPage() {
   );
   const assignableMembers = useMemo(() => membersQuery.data ?? [], [membersQuery.data]);
   const assignableMemberIds = useMemo(
-    () => new Set(assignableMembers.map((member) => member.user.id)),
+    () => new Set(assignableMembers.map((member) => member.id)),
     [assignableMembers]
   );
-  const defaultNewTaskAssigneeIds = useMemo(
-    () => (user?.id && assignableMemberIds.has(user.id) ? [user.id] : []),
-    [assignableMemberIds, user?.id]
+  const currentUserProjectMember = useMemo(
+    () => assignableMembers.find((member) => member.user?.id === user?.id),
+    [assignableMembers, user?.id]
+  );
+  const defaultNewTaskProjectMemberIds = useMemo(
+    () => (currentUserProjectMember ? [currentUserProjectMember.id] : []),
+    [currentUserProjectMember]
   );
   const canUseOrderedLists =
     orderedListIds.length === lists.length &&
@@ -129,7 +134,7 @@ export function ProjectBoardPage() {
       taskListId?: string;
       title: string;
       description?: string | null;
-      assigneeIds?: string[];
+      projectMemberIds?: string[];
       status?: TaskStatus;
       priority?: "LOW" | "MEDIUM" | "HIGH" | "URGENT";
       startDate?: string | null;
@@ -139,7 +144,7 @@ export function ProjectBoardPage() {
         taskListId: input.taskListId,
         title: input.title,
         description: input.description ?? undefined,
-        assigneeIds: input.assigneeIds,
+        projectMemberIds: input.projectMemberIds,
         status: input.status,
         priority: input.priority,
         startDate: input.startDate,
@@ -149,7 +154,7 @@ export function ProjectBoardPage() {
       setNewTaskTitle("");
       setNewTaskDescription("");
       setNewTaskListId(defaultTaskListId);
-      setNewTaskAssigneeIds(defaultNewTaskAssigneeIds);
+      setNewTaskProjectMemberIds(defaultNewTaskProjectMemberIds);
       setNewTaskStatus("TODO");
       setNewTaskPriority("MEDIUM");
       setNewTaskStartDate("");
@@ -228,8 +233,8 @@ export function ProjectBoardPage() {
   }, [defaultTaskListId, newTaskListId]);
 
   useEffect(() => {
-    setNewTaskAssigneeIds((current) =>
-      current.filter((assigneeId) => assignableMemberIds.has(assigneeId))
+    setNewTaskProjectMemberIds((current) =>
+      current.filter((projectMemberId) => assignableMemberIds.has(projectMemberId))
     );
   }, [assignableMemberIds]);
 
@@ -252,7 +257,7 @@ export function ProjectBoardPage() {
       taskListId: newTaskListId || undefined,
       title,
       description: newTaskDescription.trim() || null,
-      assigneeIds: newTaskAssigneeIds.filter((assigneeId) => assignableMemberIds.has(assigneeId)),
+      projectMemberIds: newTaskProjectMemberIds.filter((projectMemberId) => assignableMemberIds.has(projectMemberId)),
       status: newTaskStatus,
       priority: newTaskPriority,
       startDate: newTaskStartDate || null,
@@ -266,16 +271,16 @@ export function ProjectBoardPage() {
     }
 
     setNewTaskListId(taskListId);
-    setNewTaskAssigneeIds(defaultNewTaskAssigneeIds);
+    setNewTaskProjectMemberIds(defaultNewTaskProjectMemberIds);
     setNewTaskDateError("");
     setIsCreateTaskOpen(true);
   }
 
-  function toggleNewTaskAssignee(userId: string, checked: boolean) {
-    setNewTaskAssigneeIds((current) =>
+  function toggleNewTaskProjectMember(userId: string, checked: boolean) {
+    setNewTaskProjectMemberIds((current) =>
       checked
         ? [...new Set([...current, userId])]
-        : current.filter((assigneeId) => assigneeId !== userId)
+        : current.filter((projectMemberId) => projectMemberId !== userId)
     );
   }
 
@@ -603,10 +608,10 @@ export function ProjectBoardPage() {
             { value: "ALL", label: "全部负责人" },
             { value: "UNASSIGNED", label: "未分配" },
             ...assignableMembers.map((member) => ({
-              value: member.user.id,
-              label: member.user.name,
-              description: member.user.email,
-              user: member.user
+              value: member.id,
+              label: getMemberName(member),
+              description: member.email,
+              user: getMemberUser(member)
             }))
           ]}
         />
@@ -876,16 +881,16 @@ export function ProjectBoardPage() {
                 <legend>指派给</legend>
                 <div className="checkbox-list">
                   {assignableMembers.map((member) => (
-                    <label className="checkbox-row" key={member.user.id}>
+                    <label className="checkbox-row" key={member.id}>
                       <input
                         type="checkbox"
-                        checked={newTaskAssigneeIds.includes(member.user.id)}
+                        checked={newTaskProjectMemberIds.includes(member.id)}
                         onChange={(event) =>
-                          toggleNewTaskAssignee(member.user.id, event.target.checked)
+                          toggleNewTaskProjectMember(member.id, event.target.checked)
                         }
                       />
-                      <UserAvatar user={member.user} size="xs" />
-                      <span>{member.user.name}</span>
+                      <UserAvatar user={getMemberUser(member)} size="xs" />
+                      <span>{getMemberName(member)}</span>
                     </label>
                   ))}
                   {assignableMembers.length === 0 ? (

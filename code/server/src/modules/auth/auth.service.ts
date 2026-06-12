@@ -5,8 +5,8 @@ import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createRefreshToken, hashToken, signAccessToken } from "../../utils/token.js";
-import { acceptPendingTeamAdminInvitationsForUser } from "../invitations/invitation.service.js";
-import { applyDefaultMemberships } from "../system/system.service.js";
+import { acceptPendingInvitationsForUser } from "../invitations/invitation.service.js";
+import { claimPendingMembershipsForUser } from "../memberships/membership.service.js";
 import type {
   FeishuAuthorizeQuery,
   FeishuCallbackInput,
@@ -179,8 +179,8 @@ export async function register(input: RegisterInput) {
       passwordHash
     }
   });
-  await applyDefaultMemberships(user.id);
-  await acceptPendingTeamAdminInvitationsForUser(user.id);
+  await claimPendingMembershipsForUser(user.id);
+  await acceptPendingInvitationsForUser(user.id);
 
   const tokens = await issueTokens(user.id);
 
@@ -206,8 +206,8 @@ export async function login(input: LoginInput) {
   }
 
   const tokens = await issueTokens(user.id);
-  await applyDefaultMemberships(user.id);
-  await acceptPendingTeamAdminInvitationsForUser(user.id);
+  await claimPendingMembershipsForUser(user.id);
+  await acceptPendingInvitationsForUser(user.id);
 
   return {
     ...tokens,
@@ -295,8 +295,8 @@ export async function loginWithFeishu(input: FeishuCallbackInput) {
     });
   });
   const tokens = await issueTokens(user.id);
-  await applyDefaultMemberships(user.id);
-  await acceptPendingTeamAdminInvitationsForUser(user.id);
+  await claimPendingMembershipsForUser(user.id);
+  await acceptPendingInvitationsForUser(user.id);
 
   return {
     ...tokens,
