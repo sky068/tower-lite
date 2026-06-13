@@ -586,6 +586,26 @@ textarea:focus {
   font-size: 14px;
 }
 
+.danger-inline-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: fit-content;
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #dc2626;
+  color: #ffffff;
+  padding: 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.danger-inline-button:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
 .avatar-upload-button {
   cursor: pointer;
 }

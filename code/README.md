@@ -283,8 +283,8 @@ docs/local-testing.md
 - `GET /api/v1/teams/:teamId/activity`
 - `GET /api/v1/teams/:teamId/members`
 - `POST /api/v1/teams/:teamId/members`
-- `PATCH /api/v1/teams/:teamId/members/:userId/role`
-- `DELETE /api/v1/teams/:teamId/members/:userId`
+- `PATCH /api/v1/teams/:teamId/members/:memberId/role`
+- `DELETE /api/v1/teams/:teamId/members/:memberId`
 
 注册链接内部接口：
 
@@ -310,8 +310,8 @@ docs/local-testing.md
 - `GET /api/v1/projects/:projectId/activity`
 - `GET /api/v1/projects/:projectId/members`
 - `POST /api/v1/projects/:projectId/members`
-- `PATCH /api/v1/projects/:projectId/members/:userId/role`
-- `DELETE /api/v1/projects/:projectId/members/:userId`
+- `PATCH /api/v1/projects/:projectId/members/:memberId/role`
+- `DELETE /api/v1/projects/:projectId/members/:memberId`
 
 看板与任务：
 
@@ -422,7 +422,7 @@ V1.0 先接入飞书登录和飞书通知投递基础设施，事件回调验签
 - 飞书登录授权回调地址使用 `${APP_BASE_URL}/auth/feishu/callback`，需要在飞书开放平台应用中配置同样的回调地址。
 - 飞书 OAuth 成功后，后端优先用飞书返回的邮箱匹配现有账号；不存在则创建新账号，并绑定 `Open ID` / `Union ID`。
 - 授权地址会请求邮箱读取权限；如果飞书仍未返回邮箱，后端会使用 `${open_id}@feishu.local` 创建本地兜底邮箱，用户登录后可在账号设置里改为真实绑定邮箱。
-- 飞书账号绑定由 OAuth 登录自动完成，账号设置不提供手动填写 `Open ID` / `Union ID` 的入口。
+- 飞书账号绑定由 OAuth 登录自动完成，账号设置不提供手动填写 `Open ID` / `Union ID` 的入口；账号设置支持解除飞书绑定，但解除前必须先设置邮箱登录密码，解除成功后会退出登录。
 - 所有站内通知统一写入 `Notification`，并固定创建 `IN_APP/SENT` 投递记录。
 - 如果接收人已绑定飞书 `Open ID`，创建站内通知时会额外创建 `FEISHU/PENDING` 投递记录。
 - 后端启动时如果配置了 `FEISHU_APP_ID` 和 `FEISHU_APP_SECRET`，会启动飞书投递 worker，定期发送待投递消息。
@@ -517,6 +517,7 @@ V2.0 先补项目级甘特图排期基础能力，后续再做依赖连线：
 - 具备任务编辑权限且项目未归档时，可左右拖动完整排期任务条中间区域整体调整开始 / 截止日期；拖动只允许横向移动，松手时按任务条左端所在时间格作为新开始时间，并保持任务原持续时间不变。
 - 具备任务编辑权限且项目未归档时，可拖动任务条左边缘单独调整开始日期，拖动右边缘单独调整截止日期；调整时任务至少保留 1 个时间格长度。
 - 当前不支持任务依赖连线。
+- 当前甘特图不提供独立后端接口，复用 `GET /projects/:projectId/tasks` 获取项目任务树，并复用 `PATCH /tasks/:taskId` 更新 `startDate` / `dueDate`。任务依赖模型已预留，但依赖 API、循环校验、依赖线 UI 和自动排程尚未实现。
 
 ## 导航信息架构
 

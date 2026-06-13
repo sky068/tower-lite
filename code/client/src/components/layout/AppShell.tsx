@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Building2, FolderKanban, ListChecks, LogOut, Plus, Settings, Trash2, Upload, X } from "lucide-react";
+import { Bell, Building2, FolderKanban, ListChecks, LogOut, Plus, Settings, Trash2, Unlink, Upload, X } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FormEvent, type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../shared/MutationError";
@@ -52,6 +52,8 @@ export function AppShell() {
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const realtimeStatus = useRealtimeEvents();
   const isSystemAdmin = user?.systemRole === "ADMIN";
+  const userHasPassword = user?.hasPassword ?? true;
+  const isFeishuBound = Boolean(user && "feishuBound" in user && user.feishuBound);
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
@@ -177,16 +179,26 @@ export function AppShell() {
   const updatePasswordMutation = useMutation({
     mutationFn: () =>
       userApi.updatePassword({
-        currentPassword,
+        currentPassword: currentPassword || undefined,
         newPassword
       }),
     onSuccess: () => {
+      if (user) {
+        updateUser({ ...user, hasPassword: true });
+      }
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       setPasswordFormError("");
     },
     onError: () => setAccountSettingsSaved(false)
+  });
+
+  const unbindFeishuMutation = useMutation({
+    mutationFn: userApi.unbindFeishu,
+    onSuccess: () => {
+      void handleLogout();
+    }
   });
 
   const notifications = notificationsQuery.data ?? [];
@@ -307,8 +319,8 @@ export function AppShell() {
 
     const hasPasswordInput = Boolean(currentPassword || newPassword || confirmPassword);
 
-    if (hasPasswordInput && (!currentPassword || !newPassword || !confirmPassword)) {
-      setPasswordFormError("如需修改密码，请完整填写当前密码、新密码和确认新密码。");
+    if (hasPasswordInput && (!newPassword || !confirmPassword || (userHasPassword && !currentPassword))) {
+      setPasswordFormError(userHasPassword ? "如需修改密码，请完整填写当前密码、新密码和确认新密码。" : "如需设置密码，请填写新密码和确认新密码。");
       return;
     }
 
@@ -385,6 +397,28 @@ export function AppShell() {
     setProfileAvatarError("");
     setAccountSettingsSaved(false);
   }
+
+  function handleUnbindFeishu() {
+    if (!isFeishuBound || unbindFeishuMutation.isPending) {
+      return;
+    }
+
+    if (!userHasPassword) {
+      setPasswordFormError("解除绑定飞书前请先设置登录密码。");
+      return;
+    }
+
+    if (window.confirm("确认解除绑定飞书？解除后会退出登录，后续需要使用邮箱和密码登录。")) {
+      unbindFeishuMutation.mutate();
+    }
+  }
+
+  const normalizedProfileAvatarUrl = profileAvatarUrl.trim() || null;
+  const profileChanged =
+    profileName.trim() !== (user?.name ?? "") || normalizedProfileAvatarUrl !== (user?.avatarUrl ?? null);
+  const emailChanged = profileEmail.trim().toLowerCase() !== (user?.email ?? "").toLowerCase();
+  const passwordChanged = Boolean(currentPassword || newPassword || confirmPassword);
+  const accountSettingsDirty = profileChanged || emailChanged || passwordChanged;
 
   return (
     <div className="app-shell">
@@ -752,19 +786,21 @@ export function AppShell() {
                   <span className="muted">飞书未返回邮箱时会先使用临时邮箱，之后可以在这里改为真实邮箱。</span>
                 </section>
                 <section className="account-settings-section account-settings-password">
-                  <h3>修改密码</h3>
-                  <label>
-                    当前密码
-                    <input
-                      type="password"
-                      value={currentPassword}
-                      onChange={(event) => {
-                        setCurrentPassword(event.target.value);
-                        setPasswordFormError("");
-                        setAccountSettingsSaved(false);
-                      }}
-                    />
-                  </label>
+                  <h3>{userHasPassword ? "修改密码" : "设置登录密码"}</h3>
+                  {userHasPassword ? (
+                    <label>
+                      当前密码
+                      <input
+                        type="password"
+                        value={currentPassword}
+                        onChange={(event) => {
+                          setCurrentPassword(event.target.value);
+                          setPasswordFormError("");
+                          setAccountSettingsSaved(false);
+                        }}
+                      />
+                    </label>
+                  ) : null}
                   <label>
                     新密码
                     <input
@@ -791,14 +827,40 @@ export function AppShell() {
                       minLength={8}
                     />
                   </label>
-                  <span className="muted">不修改密码时保持为空即可。</span>
+                  <span className="muted">
+                    {userHasPassword ? "不修改密码时保持为空即可。" : "设置密码后可使用邮箱密码登录。"}
+                  </span>
+                </section>
+                <section className="account-settings-section account-settings-feishu">
+                  <h3>飞书绑定</h3>
+                  {isFeishuBound ? (
+                    <>
+                      <span className="muted">当前账号已绑定飞书。</span>
+                      <button
+                        className="danger-inline-button"
+                        type="button"
+                        disabled={unbindFeishuMutation.isPending}
+                        onClick={handleUnbindFeishu}
+                      >
+                        <Unlink size={16} aria-hidden="true" />
+                        <span>{unbindFeishuMutation.isPending ? "解除中..." : "解除绑定飞书"}</span>
+                      </button>
+                    </>
+                  ) : (
+                    <span className="muted">当前账号未绑定飞书。</span>
+                  )}
                 </section>
                 <footer className="account-settings-footer">
                   <div className="account-settings-status">
                     {passwordFormError ? <span className="error-text">{passwordFormError}</span> : null}
                     {accountSettingsSaved ? <span className="success-text">设置已保存。</span> : null}
                     <MutationError
-                      error={updateProfileMutation.error ?? updateEmailMutation.error ?? updatePasswordMutation.error}
+                      error={
+                        updateProfileMutation.error ??
+                        updateEmailMutation.error ??
+                        updatePasswordMutation.error ??
+                        unbindFeishuMutation.error
+                      }
                     />
                   </div>
                   <button
@@ -807,6 +869,8 @@ export function AppShell() {
                       updateProfileMutation.isPending ||
                       updateEmailMutation.isPending ||
                       updatePasswordMutation.isPending ||
+                      unbindFeishuMutation.isPending ||
+                      !accountSettingsDirty ||
                       !profileName.trim() ||
                       !profileEmail.trim() ||
                       Boolean(profileAvatarError)

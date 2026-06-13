@@ -24,11 +24,13 @@ type AuthResponse = {
     email: string;
     name: string;
     avatarUrl: string | null;
+    hasPassword: boolean;
   };
 };
 
 type CurrentUserResponse = AuthResponse["user"] & {
   feishuBound: boolean;
+  hasPassword: boolean;
   feishuOpenId: string | null;
   feishuUnionId: string | null;
 };
@@ -680,6 +682,7 @@ describe("V0 HTTP integration", () => {
       }
     })).data;
     assert.equal(boundEditor.feishuBound, true);
+    assert.equal(boundEditor.hasPassword, true);
     assert.equal(boundEditor.feishuOpenId, `ou_${runId}`);
 
     await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/feishu-binding", {
@@ -689,6 +692,18 @@ describe("V0 HTTP integration", () => {
         openId: `ou_${runId}`
       }
     });
+
+    const boundDirectAddedMember = (await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/feishu-binding", {
+      token: directAddedMember.token,
+      body: {
+        openId: `ou_unbind_${runId}`
+      }
+    })).data;
+    assert.equal(boundDirectAddedMember.feishuBound, true);
+    const unboundDirectAddedMember = (await request<CurrentUserResponse>("DELETE", "/api/v1/users/me/feishu-binding", {
+      token: directAddedMember.token
+    })).data;
+    assert.equal(unboundDirectAddedMember.feishuBound, false);
 
     await request<AuthResponse["user"]>("PATCH", "/api/v1/users/me/profile", {
       token: owner.token,

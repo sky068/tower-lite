@@ -29,7 +29,7 @@ export const updateEmailSchema = z.object({
 });
 
 export const updatePasswordSchema = z.object({
-  currentPassword: z.string().min(1).max(128),
+  currentPassword: z.string().max(128).optional(),
   newPassword: z.string().min(8).max(128)
 });
 

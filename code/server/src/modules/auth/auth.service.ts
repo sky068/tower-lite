@@ -30,6 +30,7 @@ function toPublicUser(user: {
   email: string;
   name: string;
   avatarUrl: string | null;
+  passwordHash?: string | null;
   systemRole?: string;
 }) {
   return {
@@ -37,6 +38,7 @@ function toPublicUser(user: {
     email: user.email,
     name: user.name,
     avatarUrl: user.avatarUrl,
+    hasPassword: Boolean(user.passwordHash),
     systemRole: user.systemRole ?? "USER"
   };
 }

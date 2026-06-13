@@ -15,6 +15,7 @@ function toPublicUser(user: {
   email: string;
   name: string;
   avatarUrl: string | null;
+  passwordHash?: string | null;
   systemRole?: string;
 }) {
   return {
@@ -22,6 +23,7 @@ function toPublicUser(user: {
     email: user.email,
     name: user.name,
     avatarUrl: user.avatarUrl,
+    hasPassword: Boolean(user.passwordHash),
     systemRole: user.systemRole ?? "USER"
   };
 }
@@ -31,6 +33,7 @@ function toCurrentUser(user: {
   email: string;
   name: string;
   avatarUrl: string | null;
+  passwordHash: string | null;
   feishuOpenId: string | null;
   feishuUnionId: string | null;
   systemRole: string;
@@ -151,14 +154,20 @@ export async function updatePassword(userId: string, input: UpdatePasswordInput)
     }
   });
 
-  if (!user?.passwordHash) {
-    throw new AppError("BUSINESS_RULE_VIOLATION", "Password login is not enabled for this account", 422);
+  if (!user) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
   }
 
-  const isValidPassword = await bcrypt.compare(input.currentPassword, user.passwordHash);
+  if (user.passwordHash) {
+    if (!input.currentPassword) {
+      throw new AppError("VALIDATION_ERROR", "Current password is required", 400);
+    }
 
-  if (!isValidPassword) {
-    throw new AppError("UNAUTHORIZED", "Current password is incorrect", 401);
+    const isValidPassword = await bcrypt.compare(input.currentPassword, user.passwordHash);
+
+    if (!isValidPassword) {
+      throw new AppError("UNAUTHORIZED", "Current password is incorrect", 401);
+    }
   }
 
   const passwordHash = await bcrypt.hash(input.newPassword, 12);
@@ -198,6 +207,21 @@ export async function bindFeishuAccount(userId: string, input: BindFeishuInput) 
 }
 
 export async function unbindFeishuAccount(userId: string) {
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    }
+  });
+
+  if (!user) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  if (!user.passwordHash) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Please set a login password before unbinding Feishu", 422);
+  }
+
   const updatedUser = await prisma.user.update({
     where: {
       id: userId

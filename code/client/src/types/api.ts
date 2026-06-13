@@ -8,6 +8,7 @@ export type User = {
   email: string;
   name: string;
   avatarUrl: string | null;
+  hasPassword?: boolean;
   systemRole: "USER" | "ADMIN";
 };
 
