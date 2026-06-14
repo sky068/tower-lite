@@ -1,7 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { authApi, getApiErrorMessage } from "../../lib/api";
 import { useAuthStore } from "../../stores/authStore";
+
+type FeishuCallbackSession = Awaited<ReturnType<typeof authApi.feishuCallback>>;
+
+const feishuCallbackRequests = new Map<string, Promise<FeishuCallbackSession>>();
+
+function getFeishuCallbackRequest(callbackKey: string, input: { code: string; state: string }) {
+  const existingRequest = feishuCallbackRequests.get(callbackKey);
+
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = authApi.feishuCallback(input);
+  feishuCallbackRequests.set(callbackKey, request);
+  window.setTimeout(() => feishuCallbackRequests.delete(callbackKey), 5 * 60 * 1000);
+
+  return request;
+}
 
 export function FeishuCallbackPage() {
   const navigate = useNavigate();
@@ -9,49 +27,61 @@ export function FeishuCallbackPage() {
   const { accessToken, setSession } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [isHandling, setIsHandling] = useState(true);
-  const handledCallbackRef = useRef<string | null>(null);
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const feishuError = searchParams.get("error");
+  const shouldHandleCallback = Boolean(code && state && !feishuError);
 
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken && !shouldHandleCallback) {
       return;
     }
 
-    const callbackKey = `${code ?? ""}:${state ?? ""}:${feishuError ?? ""}`;
-    if (handledCallbackRef.current === callbackKey) {
-      return;
-    }
-    handledCallbackRef.current = callbackKey;
+    let isActive = true;
 
     async function handleCallback() {
       if (feishuError) {
+        if (!isActive) {
+          return;
+        }
         setError("飞书授权已取消或失败。");
         setIsHandling(false);
         return;
       }
 
       if (!code || !state) {
+        if (!isActive) {
+          return;
+        }
         setError("飞书登录回调参数不完整，请重新发起登录。");
         setIsHandling(false);
         return;
       }
 
       try {
-        const session = await authApi.feishuCallback({ code, state });
+        const session = await getFeishuCallbackRequest(`${code}:${state}`, { code, state });
+        if (!isActive) {
+          return;
+        }
         setSession(session);
         navigate(session.redirectTo || "/dashboard", { replace: true });
       } catch (requestError) {
+        if (!isActive) {
+          return;
+        }
         setError(getApiErrorMessage(requestError, "飞书登录失败，请稍后再试。"));
         setIsHandling(false);
       }
     }
 
     void handleCallback();
-  }, [accessToken, code, feishuError, navigate, setSession, state]);
 
-  if (accessToken) {
+    return () => {
+      isActive = false;
+    };
+  }, [accessToken, code, feishuError, navigate, setSession, shouldHandleCallback, state]);
+
+  if (accessToken && !shouldHandleCallback) {
     return <Navigate to="/dashboard" replace />;
   }
 

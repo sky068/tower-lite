@@ -1,7 +1,21 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Building2, Copy, FolderKanban, ListChecks, LogOut, Plus, Settings, Trash2, Unlink, Upload, X } from "lucide-react";
+import {
+  AlertCircle,
+  Bell,
+  Building2,
+  Copy,
+  FolderKanban,
+  ListChecks,
+  LogOut,
+  Plus,
+  Settings,
+  Trash2,
+  Unlink,
+  Upload,
+  X
+} from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { FormEvent, type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../shared/MutationError";
 import { Select } from "../shared/Select";
 import { UserAvatar } from "../shared/UserAvatar";
@@ -57,6 +71,18 @@ export function AppShell() {
   const isSystemAdmin = user?.systemRole === "ADMIN";
   const userHasPassword = user?.hasPassword ?? true;
   const isFeishuBound = Boolean(user && "feishuBound" in user && user.feishuBound);
+
+  const refreshCurrentUser = useCallback(async () => {
+    if (!useAuthStore.getState().accessToken) {
+      return;
+    }
+
+    try {
+      updateUser(await authApi.me());
+    } catch {
+      // Session refresh is handled by the API interceptor; a transient /me failure should not interrupt the shell.
+    }
+  }, [updateUser]);
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
@@ -238,6 +264,32 @@ export function AppShell() {
     setProfileEmail(user?.email ?? "");
     setProfileAvatarUrl(user?.avatarUrl ?? "");
   }, [user]);
+
+  useEffect(() => {
+    function handleStorage(event: StorageEvent) {
+      if (event.key !== "tower.user" || !event.newValue) {
+        return;
+      }
+
+      try {
+        updateUser(JSON.parse(event.newValue));
+      } catch {
+        void refreshCurrentUser();
+      }
+    }
+
+    function handleFocus() {
+      void refreshCurrentUser();
+    }
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [refreshCurrentUser, updateUser]);
 
   useEffect(() => {
     if (!isNotificationsOpen && !isUserMenuOpen) {
@@ -700,13 +752,15 @@ export function AppShell() {
             </div>
             <div className="user-menu" ref={userMenuRef}>
               <button
-                className="avatar-button"
+                className={`avatar-button ${!isEmailVerified ? "needs-email-verification" : ""}`}
                 aria-label="用户菜单"
                 aria-expanded={isUserMenuOpen}
                 type="button"
+                title={!isEmailVerified ? "邮箱未验证" : "用户菜单"}
                 onClick={() => setIsUserMenuOpen((current) => !current)}
               >
                 <UserAvatar user={user} size="lg" />
+                {!isEmailVerified ? <span className="avatar-alert-dot" aria-hidden="true" /> : null}
               </button>
               {isUserMenuOpen ? (
                 <section className="user-popover" aria-label="用户菜单">
@@ -719,6 +773,12 @@ export function AppShell() {
                       <span>{user?.email}</span>
                     </div>
                   </header>
+                  {!isEmailVerified ? (
+                    <button className="user-email-warning" type="button" onClick={handleOpenAccountSettings}>
+                      <AlertCircle size={16} aria-hidden="true" />
+                      <span>邮箱未验证，去设置</span>
+                    </button>
+                  ) : null}
                   <div className="user-popover-actions">
                     <button type="button" onClick={handleOpenAccountSettings}>
                       <Settings size={16} />
