@@ -429,11 +429,12 @@ export async function acceptPendingInvitationsForUser(userId: string) {
       deletedAt: null
     },
     select: {
-      email: true
+      email: true,
+      emailVerifiedAt: true
     }
   });
 
-  if (!user) {
+  if (!user?.emailVerifiedAt) {
     return;
   }
 
@@ -489,6 +490,10 @@ export async function acceptInvitation(userId: string, input: AcceptInvitationIn
       "Invitation email does not match current user",
       422
     );
+  }
+
+  if (!user.emailVerifiedAt) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Email must be verified before accepting invitation", 422);
   }
 
   if (invitation.status === InvitationStatus.ACCEPTED) {

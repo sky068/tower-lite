@@ -8,6 +8,12 @@ import {
   type Locator,
   type Page
 } from "@playwright/test";
+import { AccountTokenType, PrismaClient } from "@prisma/client";
+import { config } from "dotenv";
+
+config();
+
+const prisma = new PrismaClient();
 
 type ApiEnvelope<T> = {
   data: T;
@@ -21,6 +27,12 @@ type AuthResponse = {
     email: string;
     name: string;
   };
+};
+
+type EmailVerificationResponse = {
+  ok: boolean;
+  type: "EMAIL_VERIFY" | "EMAIL_CHANGE";
+  email: string;
 };
 
 type TeamResponse = {
@@ -78,6 +90,14 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function tokenFromPath(path: string | null | undefined) {
+  expect(path).toBeTruthy();
+  const url = new URL(path!, "http://tower.test");
+  const token = url.searchParams.get("token");
+  expect(token).toBeTruthy();
+  return token!;
+}
+
 async function apiRequest<T>(
   method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
@@ -96,6 +116,36 @@ async function apiRequest<T>(
   expect(response.status()).toBe(input.expectedStatus ?? 200);
 
   return (await response.json()) as ApiEnvelope<T>;
+}
+
+async function latestEmailActionToken(email: string, type: AccountTokenType) {
+  const emailItem = await prisma.emailOutbox.findFirst({
+    where: {
+      toEmail: email.toLowerCase(),
+      type
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  return tokenFromPath(emailItem?.actionPath);
+}
+
+async function verifyEmail(email: string) {
+  await apiRequest<EmailVerificationResponse>("POST", "/auth/email-verification/confirm", {
+    data: {
+      token: await latestEmailActionToken(email, AccountTokenType.EMAIL_VERIFY)
+    }
+  });
+}
+
+async function confirmEmailChange(email: string) {
+  await apiRequest<EmailVerificationResponse>("POST", "/auth/email-verification/confirm", {
+    data: {
+      token: await latestEmailActionToken(email, AccountTokenType.EMAIL_CHANGE)
+    }
+  });
 }
 
 async function cleanupProject(projectIdToCleanup: string) {
@@ -128,6 +178,7 @@ async function registerUser(name: string): Promise<UserFixture> {
       password: defaultPassword
     }
   });
+  await verifyEmail(email);
 
   return {
     id: response.data.user.id,
@@ -281,6 +332,7 @@ test.afterAll(async () => {
   }
 
   await api.dispose();
+  await prisma.$disconnect();
 });
 
 test("V0 browser workflow covers project board, task detail, subtasks, drag, permissions, and realtime notifications", async ({
@@ -747,6 +799,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   const passwordResponse = await passwordResponsePromise;
   expect(passwordResponse.status(), await passwordResponse.text()).toBe(200);
   await expect(accountSettings.getByText("设置已保存。")).toBeVisible();
+  await confirmEmailChange(updatedOwnerEmail);
   owner.email = updatedOwnerEmail;
   owner.password = "Password456!";
   await expect(accountSettings.getByLabel("Open ID")).toHaveCount(0);

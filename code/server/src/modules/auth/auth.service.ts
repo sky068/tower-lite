@@ -1,21 +1,31 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { Prisma } from "@prisma/client";
+import { AccountTokenType, Prisma } from "@prisma/client";
 import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createRefreshToken, hashToken, signAccessToken } from "../../utils/token.js";
 import { acceptPendingInvitationsForUser } from "../invitations/invitation.service.js";
-import { claimPendingMembershipsForUser } from "../memberships/membership.service.js";
+import {
+  claimPendingMembershipsForUser,
+  claimPendingMembershipsForUserInTransaction,
+  normalizeEmail,
+  publishMembershipClaimSideEffects
+} from "../memberships/membership.service.js";
 import type {
   FeishuAuthorizeQuery,
   FeishuCallbackInput,
   LoginInput,
+  PasswordResetConfirmInput,
+  PasswordResetRequestInput,
   RefreshInput,
-  RegisterInput
+  RegisterInput,
+  TokenInput
 } from "./auth.schema.js";
 
 const REFRESH_TOKEN_DAYS = 30;
+const EMAIL_TOKEN_HOURS = 24;
+const PASSWORD_RESET_TOKEN_MINUTES = 60;
 const FEISHU_API_ORIGIN = "https://open.feishu.cn";
 const FEISHU_LOGIN_SCOPES = [
   "contact:user.email:readonly"
@@ -25,12 +35,21 @@ function daysFromNow(days: number) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
+function hoursFromNow(hours: number) {
+  return new Date(Date.now() + hours * 60 * 60 * 1000);
+}
+
+function minutesFromNow(minutes: number) {
+  return new Date(Date.now() + minutes * 60 * 1000);
+}
+
 function toPublicUser(user: {
   id: string;
   email: string;
   name: string;
   avatarUrl: string | null;
   passwordHash?: string | null;
+  emailVerifiedAt?: Date | null;
   systemRole?: string;
 }) {
   return {
@@ -39,8 +58,105 @@ function toPublicUser(user: {
     name: user.name,
     avatarUrl: user.avatarUrl,
     hasPassword: Boolean(user.passwordHash),
+    emailVerifiedAt: user.emailVerifiedAt ?? null,
     systemRole: user.systemRole ?? "USER"
   };
+}
+
+function buildVerificationPath(token: string) {
+  return `/auth/verify-email?token=${encodeURIComponent(token)}`;
+}
+
+function buildPasswordResetPath(token: string) {
+  return `/auth/reset-password?token=${encodeURIComponent(token)}`;
+}
+
+function emailSubject(type: AccountTokenType) {
+  if (type === AccountTokenType.PASSWORD_RESET) {
+    return "重置 Tower Lite 登录密码";
+  }
+
+  if (type === AccountTokenType.EMAIL_CHANGE) {
+    return "确认 Tower Lite 绑定邮箱变更";
+  }
+
+  return "验证 Tower Lite 账号邮箱";
+}
+
+function emailBody(type: AccountTokenType, actionPath: string) {
+  if (type === AccountTokenType.PASSWORD_RESET) {
+    return `请打开以下链接设置新密码：${actionPath}`;
+  }
+
+  if (type === AccountTokenType.EMAIL_CHANGE) {
+    return `请打开以下链接确认绑定邮箱变更：${actionPath}`;
+  }
+
+  return `请打开以下链接完成邮箱验证：${actionPath}`;
+}
+
+export function isEmailDeliveryConfigured() {
+  return Boolean(env.SMTP_HOST && env.MAIL_FROM);
+}
+
+export function getDevelopmentEmailActionPath(actionPath: string) {
+  return env.NODE_ENV !== "production" && !isEmailDeliveryConfigured() ? actionPath : null;
+}
+
+async function createAccountToken(input: {
+  type: AccountTokenType;
+  userId: string;
+  email?: string | null;
+  expiresAt: Date;
+}) {
+  const token = createRefreshToken();
+
+  await prisma.$transaction([
+    prisma.accountToken.updateMany({
+      where: {
+        userId: input.userId,
+        type: input.type,
+        usedAt: null
+      },
+      data: {
+        usedAt: new Date()
+      }
+    }),
+    prisma.accountToken.create({
+      data: {
+        type: input.type,
+        tokenHash: hashToken(token),
+        userId: input.userId,
+        email: input.email,
+        expiresAt: input.expiresAt
+      }
+    })
+  ]);
+
+  return token;
+}
+
+export async function createEmailChangeToken(userId: string, email: string) {
+  const token = await createAccountToken({
+    type: AccountTokenType.EMAIL_CHANGE,
+    userId,
+    email,
+    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS)
+  });
+
+  const actionPath = buildVerificationPath(token);
+  await prisma.emailOutbox.create({
+    data: {
+      type: AccountTokenType.EMAIL_CHANGE,
+      toEmail: email,
+      subject: emailSubject(AccountTokenType.EMAIL_CHANGE),
+      body: emailBody(AccountTokenType.EMAIL_CHANGE, actionPath),
+      actionPath,
+      userId
+    }
+  });
+
+  return actionPath;
 }
 
 function isFeishuLoginConfigured() {
@@ -181,14 +297,31 @@ export async function register(input: RegisterInput) {
       passwordHash
     }
   });
-  await claimPendingMembershipsForUser(user.id);
-  await acceptPendingInvitationsForUser(user.id);
 
   const tokens = await issueTokens(user.id);
+  const emailVerificationToken = await createAccountToken({
+    type: AccountTokenType.EMAIL_VERIFY,
+    userId: user.id,
+    email: user.email,
+    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS)
+  });
+  const emailVerificationPath = buildVerificationPath(emailVerificationToken);
+  await prisma.emailOutbox.create({
+    data: {
+      type: AccountTokenType.EMAIL_VERIFY,
+      toEmail: user.email,
+      subject: emailSubject(AccountTokenType.EMAIL_VERIFY),
+      body: emailBody(AccountTokenType.EMAIL_VERIFY, emailVerificationPath),
+      actionPath: emailVerificationPath,
+      userId: user.id
+    }
+  });
 
   return {
     ...tokens,
-    user: toPublicUser(user)
+    user: toPublicUser(user),
+    emailVerificationQueued: true,
+    devEmailVerificationPath: getDevelopmentEmailActionPath(emailVerificationPath)
   };
 }
 
@@ -208,12 +341,322 @@ export async function login(input: LoginInput) {
   }
 
   const tokens = await issueTokens(user.id);
-  await claimPendingMembershipsForUser(user.id);
-  await acceptPendingInvitationsForUser(user.id);
+
+  if (user.emailVerifiedAt) {
+    await claimPendingMembershipsForUser(user.id);
+    await acceptPendingInvitationsForUser(user.id);
+  }
 
   return {
     ...tokens,
     user: toPublicUser(user)
+  };
+}
+
+export async function sendEmailVerification(userId: string) {
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    }
+  });
+
+  if (!user) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  if (user.emailVerifiedAt) {
+    return {
+      ok: true,
+      alreadyVerified: true,
+      verificationQueued: false
+    };
+  }
+
+  const token = await createAccountToken({
+    type: AccountTokenType.EMAIL_VERIFY,
+    userId: user.id,
+    email: user.email,
+    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS)
+  });
+  const verificationPath = buildVerificationPath(token);
+  await prisma.emailOutbox.create({
+    data: {
+      type: AccountTokenType.EMAIL_VERIFY,
+      toEmail: user.email,
+      subject: emailSubject(AccountTokenType.EMAIL_VERIFY),
+      body: emailBody(AccountTokenType.EMAIL_VERIFY, verificationPath),
+      actionPath: verificationPath,
+      userId: user.id
+    }
+  });
+
+  return {
+    ok: true,
+    alreadyVerified: false,
+    verificationQueued: true,
+    devVerificationPath: getDevelopmentEmailActionPath(verificationPath)
+  };
+}
+
+export async function confirmEmail(input: TokenInput) {
+  const tokenHash = hashToken(input.token);
+  const storedToken = await prisma.accountToken.findUnique({
+    where: {
+      tokenHash
+    },
+    include: {
+      user: true
+    }
+  });
+  const now = new Date();
+
+  if (
+    !storedToken ||
+    storedToken.expiresAt <= now ||
+    (storedToken.type !== AccountTokenType.EMAIL_VERIFY && storedToken.type !== AccountTokenType.EMAIL_CHANGE)
+  ) {
+    throw new AppError("UNAUTHORIZED", "Account token is invalid or expired", 401);
+  }
+
+  if (!storedToken.user || storedToken.user.deletedAt) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  if (storedToken.usedAt) {
+    if (
+      storedToken.type === AccountTokenType.EMAIL_VERIFY &&
+      storedToken.user.emailVerifiedAt &&
+      (!storedToken.email || storedToken.user.email === storedToken.email)
+    ) {
+      return {
+        ok: true,
+        type: storedToken.type,
+        email: storedToken.user.email,
+        user: toPublicUser(storedToken.user)
+      };
+    }
+
+    if (
+      storedToken.type === AccountTokenType.EMAIL_CHANGE &&
+      storedToken.email &&
+      storedToken.user.email === storedToken.email &&
+      storedToken.user.emailVerifiedAt
+    ) {
+      return {
+        ok: true,
+        type: storedToken.type,
+        email: storedToken.user.email,
+        user: toPublicUser(storedToken.user)
+      };
+    }
+
+    throw new AppError("UNAUTHORIZED", "Account token is invalid or expired", 401);
+  }
+
+  if (storedToken.type === AccountTokenType.EMAIL_VERIFY) {
+    if (storedToken.email && storedToken.user.email !== storedToken.email) {
+      throw new AppError("UNAUTHORIZED", "Account token is invalid or expired", 401);
+    }
+
+    const { updatedUser, claim } = await prisma.$transaction(async (tx) => {
+      await tx.accountToken.update({
+        where: {
+          id: storedToken.id
+        },
+        data: {
+          usedAt: new Date()
+        }
+      });
+
+      const updated = await tx.user.update({
+        where: {
+          id: storedToken.userId
+        },
+        data: {
+          emailVerifiedAt: new Date()
+        }
+      });
+
+      const membershipClaim = await claimPendingMembershipsForUserInTransaction(tx, storedToken.userId);
+
+      return {
+        updatedUser: updated,
+        claim: membershipClaim
+      };
+    });
+
+    await publishMembershipClaimSideEffects(claim);
+    await acceptPendingInvitationsForUser(storedToken.userId);
+
+    return {
+      ok: true,
+      type: storedToken.type,
+      email: updatedUser.email,
+      user: toPublicUser(updatedUser)
+    };
+  }
+
+  if (!storedToken.email) {
+    throw new AppError("UNAUTHORIZED", "Account token is invalid or expired", 401);
+  }
+
+  const existingUser = await prisma.user.findUnique({
+    where: {
+      email: storedToken.email
+    }
+  });
+
+  if (existingUser && existingUser.id !== storedToken.userId) {
+    throw new AppError("CONFLICT", "Email is already registered", 409);
+  }
+
+  const normalizedEmail = normalizeEmail(storedToken.email);
+  const { updatedUser, claim } = await prisma.$transaction(async (tx) => {
+    await tx.accountToken.update({
+      where: {
+        id: storedToken.id
+      },
+      data: {
+        usedAt: new Date()
+      }
+    });
+
+    const updated = await tx.user.update({
+      where: {
+        id: storedToken.userId
+      },
+      data: {
+        email: storedToken.email!,
+        emailVerifiedAt: new Date()
+      }
+    });
+
+    await tx.teamMember.updateMany({
+      where: {
+        userId: storedToken.userId
+      },
+      data: {
+        email: storedToken.email!,
+        normalizedEmail
+      }
+    });
+
+    const membershipClaim = await claimPendingMembershipsForUserInTransaction(tx, storedToken.userId);
+
+    return {
+      updatedUser: updated,
+      claim: membershipClaim
+    };
+  });
+
+  await publishMembershipClaimSideEffects(claim);
+  await acceptPendingInvitationsForUser(storedToken.userId);
+
+  return {
+    ok: true,
+    type: storedToken.type,
+    email: updatedUser.email,
+    user: toPublicUser(updatedUser)
+  };
+}
+
+export async function requestPasswordReset(input: PasswordResetRequestInput) {
+  const user = await prisma.user.findFirst({
+    where: {
+      email: input.email,
+      deletedAt: null
+    }
+  });
+
+  if (!user) {
+    return {
+      ok: true,
+      resetQueued: false
+    };
+  }
+
+  const token = await createAccountToken({
+    type: AccountTokenType.PASSWORD_RESET,
+    userId: user.id,
+    email: user.email,
+    expiresAt: minutesFromNow(PASSWORD_RESET_TOKEN_MINUTES)
+  });
+  const resetPath = buildPasswordResetPath(token);
+  await prisma.emailOutbox.create({
+    data: {
+      type: AccountTokenType.PASSWORD_RESET,
+      toEmail: user.email,
+      subject: emailSubject(AccountTokenType.PASSWORD_RESET),
+      body: emailBody(AccountTokenType.PASSWORD_RESET, resetPath),
+      actionPath: resetPath,
+      userId: user.id
+    }
+  });
+
+  return {
+    ok: true,
+    resetQueued: true,
+    devResetPath: getDevelopmentEmailActionPath(resetPath)
+  };
+}
+
+export async function confirmPasswordReset(input: PasswordResetConfirmInput) {
+  const tokenHash = hashToken(input.token);
+  const storedToken = await prisma.accountToken.findUnique({
+    where: {
+      tokenHash
+    },
+    include: {
+      user: true
+    }
+  });
+
+  if (
+    !storedToken ||
+    storedToken.usedAt ||
+    storedToken.expiresAt <= new Date() ||
+    storedToken.type !== AccountTokenType.PASSWORD_RESET
+  ) {
+    throw new AppError("UNAUTHORIZED", "Account token is invalid or expired", 401);
+  }
+
+  if (!storedToken.user || storedToken.user.deletedAt) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  const passwordHash = await bcrypt.hash(input.newPassword, 12);
+
+  await prisma.$transaction([
+    prisma.accountToken.update({
+      where: {
+        id: storedToken.id
+      },
+      data: {
+        usedAt: new Date()
+      }
+    }),
+    prisma.user.update({
+      where: {
+        id: storedToken.userId
+      },
+      data: {
+        passwordHash
+      }
+    }),
+    prisma.refreshToken.updateMany({
+      where: {
+        userId: storedToken.userId,
+        revokedAt: null
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    })
+  ]);
+
+  return {
+    ok: true
   };
 }
 
@@ -273,7 +716,11 @@ export async function loginWithFeishu(input: FeishuCallbackInput) {
             name: existingUser.name || name,
             avatarUrl: existingUser.avatarUrl ?? avatarUrl,
             feishuOpenId: feishuUser.open_id,
-            feishuUnionId: feishuUser.union_id ?? null
+            feishuUnionId: feishuUser.union_id ?? null,
+            emailVerifiedAt:
+              feishuEmail && normalizeEmail(existingUser.email) === feishuEmail
+                ? existingUser.emailVerifiedAt ?? new Date()
+                : existingUser.emailVerifiedAt
           }
         });
       } catch (error) {
@@ -297,8 +744,11 @@ export async function loginWithFeishu(input: FeishuCallbackInput) {
     });
   });
   const tokens = await issueTokens(user.id);
-  await claimPendingMembershipsForUser(user.id);
-  await acceptPendingInvitationsForUser(user.id);
+
+  if (user.emailVerifiedAt) {
+    await claimPendingMembershipsForUser(user.id);
+    await acceptPendingInvitationsForUser(user.id);
+  }
 
   return {
     ...tokens,

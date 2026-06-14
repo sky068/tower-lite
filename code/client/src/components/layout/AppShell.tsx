@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Building2, FolderKanban, ListChecks, LogOut, Plus, Settings, Trash2, Unlink, Upload, X } from "lucide-react";
+import { Bell, Building2, Copy, FolderKanban, ListChecks, LogOut, Plus, Settings, Trash2, Unlink, Upload, X } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FormEvent, type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MutationError } from "../shared/MutationError";
@@ -48,6 +48,9 @@ export function AppShell() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordFormError, setPasswordFormError] = useState("");
   const [accountSettingsSaved, setAccountSettingsSaved] = useState(false);
+  const [emailActionMessage, setEmailActionMessage] = useState("");
+  const [devEmailVerificationPath, setDevEmailVerificationPath] = useState<string | null>(null);
+  const [emailCopyState, setEmailCopyState] = useState<"idle" | "copied">("idle");
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const realtimeStatus = useRealtimeEvents();
@@ -168,12 +171,22 @@ export function AppShell() {
       userApi.updateEmail({
         email: profileEmail.trim()
       }),
-    onSuccess: (updatedUser) => {
-      updateUser(updatedUser);
-      setProfileEmail(updatedUser.email);
+    onSuccess: (result) => {
+      setEmailActionMessage(result.verificationQueued ? "验证邮件已生成，请前往邮箱确认。" : "邮箱已验证。");
+      setDevEmailVerificationPath(result.devVerificationPath ?? null);
+      setEmailCopyState("idle");
       void queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: () => setAccountSettingsSaved(false)
+  });
+
+  const sendEmailVerificationMutation = useMutation({
+    mutationFn: authApi.sendEmailVerification,
+    onSuccess: (result) => {
+      setEmailActionMessage(result.alreadyVerified ? "邮箱已验证。" : "验证邮件已生成，请前往邮箱确认。");
+      setDevEmailVerificationPath(result.devVerificationPath ?? null);
+      setEmailCopyState("idle");
+    }
   });
 
   const updatePasswordMutation = useMutation({
@@ -285,6 +298,9 @@ export function AppShell() {
     setConfirmPassword("");
     setPasswordFormError("");
     setAccountSettingsSaved(false);
+    setEmailActionMessage("");
+    setDevEmailVerificationPath(null);
+    setEmailCopyState("idle");
   }
 
   function handleCreateTeam(event: FormEvent) {
@@ -398,6 +414,16 @@ export function AppShell() {
     setAccountSettingsSaved(false);
   }
 
+  async function handleCopyDevEmailVerificationLink() {
+    if (!devEmailVerificationPath) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(`${window.location.origin}${devEmailVerificationPath}`);
+    setEmailCopyState("copied");
+    window.setTimeout(() => setEmailCopyState("idle"), 1600);
+  }
+
   function handleUnbindFeishu() {
     if (!isFeishuBound || unbindFeishuMutation.isPending) {
       return;
@@ -419,6 +445,7 @@ export function AppShell() {
   const emailChanged = profileEmail.trim().toLowerCase() !== (user?.email ?? "").toLowerCase();
   const passwordChanged = Boolean(currentPassword || newPassword || confirmPassword);
   const accountSettingsDirty = profileChanged || emailChanged || passwordChanged;
+  const isEmailVerified = Boolean(user?.emailVerifiedAt);
 
   return (
     <div className="app-shell">
@@ -779,11 +806,43 @@ export function AppShell() {
                       onChange={(event) => {
                         setProfileEmail(event.target.value);
                         setAccountSettingsSaved(false);
+                        setEmailActionMessage("");
+                        setDevEmailVerificationPath(null);
+                        setEmailCopyState("idle");
                       }}
                       required
                     />
                   </label>
-                  <span className="muted">飞书未返回邮箱时会先使用临时邮箱，之后可以在这里改为真实邮箱。</span>
+                  <div className="account-email-status">
+                    <span className={isEmailVerified ? "success-text" : "muted"}>
+                      {isEmailVerified ? "邮箱已验证" : "邮箱未验证"}
+                    </span>
+                    {!isEmailVerified && !emailChanged ? (
+                      <button
+                        className="subtle-button"
+                        type="button"
+                        disabled={sendEmailVerificationMutation.isPending}
+                        onClick={() => sendEmailVerificationMutation.mutate()}
+                      >
+                        {sendEmailVerificationMutation.isPending ? "生成中..." : "生成验证链接"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <span className="muted">飞书未返回邮箱时会先使用临时邮箱，修改邮箱后需要通过验证链接确认。</span>
+                  {emailActionMessage ? <span className="success-text">{emailActionMessage}</span> : null}
+                  {devEmailVerificationPath ? (
+                    <div className="account-email-link">
+                      <input
+                        value={`${window.location.origin}${devEmailVerificationPath}`}
+                        readOnly
+                        aria-label="开发环境邮箱验证链接"
+                      />
+                      <button type="button" onClick={() => void handleCopyDevEmailVerificationLink()}>
+                        <Copy size={14} aria-hidden="true" />
+                        <span>{emailCopyState === "copied" ? "已复制" : "复制"}</span>
+                      </button>
+                    </div>
+                  ) : null}
                 </section>
                 <section className="account-settings-section account-settings-password">
                   <h3>{userHasPassword ? "修改密码" : "设置登录密码"}</h3>
@@ -859,6 +918,7 @@ export function AppShell() {
                         updateProfileMutation.error ??
                         updateEmailMutation.error ??
                         updatePasswordMutation.error ??
+                        sendEmailVerificationMutation.error ??
                         unbindFeishuMutation.error
                       }
                     />
@@ -869,6 +929,7 @@ export function AppShell() {
                       updateProfileMutation.isPending ||
                       updateEmailMutation.isPending ||
                       updatePasswordMutation.isPending ||
+                      sendEmailVerificationMutation.isPending ||
                       unbindFeishuMutation.isPending ||
                       !accountSettingsDirty ||
                       !profileName.trim() ||

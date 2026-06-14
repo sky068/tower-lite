@@ -19,7 +19,13 @@ const envSchema = z.object({
   FEISHU_APP_ID: z.string().optional(),
   FEISHU_APP_SECRET: z.string().optional(),
   FEISHU_ENCRYPT_KEY: z.string().optional(),
-  FEISHU_VERIFICATION_TOKEN: z.string().optional()
+  FEISHU_VERIFICATION_TOKEN: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_SECURE: z.coerce.boolean().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  MAIL_FROM: z.string().optional()
 });
 
 export const env = envSchema.parse(process.env);

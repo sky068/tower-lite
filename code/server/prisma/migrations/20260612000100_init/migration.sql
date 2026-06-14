@@ -5,6 +5,9 @@ CREATE SCHEMA IF NOT EXISTS "public";
 CREATE TYPE "SystemRole" AS ENUM ('USER', 'ADMIN');
 
 -- CreateEnum
+CREATE TYPE "AccountTokenType" AS ENUM ('EMAIL_VERIFY', 'EMAIL_CHANGE', 'PASSWORD_RESET');
+
+-- CreateEnum
 CREATE TYPE "TeamRole" AS ENUM ('ADMIN', 'MEMBER');
 
 -- CreateEnum
@@ -50,6 +53,35 @@ CREATE TABLE "User" (
     "deletedAt" TIMESTAMP(3),
 
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AccountToken" (
+    "id" TEXT NOT NULL,
+    "type" "AccountTokenType" NOT NULL,
+    "tokenHash" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "email" TEXT,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "usedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AccountToken_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "EmailOutbox" (
+    "id" TEXT NOT NULL,
+    "type" "AccountTokenType" NOT NULL,
+    "toEmail" TEXT NOT NULL,
+    "subject" TEXT NOT NULL,
+    "body" TEXT NOT NULL,
+    "actionPath" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "sentAt" TIMESTAMP(3),
+
+    CONSTRAINT "EmailOutbox_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -319,6 +351,21 @@ CREATE UNIQUE INDEX "User_feishuOpenId_key" ON "User"("feishuOpenId");
 CREATE UNIQUE INDEX "User_feishuUnionId_key" ON "User"("feishuUnionId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "AccountToken_tokenHash_key" ON "AccountToken"("tokenHash");
+
+-- CreateIndex
+CREATE INDEX "AccountToken_userId_type_usedAt_idx" ON "AccountToken"("userId", "type", "usedAt");
+
+-- CreateIndex
+CREATE INDEX "AccountToken_expiresAt_idx" ON "AccountToken"("expiresAt");
+
+-- CreateIndex
+CREATE INDEX "EmailOutbox_toEmail_type_createdAt_idx" ON "EmailOutbox"("toEmail", "type", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "EmailOutbox_userId_idx" ON "EmailOutbox"("userId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "RefreshToken_tokenHash_key" ON "RefreshToken"("tokenHash");
 
 -- CreateIndex
@@ -425,6 +472,12 @@ CREATE UNIQUE INDEX "FeishuEvent_eventId_key" ON "FeishuEvent"("eventId");
 
 -- CreateIndex
 CREATE INDEX "FeishuEvent_eventType_receivedAt_idx" ON "FeishuEvent"("eventType", "receivedAt");
+
+-- AddForeignKey
+ALTER TABLE "AccountToken" ADD CONSTRAINT "AccountToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "EmailOutbox" ADD CONSTRAINT "EmailOutbox_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "RefreshToken" ADD CONSTRAINT "RefreshToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

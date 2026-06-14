@@ -107,6 +107,9 @@ export function LoginPage() {
           >
             {isFeishuSubmitting ? "正在打开飞书..." : "使用飞书登录"}
           </button>
+          <Link className="text-link" to="/forgot-password">
+            忘记密码？
+          </Link>
           <Link className="text-link" to="/register" state={location.state}>
             还没有账号？注册
           </Link>

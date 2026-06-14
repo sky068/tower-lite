@@ -308,6 +308,19 @@ FEISHU_VERIFICATION_TOKEN=""
 
 `FEISHU_VERIFICATION_TOKEN` 和 `FEISHU_ENCRYPT_KEY` 来自飞书应用后台的事件订阅配置；如果暂时只验证登录，可以先留空。
 
+邮箱验证和密码重置后续接真实邮件服务时，在 `.env` 中配置：
+
+```bash
+SMTP_HOST="smtp.example.com"
+SMTP_PORT="465"
+SMTP_SECURE="true"
+SMTP_USER="smtp-user"
+SMTP_PASSWORD="smtp-password"
+MAIL_FROM="Tower Lite <noreply@example.com>"
+```
+
+未配置 SMTP 且 `NODE_ENV` 不是 `production` 时，后端会把验证 / 重置邮件写入 `EmailOutbox` 开发邮件箱，并在账号设置和忘记密码页显示开发调试链接；配置 SMTP 后只走正式邮件投递，前端不再显示链接。
+
 10. 重启服务让环境变量生效：
 
 ```bash

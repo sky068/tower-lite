@@ -117,6 +117,7 @@ export async function ensureTeamMemberForEmail(
       email: normalizedEmail
     }
   });
+  const verifiedUser = user?.emailVerifiedAt ? user : null;
 
   return tx.teamMember.upsert({
     where: {
@@ -127,17 +128,17 @@ export async function ensureTeamMemberForEmail(
     },
     update: {
       role: mergeTeamRole(undefined, input.role),
-      email: user?.email ?? normalizedEmail,
-      userId: user?.id,
-      claimedAt: user ? new Date() : undefined
+      email: verifiedUser?.email ?? normalizedEmail,
+      userId: verifiedUser?.id,
+      claimedAt: verifiedUser ? new Date() : undefined
     },
     create: {
       teamId: input.teamId,
       role: input.role,
-      email: user?.email ?? normalizedEmail,
+      email: verifiedUser?.email ?? normalizedEmail,
       normalizedEmail,
-      userId: user?.id,
-      claimedAt: user ? new Date() : undefined
+      userId: verifiedUser?.id,
+      claimedAt: verifiedUser ? new Date() : undefined
     },
     include: {
       user: true
@@ -172,6 +173,7 @@ export async function ensureTeamMemberForEmailWithoutDowngrade(
       email: normalizedEmail
     }
   });
+  const verifiedUser = user?.emailVerifiedAt ? user : null;
 
   return tx.teamMember.update({
     where: {
@@ -179,9 +181,9 @@ export async function ensureTeamMemberForEmailWithoutDowngrade(
     },
     data: {
       role: mergeTeamRole(existingMember.role, input.role),
-      email: user?.email ?? normalizedEmail,
-      userId: user?.id ?? existingMember.userId,
-      claimedAt: user ? existingMember.claimedAt ?? new Date() : existingMember.claimedAt
+      email: verifiedUser?.email ?? normalizedEmail,
+      userId: verifiedUser?.id ?? existingMember.userId,
+      claimedAt: verifiedUser ? existingMember.claimedAt ?? new Date() : existingMember.claimedAt
     },
     include: {
       user: true

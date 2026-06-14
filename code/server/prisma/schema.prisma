@@ -31,6 +31,8 @@ model User {
   comments            Comment[]
   commentMentions     CommentMention[]
   refreshTokens       RefreshToken[]
+  accountTokens       AccountToken[]
+  emailOutboxItems    EmailOutbox[]
   notifications       Notification[] @relation("NotificationRecipient")
   notificationActions Notification[] @relation("NotificationActor")
   activityLogs        ActivityLog[]  @relation("ActivityActor")
@@ -41,6 +43,45 @@ model User {
 enum SystemRole {
   USER
   ADMIN
+}
+
+enum AccountTokenType {
+  EMAIL_VERIFY
+  EMAIL_CHANGE
+  PASSWORD_RESET
+}
+
+model AccountToken {
+  id        String           @id @default(uuid())
+  type      AccountTokenType
+  tokenHash String           @unique
+  userId    String
+  email     String?
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@index([userId, type, usedAt])
+  @@index([expiresAt])
+}
+
+model EmailOutbox {
+  id         String           @id @default(uuid())
+  type       AccountTokenType
+  toEmail    String
+  subject    String
+  body       String
+  actionPath String
+  userId     String
+  createdAt  DateTime         @default(now())
+  sentAt     DateTime?
+
+  user       User             @relation(fields: [userId], references: [id])
+
+  @@index([toEmail, type, createdAt])
+  @@index([userId])
 }
 
 model RefreshToken {

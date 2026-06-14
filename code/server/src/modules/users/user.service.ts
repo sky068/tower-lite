@@ -2,12 +2,7 @@ import bcrypt from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
-import { acceptPendingInvitationsForUser } from "../invitations/invitation.service.js";
-import {
-  claimPendingMembershipsForUserInTransaction,
-  normalizeEmail,
-  publishMembershipClaimSideEffects
-} from "../memberships/membership.service.js";
+import { createEmailChangeToken, getDevelopmentEmailActionPath } from "../auth/auth.service.js";
 import type { BindFeishuInput, UpdateEmailInput, UpdatePasswordInput, UpdateProfileInput } from "./user.schema.js";
 
 function toPublicUser(user: {
@@ -16,6 +11,7 @@ function toPublicUser(user: {
   name: string;
   avatarUrl: string | null;
   passwordHash?: string | null;
+  emailVerifiedAt?: Date | null;
   systemRole?: string;
 }) {
   return {
@@ -24,6 +20,7 @@ function toPublicUser(user: {
     name: user.name,
     avatarUrl: user.avatarUrl,
     hasPassword: Boolean(user.passwordHash),
+    emailVerifiedAt: user.emailVerifiedAt ?? null,
     systemRole: user.systemRole ?? "USER"
   };
 }
@@ -36,6 +33,7 @@ function toCurrentUser(user: {
   passwordHash: string | null;
   feishuOpenId: string | null;
   feishuUnionId: string | null;
+  emailVerifiedAt: Date | null;
   systemRole: string;
 }) {
   return {
@@ -99,7 +97,24 @@ export async function updateEmail(userId: string, input: UpdateEmailInput) {
   }
 
   if (user.email === input.email) {
-    return toCurrentUser(user);
+    if (user.emailVerifiedAt) {
+      return {
+        ok: true,
+        email: user.email,
+        verificationQueued: false,
+        user: toCurrentUser(user)
+      };
+    }
+
+    const actionPath = await createEmailChangeToken(userId, input.email);
+
+    return {
+      ok: true,
+      email: input.email,
+      verificationQueued: true,
+      devVerificationPath: getDevelopmentEmailActionPath(actionPath),
+      user: toCurrentUser(user)
+    };
   }
 
   const existingUser = await prisma.user.findUnique({
@@ -112,38 +127,15 @@ export async function updateEmail(userId: string, input: UpdateEmailInput) {
     throw new AppError("CONFLICT", "Email is already registered", 409);
   }
 
-  const normalizedEmail = normalizeEmail(input.email);
-  const { updatedUser, claim } = await prisma.$transaction(async (tx) => {
-    const updated = await tx.user.update({
-      where: {
-        id: userId
-      },
-      data: {
-        email: input.email
-      }
-    });
-    const membershipClaim = await claimPendingMembershipsForUserInTransaction(tx, userId);
+  const actionPath = await createEmailChangeToken(userId, input.email);
 
-    await tx.teamMember.updateMany({
-      where: {
-        userId
-      },
-      data: {
-        email: input.email,
-        normalizedEmail
-      }
-    });
-
-    return {
-      updatedUser: updated,
-      claim: membershipClaim
-    };
-  });
-
-  await publishMembershipClaimSideEffects(claim);
-  await acceptPendingInvitationsForUser(userId);
-
-  return toCurrentUser(updatedUser);
+  return {
+    ok: true,
+    email: input.email,
+    verificationQueued: true,
+    devVerificationPath: getDevelopmentEmailActionPath(actionPath),
+    user: toCurrentUser(user)
+  };
 }
 
 export async function updatePassword(userId: string, input: UpdatePasswordInput) {

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { Server } from "node:http";
-import { Prisma } from "@prisma/client";
+import { AccountTokenType, Prisma } from "@prisma/client";
 import { createApp } from "../app.js";
 import { env } from "../config/env.js";
 import { runDueReminderScan } from "../jobs/due-reminder.js";
 import { prisma } from "../lib/prisma.js";
+import { hashToken } from "../utils/token.js";
 
 type ApiEnvelope<T> = {
   data?: T;
@@ -25,7 +26,9 @@ type AuthResponse = {
     name: string;
     avatarUrl: string | null;
     hasPassword: boolean;
+    emailVerifiedAt?: string | null;
   };
+  emailVerificationQueued?: boolean;
 };
 
 type CurrentUserResponse = AuthResponse["user"] & {
@@ -33,6 +36,25 @@ type CurrentUserResponse = AuthResponse["user"] & {
   hasPassword: boolean;
   feishuOpenId: string | null;
   feishuUnionId: string | null;
+};
+
+type EmailChangeResponse = {
+  ok: boolean;
+  email: string;
+  verificationQueued: boolean;
+  user: CurrentUserResponse;
+};
+
+type EmailVerificationResponse = {
+  ok: boolean;
+  type: "EMAIL_VERIFY" | "EMAIL_CHANGE";
+  email: string;
+  user: AuthResponse["user"];
+};
+
+type PasswordResetRequestResponse = {
+  ok: boolean;
+  resetQueued?: boolean;
 };
 
 type FeishuAuthorizeResponse = {
@@ -429,6 +451,20 @@ async function cleanupRunData() {
         }
       }
     }),
+    prisma.emailOutbox.deleteMany({
+      where: {
+        userId: {
+          in: userIds
+        }
+      }
+    }),
+    prisma.accountToken.deleteMany({
+      where: {
+        userId: {
+          in: userIds
+        }
+      }
+    }),
     prisma.user.deleteMany({
       where: {
         id: {
@@ -477,6 +513,36 @@ async function request<T>(
   };
 }
 
+function tokenFromPath(path: string | null) {
+  assert.ok(path);
+  const url = new URL(path, "http://tower.test");
+  const token = url.searchParams.get("token");
+  assert.ok(token);
+  return token;
+}
+
+async function latestEmailActionToken(email: string, type: AccountTokenType) {
+  const emailItem = await prisma.emailOutbox.findFirst({
+    where: {
+      toEmail: email.toLowerCase(),
+      type
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  return tokenFromPath(emailItem?.actionPath ?? null);
+}
+
+async function verifyRegisteredEmail(response: AuthResponse) {
+  await request<EmailVerificationResponse>("POST", "/api/v1/auth/email-verification/confirm", {
+    body: {
+      token: await latestEmailActionToken(response.user.email, AccountTokenType.EMAIL_VERIFY)
+    }
+  });
+}
+
 async function registerUser(name: string): Promise<TestUser> {
   const email = `${name.toLowerCase()}@${emailDomain}`;
   const response = await request<AuthResponse>("POST", "/api/v1/auth/register", {
@@ -487,6 +553,7 @@ async function registerUser(name: string): Promise<TestUser> {
       password: "Password123!"
     }
   });
+  await verifyRegisteredEmail(response.data);
 
   return {
     id: response.data.user.id,
@@ -657,16 +724,23 @@ describe("V0 HTTP integration", () => {
     assert.equal(updatedOwner.avatarUrl, "data:image/png;base64,iVBORw0KGgo=");
 
     const ownerUpdatedEmail = `updated-owner@${emailDomain}`;
-    const updatedOwnerEmail = (await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/email", {
+    const ownerEmailChange = (await request<EmailChangeResponse>("PATCH", "/api/v1/users/me/email", {
       token: owner.token,
       body: {
         email: ownerUpdatedEmail
       }
     })).data;
+    assert.equal(ownerEmailChange.email, ownerUpdatedEmail);
+    assert.equal(ownerEmailChange.user.email, owner.email);
+    const updatedOwnerEmail = (await request<EmailVerificationResponse>("POST", "/api/v1/auth/email-verification/confirm", {
+      body: {
+        token: await latestEmailActionToken(ownerUpdatedEmail, AccountTokenType.EMAIL_CHANGE)
+      }
+    })).data;
     assert.equal(updatedOwnerEmail.email, ownerUpdatedEmail);
     owner.email = ownerUpdatedEmail;
 
-    await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/email", {
+    await request<EmailChangeResponse>("PATCH", "/api/v1/users/me/email", {
       token: owner.token,
       expectedStatus: 409,
       body: {
@@ -740,6 +814,66 @@ describe("V0 HTTP integration", () => {
       body: {
         email: owner.email,
         password: "Password456!"
+      }
+    });
+    const passwordReset = (await request<PasswordResetRequestResponse>("POST", "/api/v1/auth/password-reset/request", {
+      body: {
+        email: owner.email
+      }
+    })).data;
+    assert.ok(passwordReset.ok);
+    assert.equal(passwordReset.resetQueued, true);
+    await request<{ ok: boolean }>("POST", "/api/v1/auth/password-reset/confirm", {
+      body: {
+        token: await latestEmailActionToken(owner.email, AccountTokenType.PASSWORD_RESET),
+        newPassword: "Password789!"
+      }
+    });
+    await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      expectedStatus: 401,
+      body: {
+        email: owner.email,
+        password: "Password456!"
+      }
+    });
+    await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      body: {
+        email: owner.email,
+        password: "Password789!"
+      }
+    });
+    const missingPasswordReset = (await request<PasswordResetRequestResponse>("POST", "/api/v1/auth/password-reset/request", {
+      body: {
+        email: `missing-${runId}@${emailDomain}`
+      }
+    })).data;
+    assert.equal(missingPasswordReset.ok, true);
+    assert.equal(missingPasswordReset.resetQueued, false);
+    const expiredVerificationEmail = `expired-verify@${emailDomain}`;
+    await request<AuthResponse>("POST", "/api/v1/auth/register", {
+      expectedStatus: 201,
+      body: {
+        email: expiredVerificationEmail,
+        name: "Expired Verify",
+        password: "Password123!"
+      }
+    });
+    const expiredVerificationToken = await latestEmailActionToken(
+      expiredVerificationEmail,
+      AccountTokenType.EMAIL_VERIFY
+    );
+    await prisma.accountToken.update({
+      where: {
+        tokenHash: hashToken(expiredVerificationToken)
+      },
+      data: {
+        expiresAt: new Date(Date.now() - 1000)
+      }
+    });
+    await request<EmailVerificationResponse>("POST", "/api/v1/auth/email-verification/confirm", {
+      expectedStatus: 401,
+      body: {
+        token: expiredVerificationToken
       }
     });
 
@@ -970,10 +1104,16 @@ describe("V0 HTTP integration", () => {
         projectMemberIds: [emailUpdatePendingProjectMember.id]
       }
     })).data;
-    await request<CurrentUserResponse>("PATCH", "/api/v1/users/me/email", {
+    const emailUpdateClaimRequest = (await request<EmailChangeResponse>("PATCH", "/api/v1/users/me/email", {
       token: defaultJoinUser.token,
       body: {
         email: emailUpdateClaimEmail
+      }
+    })).data;
+    assert.equal(emailUpdateClaimRequest.verificationQueued, true);
+    await request<EmailVerificationResponse>("POST", "/api/v1/auth/email-verification/confirm", {
+      body: {
+        token: await latestEmailActionToken(emailUpdateClaimEmail, AccountTokenType.EMAIL_CHANGE)
       }
     });
     const emailUpdateClaimedTeamMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
@@ -1130,7 +1270,32 @@ describe("V0 HTTP integration", () => {
         password: "Password123!"
       }
     })).data;
-    const autoAdminMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+    let autoAdminMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data;
+    assert.equal(
+      autoAdminMembers.some((member) => member.user?.id === autoAdmin.user.id && member.role === "ADMIN"),
+      false
+    );
+    const unverifiedAutoAdminLogin = (await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      body: {
+        email: autoAdminEmail,
+        password: "Password123!"
+      }
+    })).data;
+    autoAdminMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data;
+    assert.equal(
+      autoAdminMembers.some((member) => member.user?.id === autoAdmin.user.id && member.role === "ADMIN"),
+      false
+    );
+    const unverifiedAutoAdminTeams = (await request<TeamResponse[]>("GET", "/api/v1/teams", {
+      token: unverifiedAutoAdminLogin.accessToken
+    })).data;
+    assert.equal(unverifiedAutoAdminTeams.some((item) => item.id === team.id), false);
+    await verifyRegisteredEmail(autoAdmin);
+    autoAdminMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
       token: owner.token
     })).data;
     assert.ok(
@@ -1184,7 +1349,36 @@ describe("V0 HTTP integration", () => {
         password: "Password123!"
       }
     })).data;
-    const claimedTeamMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+    let claimedTeamMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data;
+    assert.equal(
+      claimedTeamMembers.some(
+        (member) => member.user?.id === claimedTeamOnlyUser.user.id && member.status === "ACTIVE"
+      ),
+      false
+    );
+    const unverifiedTeamLogin = (await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      body: {
+        email: pendingTeamEmail,
+        password: "Password123!"
+      }
+    })).data;
+    claimedTeamMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data;
+    assert.equal(
+      claimedTeamMembers.some(
+        (member) => member.user?.id === claimedTeamOnlyUser.user.id && member.status === "ACTIVE"
+      ),
+      false
+    );
+    const unverifiedTeamMemberships = (await request<TeamResponse[]>("GET", "/api/v1/teams", {
+      token: unverifiedTeamLogin.accessToken
+    })).data;
+    assert.equal(unverifiedTeamMemberships.some((item) => item.id === team.id), false);
+    await verifyRegisteredEmail(claimedTeamOnlyUser);
+    claimedTeamMembers = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
       token: owner.token
     })).data;
     assert.ok(
@@ -1229,6 +1423,7 @@ describe("V0 HTTP integration", () => {
         password: "Password123!"
       }
     })).data;
+    await verifyRegisteredEmail(removedPendingUser);
     const removedPendingTeams = (await request<TeamResponse[]>("GET", "/api/v1/teams", {
       token: removedPendingUser.accessToken
     })).data;
@@ -1281,7 +1476,45 @@ describe("V0 HTTP integration", () => {
       }
     })).data;
 
-    const claimedProjectMembers = (await request<MemberResponse[]>(
+    let claimedProjectMembers = (await request<MemberResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/members`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.equal(
+      claimedProjectMembers.some(
+        (member) => member.user?.id === claimedProjectOnlyUser.user.id && member.status === "ACTIVE"
+      ),
+      false
+    );
+    const unverifiedProjectLogin = (await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      body: {
+        email: pendingProjectEmail,
+        password: "Password123!"
+      }
+    })).data;
+    claimedProjectMembers = (await request<MemberResponse[]>(
+      "GET",
+      `/api/v1/projects/${project.id}/members`,
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.equal(
+      claimedProjectMembers.some(
+        (member) => member.user?.id === claimedProjectOnlyUser.user.id && member.status === "ACTIVE"
+      ),
+      false
+    );
+    await request<ProjectResponse[]>("GET", `/api/v1/teams/${team.id}/projects`, {
+      token: unverifiedProjectLogin.accessToken,
+      expectedStatus: 403
+    });
+    await verifyRegisteredEmail(claimedProjectOnlyUser);
+
+    claimedProjectMembers = (await request<MemberResponse[]>(
       "GET",
       `/api/v1/projects/${project.id}/members`,
       {
@@ -1365,7 +1598,22 @@ describe("V0 HTTP integration", () => {
         password: "Password123!"
       }
     })).data;
-    const claimedTasks = (await request<MyTaskResponse[]>("GET", "/api/v1/users/me/tasks", {
+    let claimedTasks = (await request<MyTaskResponse[]>("GET", "/api/v1/users/me/tasks", {
+      token: claimedPendingUser.accessToken
+    })).data;
+    assert.equal(claimedTasks.some((item) => item.id === pendingAssignedTask.id), false);
+    const unverifiedAssigneeLogin = (await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      body: {
+        email: pendingAssigneeEmail,
+        password: "Password123!"
+      }
+    })).data;
+    claimedTasks = (await request<MyTaskResponse[]>("GET", "/api/v1/users/me/tasks", {
+      token: unverifiedAssigneeLogin.accessToken
+    })).data;
+    assert.equal(claimedTasks.some((item) => item.id === pendingAssignedTask.id), false);
+    await verifyRegisteredEmail(claimedPendingUser);
+    claimedTasks = (await request<MyTaskResponse[]>("GET", "/api/v1/users/me/tasks", {
       token: claimedPendingUser.accessToken
     })).data;
     assert.ok(claimedTasks.some((item) => item.id === pendingAssignedTask.id));

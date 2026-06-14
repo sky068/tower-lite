@@ -3,6 +3,9 @@ import { AppShell } from "../components/layout/AppShell";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { LoginPage } from "../features/auth/LoginPage";
 import { RegisterPage } from "../features/auth/RegisterPage";
+import { ForgotPasswordPage } from "../features/auth/ForgotPasswordPage";
+import { ResetPasswordPage } from "../features/auth/ResetPasswordPage";
+import { VerifyEmailPage } from "../features/auth/VerifyEmailPage";
 import { FeishuCallbackPage } from "../features/auth/FeishuCallbackPage";
 import { ProjectBoardPage } from "../features/board/ProjectBoardPage";
 import { ProjectGanttPage } from "../features/board/ProjectGanttPage";
@@ -30,6 +33,18 @@ const routes = [
   {
     path: "/register",
     element: <RegisterPage />
+  },
+  {
+    path: "/forgot-password",
+    element: <ForgotPasswordPage />
+  },
+  {
+    path: "/auth/reset-password",
+    element: <ResetPasswordPage />
+  },
+  {
+    path: "/auth/verify-email",
+    element: <VerifyEmailPage />
   },
   {
     path: "/auth/feishu/callback",

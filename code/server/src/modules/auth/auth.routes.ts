@@ -3,22 +3,30 @@ import { validate } from "../../middleware/validate.js";
 import { asyncHandler } from "../../utils/async-handler.js";
 import { sendData } from "../../utils/api-response.js";
 import {
+  confirmEmail,
+  confirmPasswordReset,
   getFeishuAuthorizeUrl,
   login,
   loginWithFeishu,
   logout,
   refresh,
-  register
+  register,
+  requestPasswordReset,
+  sendEmailVerification
 } from "./auth.service.js";
 import {
   feishuAuthorizeQuerySchema,
   feishuCallbackSchema,
   loginSchema,
   logoutSchema,
+  passwordResetConfirmSchema,
+  passwordResetRequestSchema,
   refreshSchema,
-  registerSchema
+  registerSchema,
+  tokenSchema
 } from "./auth.schema.js";
 import type { FeishuAuthorizeQuery } from "./auth.schema.js";
+import { getCurrentUserId, requireAuth } from "../../middleware/auth.js";
 
 export const authRoutes = Router();
 
@@ -36,6 +44,42 @@ authRoutes.post(
   validate("body", loginSchema),
   asyncHandler(async (req, res) => {
     const data = await login(req.body);
+    return sendData(req, res, data);
+  })
+);
+
+authRoutes.post(
+  "/auth/email-verification/send",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const data = await sendEmailVerification(getCurrentUserId(req));
+    return sendData(req, res, data);
+  })
+);
+
+authRoutes.post(
+  "/auth/email-verification/confirm",
+  validate("body", tokenSchema),
+  asyncHandler(async (req, res) => {
+    const data = await confirmEmail(req.body);
+    return sendData(req, res, data);
+  })
+);
+
+authRoutes.post(
+  "/auth/password-reset/request",
+  validate("body", passwordResetRequestSchema),
+  asyncHandler(async (req, res) => {
+    const data = await requestPasswordReset(req.body);
+    return sendData(req, res, data);
+  })
+);
+
+authRoutes.post(
+  "/auth/password-reset/confirm",
+  validate("body", passwordResetConfirmSchema),
+  asyncHandler(async (req, res) => {
+    const data = await confirmPasswordReset(req.body);
     return sendData(req, res, data);
   })
 );

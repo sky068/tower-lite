@@ -2808,6 +2808,18 @@ select[multiple] {
   border-top: 1px solid #e2e8f0;
 }
 
+.account-email-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-email-status .subtle-button {
+  min-height: 32px;
+  padding: 0 10px;
+}
+
 .account-settings-footer {
   grid-column: 1 / -1;
   display: flex;
@@ -3364,6 +3376,44 @@ select[multiple] {
   color: #166534;
   padding: 10px 12px;
   font-size: 14px;
+}
+
+.form-info {
+  display: block;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.auth-link-box,
+.account-email-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.auth-link-box input,
+.account-email-link input {
+  min-width: 0;
+  color: #475569;
+  font-size: 13px;
+}
+
+.auth-link-box button,
+.account-email-link button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  padding: 0 12px;
 }
 
 .form-error small {

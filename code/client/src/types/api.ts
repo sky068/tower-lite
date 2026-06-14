@@ -9,6 +9,7 @@ export type User = {
   name: string;
   avatarUrl: string | null;
   hasPassword?: boolean;
+  emailVerifiedAt?: string | null;
   systemRole: "USER" | "ADMIN";
 };
 
@@ -22,6 +23,32 @@ export type AuthResponse = {
   accessToken: string;
   refreshToken: string;
   user: User;
+  emailVerificationQueued?: boolean;
+  devEmailVerificationPath?: string | null;
+};
+
+export type EmailVerificationResponse = {
+  ok: boolean;
+  type?: "EMAIL_VERIFY" | "EMAIL_CHANGE";
+  email?: string;
+  alreadyVerified?: boolean;
+  verificationQueued?: boolean;
+  devVerificationPath?: string | null;
+  user?: User;
+};
+
+export type EmailChangeResponse = {
+  ok: boolean;
+  email: string;
+  verificationQueued: boolean;
+  devVerificationPath?: string | null;
+  user: CurrentUser;
+};
+
+export type PasswordResetRequestResponse = {
+  ok: boolean;
+  resetQueued?: boolean;
+  devResetPath?: string | null;
 };
 
 export type Team = {
