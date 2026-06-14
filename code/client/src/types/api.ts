@@ -10,6 +10,7 @@ export type User = {
   avatarUrl: string | null;
   hasPassword?: boolean;
   emailVerifiedAt?: string | null;
+  pendingEmail?: string | null;
   systemRole: "USER" | "ADMIN";
 };
 

@@ -308,7 +308,7 @@ FEISHU_VERIFICATION_TOKEN=""
 
 `FEISHU_VERIFICATION_TOKEN` 和 `FEISHU_ENCRYPT_KEY` 来自飞书应用后台的事件订阅配置；如果暂时只验证登录，可以先留空。
 
-邮箱验证和密码重置后续接真实邮件服务时，在 `.env` 中配置：
+邮箱验证和密码重置接真实邮件服务时，在 `.env` 中配置：
 
 ```bash
 SMTP_HOST="smtp.example.com"
@@ -317,9 +317,14 @@ SMTP_SECURE="true"
 SMTP_USER="smtp-user"
 SMTP_PASSWORD="smtp-password"
 MAIL_FROM="Tower Lite <noreply@example.com>"
+EMAIL_DELIVERY_DISABLED="0"
 ```
 
-未配置 SMTP 且 `NODE_ENV` 不是 `production` 时，后端会把验证 / 重置邮件写入 `EmailOutbox` 开发邮件箱，并在账号设置和忘记密码页显示开发调试链接；配置 SMTP 后只走正式邮件投递，前端不再显示链接。
+`EMAIL_DELIVERY_DISABLED` 是邮件投递开关：`0` 表示按 SMTP 配置真实发送邮件，`1` 表示即使配置了 SMTP 也强制不发送真实邮件。自动测试会临时设为 `1`，正常本地调试或部署时如果要收真实邮件请保持 `0`。
+
+常见邮箱服务需要使用“SMTP 授权码”而不是登录密码。`SMTP_SECURE=true` 通常配 `465` 端口；如果服务商要求 STARTTLS，一般使用 `SMTP_PORT=587` 和 `SMTP_SECURE=false`。
+
+`SMTP_SECURE` 和 `EMAIL_DELIVERY_DISABLED` 支持 `true` / `false` 或 `1` / `0`。后端会先把验证 / 重置邮件写入 `EmailOutbox`，再根据 SMTP 配置立即发送；发送成功写入 `sentAt`，发送失败写入 `lastError` 并记录后端日志。未配置 SMTP、或设置 `EMAIL_DELIVERY_DISABLED=1`，且 `NODE_ENV` 不是 `production` 时，账号设置和忘记密码页会显示开发调试链接；配置 SMTP 后只走正式邮件投递，前端不再显示链接。
 
 10. 重启服务让环境变量生效：
 

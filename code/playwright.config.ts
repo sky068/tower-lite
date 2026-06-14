@@ -23,7 +23,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `API_PORT=${apiPort} npm run dev:server`,
+      command: `EMAIL_DELIVERY_DISABLED=1 API_PORT=${apiPort} npm run dev:server`,
       url: `${apiOrigin}/api/v1/health`,
       reuseExistingServer,
       timeout: 120_000

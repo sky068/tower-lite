@@ -2859,6 +2859,36 @@ select[multiple] {
   padding: 0 10px;
 }
 
+.account-pending-email {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #475569;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.account-pending-email strong {
+  color: #1d4ed8;
+  font-size: 13px;
+}
+
+.account-pending-email-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.account-pending-email-actions .subtle-button,
+.account-pending-email-actions .danger-inline-button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .account-settings-footer {
   grid-column: 1 / -1;
   display: flex;

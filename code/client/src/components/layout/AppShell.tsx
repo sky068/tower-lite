@@ -63,6 +63,7 @@ export function AppShell() {
   const [passwordFormError, setPasswordFormError] = useState("");
   const [accountSettingsSaved, setAccountSettingsSaved] = useState(false);
   const [emailActionMessage, setEmailActionMessage] = useState("");
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [devEmailVerificationPath, setDevEmailVerificationPath] = useState<string | null>(null);
   const [emailCopyState, setEmailCopyState] = useState<"idle" | "copied">("idle");
   const notificationsRef = useRef<HTMLDivElement | null>(null);
@@ -71,6 +72,7 @@ export function AppShell() {
   const isSystemAdmin = user?.systemRole === "ADMIN";
   const userHasPassword = user?.hasPassword ?? true;
   const isFeishuBound = Boolean(user && "feishuBound" in user && user.feishuBound);
+  const currentEmail = user?.email ?? "";
 
   const refreshCurrentUser = useCallback(async () => {
     if (!useAuthStore.getState().accessToken) {
@@ -198,10 +200,19 @@ export function AppShell() {
         email: profileEmail.trim()
       }),
     onSuccess: (result) => {
-      setEmailActionMessage(result.verificationQueued ? "验证邮件已生成，请前往邮箱确认。" : "邮箱已验证。");
+      if (result.verificationQueued) {
+        setPendingEmail(result.email);
+        setProfileEmail(result.email);
+        setEmailActionMessage(`验证邮件已发送到 ${result.email}，打开邮件中的链接后才会更新绑定邮箱。`);
+        updateUser(result.user);
+      } else {
+        setPendingEmail(null);
+        setEmailActionMessage("邮箱已验证。");
+        updateUser(result.user);
+        void queryClient.invalidateQueries({ queryKey: ["me"] });
+      }
       setDevEmailVerificationPath(result.devVerificationPath ?? null);
       setEmailCopyState("idle");
-      void queryClient.invalidateQueries({ queryKey: ["me"] });
     },
     onError: () => setAccountSettingsSaved(false)
   });
@@ -212,6 +223,30 @@ export function AppShell() {
       setEmailActionMessage(result.alreadyVerified ? "邮箱已验证。" : "验证邮件已生成，请前往邮箱确认。");
       setDevEmailVerificationPath(result.devVerificationPath ?? null);
       setEmailCopyState("idle");
+    }
+  });
+
+  const resendEmailChangeMutation = useMutation({
+    mutationFn: userApi.resendEmailChange,
+    onSuccess: (result) => {
+      setPendingEmail(result.email);
+      setProfileEmail(result.email);
+      setDevEmailVerificationPath(result.devVerificationPath ?? null);
+      setEmailCopyState("idle");
+      setEmailActionMessage(`验证邮件已重新发送到 ${result.email}。`);
+      updateUser(result.user);
+    }
+  });
+
+  const cancelEmailChangeMutation = useMutation({
+    mutationFn: userApi.cancelEmailChange,
+    onSuccess: (result) => {
+      updateUser(result.user);
+      setPendingEmail(null);
+      setProfileEmail(result.user.email);
+      setDevEmailVerificationPath(null);
+      setEmailCopyState("idle");
+      setEmailActionMessage("邮箱变更已取消。");
     }
   });
 
@@ -261,9 +296,27 @@ export function AppShell() {
 
   useEffect(() => {
     setProfileName(user?.name ?? "");
-    setProfileEmail(user?.email ?? "");
+    if (
+      isAccountSettingsOpen &&
+      (pendingEmail || user?.pendingEmail) &&
+      user?.email.toLowerCase() !== (pendingEmail ?? user?.pendingEmail ?? "").toLowerCase()
+    ) {
+      setProfileEmail(pendingEmail ?? user?.pendingEmail ?? "");
+    } else {
+      setProfileEmail(user?.email ?? "");
+    }
     setProfileAvatarUrl(user?.avatarUrl ?? "");
-  }, [user]);
+
+    if (pendingEmail && user?.email.toLowerCase() === pendingEmail.toLowerCase()) {
+      setPendingEmail(null);
+      setEmailActionMessage("邮箱已验证并更新。");
+      setDevEmailVerificationPath(null);
+    }
+
+    if (!pendingEmail && user?.pendingEmail) {
+      setPendingEmail(user.pendingEmail);
+    }
+  }, [isAccountSettingsOpen, pendingEmail, user]);
 
   useEffect(() => {
     function handleStorage(event: StorageEvent) {
@@ -341,8 +394,9 @@ export function AppShell() {
   function handleOpenAccountSettings() {
     setIsUserMenuOpen(false);
     setIsAccountSettingsOpen(true);
+    const nextPendingEmail = user && user.pendingEmail?.toLowerCase() !== user.email.toLowerCase() ? user.pendingEmail : null;
     setProfileName(user?.name ?? "");
-    setProfileEmail(user?.email ?? "");
+    setProfileEmail(nextPendingEmail ?? user?.email ?? "");
     setProfileAvatarUrl(user?.avatarUrl ?? "");
     setProfileAvatarError("");
     setCurrentPassword("");
@@ -350,7 +404,8 @@ export function AppShell() {
     setConfirmPassword("");
     setPasswordFormError("");
     setAccountSettingsSaved(false);
-    setEmailActionMessage("");
+    setEmailActionMessage(nextPendingEmail ? `待验证邮箱：${nextPendingEmail}。打开邮件中的链接后才会更新绑定邮箱。` : "");
+    setPendingEmail(nextPendingEmail ?? null);
     setDevEmailVerificationPath(null);
     setEmailCopyState("idle");
   }
@@ -402,9 +457,13 @@ export function AppShell() {
     }
 
     const normalizedAvatarUrl = profileAvatarUrl.trim() || null;
+    const normalizedProfileEmail = profileEmail.trim().toLowerCase();
+    const normalizedCurrentEmail = (user?.email ?? "").toLowerCase();
+    const normalizedPendingEmail = pendingEmail?.toLowerCase() ?? null;
     const profileChanged =
       profileName.trim() !== (user?.name ?? "") || normalizedAvatarUrl !== (user?.avatarUrl ?? null);
-    const emailChanged = profileEmail.trim().toLowerCase() !== (user?.email ?? "").toLowerCase();
+    const emailChanged =
+      normalizedProfileEmail !== normalizedCurrentEmail && normalizedProfileEmail !== normalizedPendingEmail;
 
     setPasswordFormError("");
     setAccountSettingsSaved(false);
@@ -414,15 +473,18 @@ export function AppShell() {
         await updateProfileMutation.mutateAsync();
       }
 
+      let emailVerificationQueued = false;
+
       if (emailChanged) {
-        await updateEmailMutation.mutateAsync();
+        const emailResult = await updateEmailMutation.mutateAsync();
+        emailVerificationQueued = emailResult.verificationQueued;
       }
 
       if (hasPasswordInput) {
         await updatePasswordMutation.mutateAsync();
       }
 
-      setAccountSettingsSaved(true);
+      setAccountSettingsSaved(!emailVerificationQueued || profileChanged || hasPasswordInput);
     } catch {
       setAccountSettingsSaved(false);
     }
@@ -491,10 +553,32 @@ export function AppShell() {
     }
   }
 
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+
+    if (searchParams.get("account") !== "settings") {
+      return;
+    }
+
+    handleOpenAccountSettings();
+    searchParams.delete("account");
+    navigate(
+      {
+        pathname: location.pathname,
+        search: searchParams.toString(),
+        hash: location.hash
+      },
+      { replace: true }
+    );
+  }, [location.hash, location.pathname, location.search, navigate]);
+
   const normalizedProfileAvatarUrl = profileAvatarUrl.trim() || null;
+  const normalizedProfileEmail = profileEmail.trim().toLowerCase();
+  const normalizedCurrentEmail = (user?.email ?? "").toLowerCase();
+  const normalizedPendingEmail = pendingEmail?.toLowerCase() ?? null;
   const profileChanged =
     profileName.trim() !== (user?.name ?? "") || normalizedProfileAvatarUrl !== (user?.avatarUrl ?? null);
-  const emailChanged = profileEmail.trim().toLowerCase() !== (user?.email ?? "").toLowerCase();
+  const emailChanged = normalizedProfileEmail !== normalizedCurrentEmail && normalizedProfileEmail !== normalizedPendingEmail;
   const passwordChanged = Boolean(currentPassword || newPassword || confirmPassword);
   const accountSettingsDirty = profileChanged || emailChanged || passwordChanged;
   const isEmailVerified = Boolean(user?.emailVerifiedAt);
@@ -863,8 +947,10 @@ export function AppShell() {
                     <input
                       type="email"
                       value={profileEmail}
+                      disabled={Boolean(pendingEmail)}
                       onChange={(event) => {
                         setProfileEmail(event.target.value);
+                        setPendingEmail(null);
                         setAccountSettingsSaved(false);
                         setEmailActionMessage("");
                         setDevEmailVerificationPath(null);
@@ -888,7 +974,31 @@ export function AppShell() {
                       </button>
                     ) : null}
                   </div>
-                  <span className="muted">飞书未返回邮箱时会先使用临时邮箱，修改邮箱后需要通过验证链接确认。</span>
+                  {pendingEmail ? (
+                    <div className="account-pending-email">
+                      <span>当前邮箱：{currentEmail}</span>
+                      <strong>待验证邮箱：{pendingEmail}</strong>
+                      <span>验证成功后才会替换当前邮箱；验证前仍使用当前邮箱登录。</span>
+                      <div className="account-pending-email-actions">
+                        <button
+                          className="subtle-button"
+                          type="button"
+                          disabled={resendEmailChangeMutation.isPending}
+                          onClick={() => resendEmailChangeMutation.mutate()}
+                        >
+                          {resendEmailChangeMutation.isPending ? "发送中..." : "重新发送验证邮件"}
+                        </button>
+                        <button
+                          className="danger-inline-button"
+                          type="button"
+                          disabled={cancelEmailChangeMutation.isPending}
+                          onClick={() => cancelEmailChangeMutation.mutate()}
+                        >
+                          {cancelEmailChangeMutation.isPending ? "取消中..." : "取消邮箱变更"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                   {emailActionMessage ? <span className="success-text">{emailActionMessage}</span> : null}
                   {devEmailVerificationPath ? (
                     <div className="account-email-link">
@@ -977,6 +1087,8 @@ export function AppShell() {
                       error={
                         updateProfileMutation.error ??
                         updateEmailMutation.error ??
+                        resendEmailChangeMutation.error ??
+                        cancelEmailChangeMutation.error ??
                         updatePasswordMutation.error ??
                         sendEmailVerificationMutation.error ??
                         unbindFeishuMutation.error
@@ -988,6 +1100,8 @@ export function AppShell() {
                     disabled={
                       updateProfileMutation.isPending ||
                       updateEmailMutation.isPending ||
+                      resendEmailChangeMutation.isPending ||
+                      cancelEmailChangeMutation.isPending ||
                       updatePasswordMutation.isPending ||
                       sendEmailVerificationMutation.isPending ||
                       unbindFeishuMutation.isPending ||

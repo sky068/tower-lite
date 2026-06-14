@@ -6,6 +6,7 @@ import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createRefreshToken, hashToken, signAccessToken } from "../../utils/token.js";
 import { acceptPendingInvitationsForUser } from "../invitations/invitation.service.js";
+import { getDevelopmentEmailActionPath, queueAccountEmail } from "../email/email.service.js";
 import {
   claimPendingMembershipsForUser,
   claimPendingMembershipsForUserInTransaction,
@@ -26,6 +27,7 @@ import type {
 const REFRESH_TOKEN_DAYS = 30;
 const EMAIL_TOKEN_HOURS = 24;
 const PASSWORD_RESET_TOKEN_MINUTES = 60;
+const ACCOUNT_EMAIL_DEDUP_SECONDS = 60;
 const FEISHU_API_ORIGIN = "https://open.feishu.cn";
 const FEISHU_LOGIN_SCOPES = [
   "contact:user.email:readonly"
@@ -83,24 +85,16 @@ function emailSubject(type: AccountTokenType) {
   return "验证 Tower Lite 账号邮箱";
 }
 
-function emailBody(type: AccountTokenType, actionPath: string) {
+function emailBody(type: AccountTokenType) {
   if (type === AccountTokenType.PASSWORD_RESET) {
-    return `请打开以下链接设置新密码：${actionPath}`;
+    return "请打开以下链接设置新密码。";
   }
 
   if (type === AccountTokenType.EMAIL_CHANGE) {
-    return `请打开以下链接确认绑定邮箱变更：${actionPath}`;
+    return "请打开以下链接确认绑定邮箱变更。";
   }
 
-  return `请打开以下链接完成邮箱验证：${actionPath}`;
-}
-
-export function isEmailDeliveryConfigured() {
-  return Boolean(env.SMTP_HOST && env.MAIL_FROM);
-}
-
-export function getDevelopmentEmailActionPath(actionPath: string) {
-  return env.NODE_ENV !== "production" && !isEmailDeliveryConfigured() ? actionPath : null;
+  return "请打开以下链接完成邮箱验证。";
 }
 
 async function createAccountToken(input: {
@@ -136,27 +130,99 @@ async function createAccountToken(input: {
   return token;
 }
 
-export async function createEmailChangeToken(userId: string, email: string) {
-  const token = await createAccountToken({
-    type: AccountTokenType.EMAIL_CHANGE,
-    userId,
-    email,
-    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS)
-  });
+function tokenFromActionPath(actionPath: string) {
+  try {
+    return new URL(actionPath, env.APP_BASE_URL).searchParams.get("token");
+  } catch {
+    return null;
+  }
+}
 
-  const actionPath = buildVerificationPath(token);
-  await prisma.emailOutbox.create({
-    data: {
-      type: AccountTokenType.EMAIL_CHANGE,
-      toEmail: email,
-      subject: emailSubject(AccountTokenType.EMAIL_CHANGE),
-      body: emailBody(AccountTokenType.EMAIL_CHANGE, actionPath),
-      actionPath,
-      userId
+async function findRecentReusableActionPath(input: {
+  type: AccountTokenType;
+  userId: string;
+  email: string;
+}) {
+  const recentOutboxItem = await prisma.emailOutbox.findFirst({
+    where: {
+      type: input.type,
+      userId: input.userId,
+      toEmail: input.email,
+      createdAt: {
+        gte: new Date(Date.now() - ACCOUNT_EMAIL_DEDUP_SECONDS * 1000)
+      }
+    },
+    orderBy: {
+      createdAt: "desc"
     }
   });
 
+  if (!recentOutboxItem) {
+    return null;
+  }
+
+  const token = tokenFromActionPath(recentOutboxItem.actionPath);
+
+  if (!token) {
+    return null;
+  }
+
+  const accountToken = await prisma.accountToken.findUnique({
+    where: {
+      tokenHash: hashToken(token)
+    }
+  });
+
+  if (!accountToken || accountToken.usedAt || accountToken.expiresAt <= new Date()) {
+    return null;
+  }
+
+  return recentOutboxItem.actionPath;
+}
+
+async function createAccountEmailAction(input: {
+  type: AccountTokenType;
+  userId: string;
+  email: string;
+  expiresAt: Date;
+  buildActionPath: (token: string) => string;
+  force?: boolean;
+}) {
+  const reusableActionPath = input.force ? null : await findRecentReusableActionPath(input);
+
+  if (reusableActionPath) {
+    return reusableActionPath;
+  }
+
+  const token = await createAccountToken({
+    type: input.type,
+    userId: input.userId,
+    email: input.email,
+    expiresAt: input.expiresAt
+  });
+  const actionPath = input.buildActionPath(token);
+
+  await queueAccountEmail({
+    type: input.type,
+    toEmail: input.email,
+    subject: emailSubject(input.type),
+    body: emailBody(input.type),
+    actionPath,
+    userId: input.userId
+  });
+
   return actionPath;
+}
+
+export async function createEmailChangeToken(userId: string, email: string, options: { force?: boolean } = {}) {
+  return createAccountEmailAction({
+    type: AccountTokenType.EMAIL_CHANGE,
+    userId,
+    email,
+    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS),
+    buildActionPath: buildVerificationPath,
+    force: options.force
+  });
 }
 
 function isFeishuLoginConfigured() {
@@ -299,22 +365,12 @@ export async function register(input: RegisterInput) {
   });
 
   const tokens = await issueTokens(user.id);
-  const emailVerificationToken = await createAccountToken({
+  const emailVerificationPath = await createAccountEmailAction({
     type: AccountTokenType.EMAIL_VERIFY,
     userId: user.id,
     email: user.email,
-    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS)
-  });
-  const emailVerificationPath = buildVerificationPath(emailVerificationToken);
-  await prisma.emailOutbox.create({
-    data: {
-      type: AccountTokenType.EMAIL_VERIFY,
-      toEmail: user.email,
-      subject: emailSubject(AccountTokenType.EMAIL_VERIFY),
-      body: emailBody(AccountTokenType.EMAIL_VERIFY, emailVerificationPath),
-      actionPath: emailVerificationPath,
-      userId: user.id
-    }
+    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS),
+    buildActionPath: buildVerificationPath
   });
 
   return {
@@ -373,22 +429,12 @@ export async function sendEmailVerification(userId: string) {
     };
   }
 
-  const token = await createAccountToken({
+  const verificationPath = await createAccountEmailAction({
     type: AccountTokenType.EMAIL_VERIFY,
     userId: user.id,
     email: user.email,
-    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS)
-  });
-  const verificationPath = buildVerificationPath(token);
-  await prisma.emailOutbox.create({
-    data: {
-      type: AccountTokenType.EMAIL_VERIFY,
-      toEmail: user.email,
-      subject: emailSubject(AccountTokenType.EMAIL_VERIFY),
-      body: emailBody(AccountTokenType.EMAIL_VERIFY, verificationPath),
-      actionPath: verificationPath,
-      userId: user.id
-    }
+    expiresAt: hoursFromNow(EMAIL_TOKEN_HOURS),
+    buildActionPath: buildVerificationPath
   });
 
   return {
@@ -576,22 +622,12 @@ export async function requestPasswordReset(input: PasswordResetRequestInput) {
     };
   }
 
-  const token = await createAccountToken({
+  const resetPath = await createAccountEmailAction({
     type: AccountTokenType.PASSWORD_RESET,
     userId: user.id,
     email: user.email,
-    expiresAt: minutesFromNow(PASSWORD_RESET_TOKEN_MINUTES)
-  });
-  const resetPath = buildPasswordResetPath(token);
-  await prisma.emailOutbox.create({
-    data: {
-      type: AccountTokenType.PASSWORD_RESET,
-      toEmail: user.email,
-      subject: emailSubject(AccountTokenType.PASSWORD_RESET),
-      body: emailBody(AccountTokenType.PASSWORD_RESET, resetPath),
-      actionPath: resetPath,
-      userId: user.id
-    }
+    expiresAt: minutesFromNow(PASSWORD_RESET_TOKEN_MINUTES),
+    buildActionPath: buildPasswordResetPath
   });
 
   return {

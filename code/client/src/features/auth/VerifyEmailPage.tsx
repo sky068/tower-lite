@@ -38,7 +38,11 @@ export function VerifyEmailPage() {
         const nextRedirectPath = currentUser ? "/dashboard" : "/login";
 
         if (result.user && currentUser?.id === result.user.id) {
-          updateUser({ ...currentUser, ...result.user });
+          updateUser({
+            ...currentUser,
+            ...result.user,
+            pendingEmail: result.type === "EMAIL_CHANGE" ? null : currentUser.pendingEmail
+          });
         }
 
         setRedirectPath(nextRedirectPath);

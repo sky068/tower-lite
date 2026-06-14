@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
-import { invitationApi } from "../../lib/api";
+import { getApiErrorMessage, invitationApi } from "../../lib/api";
 
 type AcceptInvitationResult = {
   ok: boolean;
@@ -42,6 +42,8 @@ export function AcceptInvitationPage() {
   }, [queryClient, token]);
 
   const acceptedProjectId = result?.projectId;
+  const errorMessage = getApiErrorMessage(error);
+  const requiresEmailVerification = errorMessage === "请先完成邮箱验证，再接受注册链接。";
 
   return (
     <div className="page">
@@ -82,13 +84,31 @@ export function AcceptInvitationPage() {
           </>
         ) : null}
         {status === "error" ? (
-          <>
-            <h2>无法认领成员身份</h2>
-            <MutationError error={error} />
-            <Link className="text-link inline" to="/dashboard">
-              返回工作台
-            </Link>
-          </>
+          requiresEmailVerification ? (
+            <>
+              <h2>请先验证邮箱</h2>
+              <div className="form-info invite-guidance">
+                <span>当前账号还没有完成邮箱验证，暂时不能认领团队或项目成员身份。</span>
+                <span>请先到邮箱中打开验证链接。验证完成后，重新打开这条注册链接即可继续。</span>
+              </div>
+              <div className="segmented-actions">
+                <Link className="button-link" to="/dashboard">
+                  返回工作台
+                </Link>
+                <Link className="button-link secondary" to="/dashboard?account=settings">
+                  去账号设置
+                </Link>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2>无法认领成员身份</h2>
+              <MutationError error={error} />
+              <Link className="text-link inline" to="/dashboard">
+                返回工作台
+              </Link>
+            </>
+          )
         ) : null}
       </section>
     </div>

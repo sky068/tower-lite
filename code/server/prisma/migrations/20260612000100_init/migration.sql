@@ -80,6 +80,7 @@ CREATE TABLE "EmailOutbox" (
     "userId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "sentAt" TIMESTAMP(3),
+    "lastError" TEXT,
 
     CONSTRAINT "EmailOutbox_pkey" PRIMARY KEY ("id")
 );

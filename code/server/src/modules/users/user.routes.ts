@@ -12,11 +12,13 @@ import {
 } from "./user.schema.js";
 import {
   bindFeishuAccount,
+  cancelPendingEmailChange,
   getCurrentUser,
   listMyTasks,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  resendPendingEmailChange,
   unbindFeishuAccount,
   updateEmail,
   updatePassword,
@@ -49,6 +51,22 @@ userRoutes.patch(
   validate("body", updateEmailSchema),
   asyncHandler(async (req, res) => {
     const data = await updateEmail(getCurrentUserId(req), req.body);
+    return sendData(req, res, data);
+  })
+);
+
+userRoutes.post(
+  "/users/me/email-change/resend",
+  asyncHandler(async (req, res) => {
+    const data = await resendPendingEmailChange(getCurrentUserId(req));
+    return sendData(req, res, data);
+  })
+);
+
+userRoutes.delete(
+  "/users/me/email-change",
+  asyncHandler(async (req, res) => {
+    const data = await cancelPendingEmailChange(getCurrentUserId(req));
     return sendData(req, res, data);
   })
 );

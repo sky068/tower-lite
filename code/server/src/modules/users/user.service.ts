@@ -1,8 +1,9 @@
 import bcrypt from "bcryptjs";
-import { Prisma } from "@prisma/client";
+import { AccountTokenType, Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
-import { createEmailChangeToken, getDevelopmentEmailActionPath } from "../auth/auth.service.js";
+import { createEmailChangeToken } from "../auth/auth.service.js";
+import { getDevelopmentEmailActionPath } from "../email/email.service.js";
 import type { BindFeishuInput, UpdateEmailInput, UpdatePasswordInput, UpdateProfileInput } from "./user.schema.js";
 
 function toPublicUser(user: {
@@ -35,13 +36,39 @@ function toCurrentUser(user: {
   feishuUnionId: string | null;
   emailVerifiedAt: Date | null;
   systemRole: string;
-}) {
+}, pendingEmail: string | null = null) {
   return {
     ...toPublicUser(user),
     feishuBound: Boolean(user.feishuOpenId || user.feishuUnionId),
     feishuOpenId: user.feishuOpenId,
-    feishuUnionId: user.feishuUnionId
+    feishuUnionId: user.feishuUnionId,
+    pendingEmail
   };
+}
+
+async function getPendingEmailChange(userId: string) {
+  const token = await prisma.accountToken.findFirst({
+    where: {
+      userId,
+      type: AccountTokenType.EMAIL_CHANGE,
+      usedAt: null,
+      expiresAt: {
+        gt: new Date()
+      },
+      email: {
+        not: null
+      }
+    },
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+
+  return token?.email ?? null;
+}
+
+async function toCurrentUserWithPendingEmail(user: Parameters<typeof toCurrentUser>[0]) {
+  return toCurrentUser(user, await getPendingEmailChange(user.id));
 }
 
 export async function getCurrentUser(userId: string) {
@@ -56,7 +83,7 @@ export async function getCurrentUser(userId: string) {
     throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
   }
 
-  return toCurrentUser(user);
+  return toCurrentUserWithPendingEmail(user);
 }
 
 export async function updateProfile(userId: string, input: UpdateProfileInput) {
@@ -81,7 +108,7 @@ export async function updateProfile(userId: string, input: UpdateProfileInput) {
     }
   });
 
-  return toCurrentUser(updatedUser);
+  return toCurrentUserWithPendingEmail(updatedUser);
 }
 
 export async function updateEmail(userId: string, input: UpdateEmailInput) {
@@ -96,13 +123,23 @@ export async function updateEmail(userId: string, input: UpdateEmailInput) {
     throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
   }
 
+  const pendingEmail = await getPendingEmailChange(userId);
+
+  if (pendingEmail && pendingEmail !== input.email) {
+    throw new AppError(
+      "BUSINESS_RULE_VIOLATION",
+      "Please verify or cancel the pending email change before changing email again",
+      422
+    );
+  }
+
   if (user.email === input.email) {
     if (user.emailVerifiedAt) {
       return {
         ok: true,
         email: user.email,
         verificationQueued: false,
-        user: toCurrentUser(user)
+        user: await toCurrentUserWithPendingEmail(user)
       };
     }
 
@@ -113,7 +150,7 @@ export async function updateEmail(userId: string, input: UpdateEmailInput) {
       email: input.email,
       verificationQueued: true,
       devVerificationPath: getDevelopmentEmailActionPath(actionPath),
-      user: toCurrentUser(user)
+      user: await toCurrentUserWithPendingEmail(user)
     };
   }
 
@@ -134,7 +171,64 @@ export async function updateEmail(userId: string, input: UpdateEmailInput) {
     email: input.email,
     verificationQueued: true,
     devVerificationPath: getDevelopmentEmailActionPath(actionPath),
-    user: toCurrentUser(user)
+    user: await toCurrentUserWithPendingEmail(user)
+  };
+}
+
+export async function resendPendingEmailChange(userId: string) {
+  const pendingEmail = await getPendingEmailChange(userId);
+
+  if (!pendingEmail) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Pending email change not found", 404);
+  }
+
+  const actionPath = await createEmailChangeToken(userId, pendingEmail, { force: true });
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    }
+  });
+
+  if (!user) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  return {
+    ok: true,
+    email: pendingEmail,
+    verificationQueued: true,
+    devVerificationPath: getDevelopmentEmailActionPath(actionPath),
+    user: await toCurrentUserWithPendingEmail(user)
+  };
+}
+
+export async function cancelPendingEmailChange(userId: string) {
+  await prisma.accountToken.updateMany({
+    where: {
+      userId,
+      type: AccountTokenType.EMAIL_CHANGE,
+      usedAt: null
+    },
+    data: {
+      usedAt: new Date()
+    }
+  });
+
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    }
+  });
+
+  if (!user) {
+    throw new AppError("RESOURCE_NOT_FOUND", "User not found", 404);
+  }
+
+  return {
+    ok: true,
+    user: await toCurrentUserWithPendingEmail(user)
   };
 }
 
@@ -188,7 +282,7 @@ export async function bindFeishuAccount(userId: string, input: BindFeishuInput) 
       }
     });
 
-    return toCurrentUser(updatedUser);
+    return toCurrentUserWithPendingEmail(updatedUser);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       throw new AppError("CONFLICT", "这个飞书账号已绑定到其他用户。", 409);
@@ -224,7 +318,7 @@ export async function unbindFeishuAccount(userId: string) {
     }
   });
 
-  return toCurrentUser(updatedUser);
+  return toCurrentUserWithPendingEmail(updatedUser);
 }
 
 export async function listMyTasks(userId: string) {

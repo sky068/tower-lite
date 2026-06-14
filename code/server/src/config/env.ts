@@ -5,6 +5,24 @@ import { z } from "zod";
 config();
 config({ path: resolve(process.cwd(), "../.env") });
 
+const booleanEnvSchema = z.preprocess((value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "off", ""].includes(normalized)) {
+    return false;
+  }
+
+  return value;
+}, z.boolean());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   API_PORT: z.coerce.number().int().positive().default(4000),
@@ -22,10 +40,11 @@ const envSchema = z.object({
   FEISHU_VERIFICATION_TOKEN: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
-  SMTP_SECURE: z.coerce.boolean().optional(),
+  SMTP_SECURE: booleanEnvSchema.optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
-  MAIL_FROM: z.string().optional()
+  MAIL_FROM: z.string().optional(),
+  EMAIL_DELIVERY_DISABLED: booleanEnvSchema.optional()
 });
 
 export const env = envSchema.parse(process.env);
