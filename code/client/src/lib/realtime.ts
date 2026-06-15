@@ -28,6 +28,13 @@ type RealtimeEvent =
 
 export type RealtimeStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
+function invalidateProjectTaskViews(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
+  void queryClient.invalidateQueries({ queryKey: ["board", projectId] });
+  void queryClient.invalidateQueries({ queryKey: ["project-task-list", projectId] });
+  // 甘特图当前复用 project-task-list；保留独立 key，未来拆 queryKey 时不会漏刷新。
+  void queryClient.invalidateQueries({ queryKey: ["project-gantt", projectId] });
+}
+
 function getRealtimeOrigin() {
   const apiTarget =
     (import.meta.env.VITE_API_TARGET as string | undefined) ??
@@ -90,8 +97,7 @@ export function useRealtimeEvents() {
 
       if (event.type === "task.changed") {
         void queryClient.invalidateQueries({ queryKey: ["my-tasks"] });
-        void queryClient.invalidateQueries({ queryKey: ["board", event.projectId] });
-        void queryClient.invalidateQueries({ queryKey: ["project-task-list", event.projectId] });
+        invalidateProjectTaskViews(queryClient, event.projectId);
 
         if (event.taskId) {
           void queryClient.invalidateQueries({ queryKey: ["task", event.taskId] });
@@ -134,8 +140,7 @@ export function useRealtimeEvents() {
 
       if (event.type === "tags.changed") {
         void queryClient.invalidateQueries({ queryKey: ["tags", event.projectId] });
-        void queryClient.invalidateQueries({ queryKey: ["board", event.projectId] });
-        void queryClient.invalidateQueries({ queryKey: ["project-task-list", event.projectId] });
+        invalidateProjectTaskViews(queryClient, event.projectId);
 
         if (event.taskId) {
           void queryClient.invalidateQueries({ queryKey: ["task", event.taskId] });

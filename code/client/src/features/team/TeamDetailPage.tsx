@@ -175,25 +175,15 @@ export function TeamDetailPage() {
     }
   });
   const batchImportMutation = useMutation({
-    mutationFn: async (rows: TeamMemberImportRow[]) => {
-      for (const row of rows) {
-        try {
-          await teamApi.addMember(teamId!, { email: row.email, role: row.role });
-        } catch (error) {
-          throw new Error(`第 ${row.lineNumber} 行导入失败：${row.email}，${getApiErrorMessage(error)}`);
-        }
-      }
-
-      return rows.length;
-    },
-    onSuccess: (count) => {
-      setBatchImportMessage(`已导入 ${count} 个成员`);
+    mutationFn: (rows: TeamMemberImportRow[]) => teamApi.batchImportMembers(teamId!, { members: rows }),
+    onSuccess: (result) => {
+      setBatchImportMessage(`已导入 ${result.importedCount} 个成员`);
       setBatchImportRows([]);
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });
       void queryClient.invalidateQueries({ queryKey: ["team-activity", teamId] });
     },
     onError: (error) => {
-      setBatchImportError(error instanceof Error ? error.message : "批量导入失败，请检查 CSV 内容。");
+      setBatchImportError(getApiErrorMessage(error, "批量导入失败，请检查 CSV 内容。"));
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["team-members", teamId] });

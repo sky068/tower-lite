@@ -1,7 +1,9 @@
 import { DeliveryChannel, DeliveryStatus } from "@prisma/client";
+import { Queue, Worker } from "bullmq";
 import crypto from "node:crypto";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
+import { createQueueConnection, type QueueWorkerHandle } from "../../lib/queue.js";
 import { prisma } from "../../lib/prisma.js";
 import { AppError } from "../../middleware/error-handler.js";
 import { createActivityLog } from "../activity/activity.service.js";
@@ -9,6 +11,7 @@ import { requireProjectManager } from "../projects/project.policy.js";
 import type { ClearFeishuDeliveriesInput, FeishuWebhookInput } from "./feishu.schema.js";
 
 const FEISHU_DELIVERY_INTERVAL_MS = 60 * 1000;
+const FEISHU_DELIVERY_QUEUE_NAME = "tower-feishu-deliveries";
 const FEISHU_DELIVERY_BATCH_SIZE = 20;
 const FEISHU_DELIVERY_MAX_ATTEMPTS = 3;
 const FEISHU_API_ORIGIN = "https://open.feishu.cn";
@@ -396,19 +399,63 @@ export async function runFeishuDeliveryScan() {
   }
 }
 
-export function startFeishuDeliveryWorker() {
+export async function startFeishuDeliveryWorker(): Promise<QueueWorkerHandle | null> {
   if (!isFeishuConfigured()) {
     logger.info("Feishu delivery worker disabled because FEISHU_APP_ID or FEISHU_APP_SECRET is missing");
-    return;
+    return null;
   }
 
-  const timer = setInterval(() => {
-    void runFeishuDeliveryScan().catch((error) => {
-      logger.error({ err: error }, "Feishu delivery scan failed");
-    });
-  }, FEISHU_DELIVERY_INTERVAL_MS);
+  const connection = createQueueConnection();
+  const queue = new Queue(FEISHU_DELIVERY_QUEUE_NAME, { connection });
+  const worker = new Worker(
+    FEISHU_DELIVERY_QUEUE_NAME,
+    async () => {
+      await runFeishuDeliveryScan();
+    },
+    {
+      connection,
+      concurrency: 1
+    }
+  );
 
-  timer.unref();
+  worker.on("failed", (job, error) => {
+    logger.error({ err: error, jobId: job?.id }, "Feishu delivery scan failed");
+  });
+  worker.on("error", (error) => {
+    logger.error({ err: error }, "Feishu delivery BullMQ worker error");
+  });
+  queue.on("error", (error) => {
+    logger.error({ err: error }, "Feishu delivery BullMQ queue error");
+  });
+
+  try {
+    await queue.upsertJobScheduler(
+      "feishu-delivery-scan",
+      {
+        every: FEISHU_DELIVERY_INTERVAL_MS
+      },
+      {
+        name: "scan",
+        data: {},
+        opts: {
+          removeOnComplete: 20,
+          removeOnFail: 100
+        }
+      }
+    );
+  } catch (error) {
+    await Promise.allSettled([worker.close(), queue.close()]);
+    throw error;
+  }
+
+  logger.info({ intervalMs: FEISHU_DELIVERY_INTERVAL_MS }, "Feishu delivery BullMQ worker started");
+
+  return {
+    async close() {
+      await worker.close();
+      await queue.close();
+    }
+  };
 }
 
 export async function handleFeishuWebhook(input: FeishuWebhookInput) {

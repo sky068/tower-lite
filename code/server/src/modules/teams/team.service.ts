@@ -13,6 +13,7 @@ import { publishTeamEvent, publishToUsers } from "../realtime/realtime.service.j
 import { isSystemAdmin, requireSystemAdmin } from "../system/system.policy.js";
 import type {
   AddTeamMemberInput,
+  BatchImportTeamMembersInput,
   CreateTeamInput,
   UpdateTeamInput,
   UpdateTeamMemberRoleInput
@@ -334,6 +335,97 @@ export async function addTeamMember(userId: string, teamId: string, input: AddTe
   await publishTeamEvent(teamId, { type: "team.changed", teamId });
 
   return toMemberView(member);
+}
+
+export async function batchImportTeamMembers(userId: string, teamId: string, input: BatchImportTeamMembersInput) {
+  await requireTeamAdmin(userId, teamId);
+
+  const normalizedRows = input.members.map((member, index) => ({
+    ...member,
+    email: normalizeEmail(member.email),
+    lineNumber: member.lineNumber ?? index + 1
+  }));
+  const seenEmails = new Map<string, number>();
+
+  for (const row of normalizedRows) {
+    const existingLineNumber = seenEmails.get(row.email);
+    if (existingLineNumber) {
+      throw new AppError(
+        "BUSINESS_RULE_VIOLATION",
+        `CSV 中存在重复邮箱：${row.email}（第 ${existingLineNumber} 行和第 ${row.lineNumber} 行）`,
+        422
+      );
+    }
+    seenEmails.set(row.email, row.lineNumber);
+  }
+
+  const members = await prisma.$transaction(async (tx) => {
+    await tx.invitation.updateMany({
+      where: {
+        email: {
+          in: normalizedRows.map((row) => row.email)
+        },
+        teamId,
+        projectId: null,
+        status: "PENDING"
+      },
+      data: {
+        status: "REVOKED"
+      }
+    });
+
+    const importedMembers: Array<Awaited<ReturnType<typeof ensureTeamMemberForEmailWithoutDowngrade>>> = [];
+    for (const row of normalizedRows) {
+      const member = await ensureTeamMemberForEmailWithoutDowngrade(tx, {
+        teamId,
+        email: row.email,
+        role: row.role
+      });
+
+      if (!member.userId) {
+        await tx.invitation.create({
+          data: {
+            email: row.email,
+            token: createInvitationToken(),
+            teamRole: row.role,
+            teamId,
+            inviterId: userId,
+            expiresAt: invitationExpiresAt()
+          }
+        });
+      }
+
+      await tx.activityLog.create({
+        data: {
+          actorId: userId,
+          teamId,
+          action: "team_member.added",
+          targetType: "team_member",
+          targetId: member.id,
+          metadata: {
+            userId: member.userId,
+            email: member.email,
+            name: member.user?.name,
+            role: row.role,
+            source: "batch_import",
+            lineNumber: row.lineNumber
+          }
+        }
+      });
+
+      importedMembers.push(member);
+    }
+
+    await assertTeamKeepsAdminEntry(tx, teamId);
+    return importedMembers;
+  });
+
+  await publishTeamEvent(teamId, { type: "team.changed", teamId });
+
+  return {
+    importedCount: members.length,
+    members: members.map(toMemberView)
+  };
 }
 
 export async function updateTeamMemberRole(

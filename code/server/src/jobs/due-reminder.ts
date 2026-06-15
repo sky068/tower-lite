@@ -1,9 +1,12 @@
+import { Queue, Worker } from "bullmq";
 import { NotificationType } from "@prisma/client";
 import { logger } from "../config/logger.js";
+import { createQueueConnection, type QueueWorkerHandle } from "../lib/queue.js";
 import { prisma } from "../lib/prisma.js";
 import { createNotification } from "../modules/notifications/notification.service.js";
 
 const DUE_REMINDER_INTERVAL_MS = 10 * 60 * 1000;
+const DUE_REMINDER_QUEUE_NAME = "tower-due-reminders";
 
 export async function runDueReminderScan() {
   const now = new Date();
@@ -76,12 +79,56 @@ export async function runDueReminderScan() {
   }
 }
 
-export function startDueReminderWorker() {
-  const timer = setInterval(() => {
-    void runDueReminderScan().catch((error) => {
-      logger.error({ err: error }, "Due reminder scan failed");
-    });
-  }, DUE_REMINDER_INTERVAL_MS);
+export async function startDueReminderWorker(): Promise<QueueWorkerHandle> {
+  const connection = createQueueConnection();
+  const queue = new Queue(DUE_REMINDER_QUEUE_NAME, { connection });
+  const worker = new Worker(
+    DUE_REMINDER_QUEUE_NAME,
+    async () => {
+      await runDueReminderScan();
+    },
+    {
+      connection,
+      concurrency: 1
+    }
+  );
 
-  timer.unref();
+  worker.on("failed", (job, error) => {
+    logger.error({ err: error, jobId: job?.id }, "Due reminder scan failed");
+  });
+  worker.on("error", (error) => {
+    logger.error({ err: error }, "Due reminder BullMQ worker error");
+  });
+  queue.on("error", (error) => {
+    logger.error({ err: error }, "Due reminder BullMQ queue error");
+  });
+
+  try {
+    await queue.upsertJobScheduler(
+      "due-reminder-scan",
+      {
+        every: DUE_REMINDER_INTERVAL_MS
+      },
+      {
+        name: "scan",
+        data: {},
+        opts: {
+          removeOnComplete: 20,
+          removeOnFail: 100
+        }
+      }
+    );
+  } catch (error) {
+    await Promise.allSettled([worker.close(), queue.close()]);
+    throw error;
+  }
+
+  logger.info({ intervalMs: DUE_REMINDER_INTERVAL_MS }, "Due reminder BullMQ worker started");
+
+  return {
+    async close() {
+      await worker.close();
+      await queue.close();
+    }
+  };
 }

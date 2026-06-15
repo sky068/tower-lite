@@ -134,6 +134,11 @@ type MemberResponse = {
   role: string;
 };
 
+type BatchImportMembersResponse = {
+  importedCount: number;
+  members: MemberResponse[];
+};
+
 type TaskListResponse = {
   id: string;
   name: string;
@@ -1058,6 +1063,52 @@ describe("V0 HTTP integration", () => {
         role: "MEMBER"
       }
     });
+    const batchImportedMembers = (await request<BatchImportMembersResponse>("POST", `/api/v1/teams/${team.id}/members/batch`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        members: [
+          {
+            email: `batch-admin@${emailDomain}`,
+            role: "ADMIN",
+            lineNumber: 2
+          },
+          {
+            email: `batch-member@${emailDomain}`,
+            role: "MEMBER",
+            lineNumber: 3
+          }
+        ]
+      }
+    })).data;
+    assert.equal(batchImportedMembers.importedCount, 2);
+    assert.equal(batchImportedMembers.members.length, 2);
+    assert.ok(batchImportedMembers.members.every((member) => member.status === "PENDING"));
+    const membersBeforeRejectedBatch = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data.length;
+    await request<BatchImportMembersResponse>("POST", `/api/v1/teams/${team.id}/members/batch`, {
+      token: owner.token,
+      expectedStatus: 422,
+      body: {
+        members: [
+          {
+            email: `batch-duplicate@${emailDomain}`,
+            role: "MEMBER",
+            lineNumber: 2
+          },
+          {
+            email: `BATCH-DUPLICATE@${emailDomain}`,
+            role: "ADMIN",
+            lineNumber: 3
+          }
+        ]
+      }
+    });
+    const membersAfterRejectedBatch = (await request<MemberResponse[]>("GET", `/api/v1/teams/${team.id}/members`, {
+      token: owner.token
+    })).data.length;
+    assert.equal(membersAfterRejectedBatch, membersBeforeRejectedBatch);
     const directAddedTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
       token: owner.token,
       expectedStatus: 201,

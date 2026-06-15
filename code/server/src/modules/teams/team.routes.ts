@@ -5,6 +5,7 @@ import { asyncHandler } from "../../utils/async-handler.js";
 import { sendData } from "../../utils/api-response.js";
 import {
   addTeamMember,
+  batchImportTeamMembers,
   createTeam,
   deleteTeam,
   getTeam,
@@ -16,6 +17,7 @@ import {
 } from "./team.service.js";
 import {
   addTeamMemberSchema,
+  batchImportTeamMembersSchema,
   createTeamSchema,
   teamIdParamsSchema,
   teamMemberParamsSchema,
@@ -78,6 +80,16 @@ teamRoutes.post(
   validate("body", addTeamMemberSchema),
   asyncHandler(async (req, res) => {
     const data = await addTeamMember(getCurrentUserId(req), req.params.teamId, req.body);
+    return sendData(req, res, data, 201);
+  })
+);
+
+teamRoutes.post(
+  "/teams/:teamId/members/batch",
+  validate("params", teamIdParamsSchema),
+  validate("body", batchImportTeamMembersSchema),
+  asyncHandler(async (req, res) => {
+    const data = await batchImportTeamMembers(getCurrentUserId(req), req.params.teamId, req.body);
     return sendData(req, res, data, 201);
   })
 );

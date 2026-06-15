@@ -26,6 +26,14 @@ export const addTeamMemberSchema = z.object({
   role: z.nativeEnum(TeamRole).default(TeamRole.MEMBER)
 });
 
+export const batchImportTeamMembersSchema = z.object({
+  members: z.array(
+    addTeamMemberSchema.extend({
+      lineNumber: z.number().int().positive().optional()
+    })
+  ).min(1).max(500)
+});
+
 export const updateTeamMemberRoleSchema = z.object({
   role: z.nativeEnum(TeamRole)
 });
@@ -33,4 +41,5 @@ export const updateTeamMemberRoleSchema = z.object({
 export type CreateTeamInput = z.infer<typeof createTeamSchema>;
 export type UpdateTeamInput = z.infer<typeof updateTeamSchema>;
 export type AddTeamMemberInput = z.infer<typeof addTeamMemberSchema>;
+export type BatchImportTeamMembersInput = z.infer<typeof batchImportTeamMembersSchema>;
 export type UpdateTeamMemberRoleInput = z.infer<typeof updateTeamMemberRoleSchema>;

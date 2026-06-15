@@ -365,6 +365,9 @@ export const teamApi = {
   addMember(teamId: string, input: { email: string; role: "ADMIN" | "MEMBER" }) {
     return unwrap<Member>(api.post(`/teams/${teamId}/members`, input));
   },
+  batchImportMembers(teamId: string, input: { members: Array<{ email: string; role: "ADMIN" | "MEMBER"; lineNumber?: number }> }) {
+    return unwrap<{ importedCount: number; members: Member[] }>(api.post(`/teams/${teamId}/members/batch`, input));
+  },
   updateMemberRole(teamId: string, memberId: string, role: "ADMIN" | "MEMBER") {
     return unwrap<Member>(api.patch(`/teams/${teamId}/members/${memberId}/role`, { role }));
   },
