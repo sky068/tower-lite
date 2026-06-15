@@ -27,6 +27,7 @@ import { formatRelativeTime } from "../../lib/dateTime";
 import { getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
 import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { useRealtimeEvents } from "../../lib/realtime";
+import { APP_VERSION } from "../../lib/version";
 import { useAuthStore } from "../../stores/authStore";
 import type { EmailOutboxItem, Notification, Project } from "../../types/api";
 
@@ -1173,6 +1174,9 @@ export function AppShell() {
                   )}
                 </section>
                 <footer className="account-settings-footer">
+                  <span className="app-version" aria-label={`当前版本 ${APP_VERSION}`}>
+                    {APP_VERSION}
+                  </span>
                   <div className="account-settings-status">
                     {passwordFormError ? <span className="error-text">{passwordFormError}</span> : null}
                     {accountSettingsSaved ? <span className="success-text">设置已保存。</span> : null}
