@@ -1,6 +1,6 @@
 {
   "name": "@tower/client",
-  "version": "0.1.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.50.1",
-    "@tower/shared": "0.1.0",
+    "@tower/shared": "1.5.0",
     "@vitejs/plugin-react": "^4.3.1",
     "axios": "^1.7.2",
     "lucide-react": "^0.468.0",

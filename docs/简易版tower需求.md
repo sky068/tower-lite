@@ -1358,6 +1358,10 @@ FEISHU_VERIFICATION_TOKEN=""
 
 V1.0 后端需要提供 `POST /api/v1/feishu/webhook`，支持飞书 challenge、token 校验、加密 payload 解密和事件幂等记录；同时提供项目级飞书投递排查能力，便于查看投递状态、失败原因和重试次数。
 
+### 发布准备
+
+当前对外发布版本为 `v1.5.0`。发布前需要统一应用内显示版本、根 package、各 workspace package 和 `package-lock.json` 中的版本号。发布验收至少执行 `npm run typecheck`、`npm run test:integration`、`npm run test:e2e` 和 `npm run build`；需要一条命令验收时执行 `npm run test:acceptance`。正式发布前需要确认 `.env.example` 覆盖数据库、JWT、应用访问地址、系统管理员、SMTP、飞书和 Redis 相关配置。对外发布后不再依赖清空开发数据库解决结构问题，数据库结构变化应通过迁移脚本发布。
+
 ### 关键页面验收
 
 登录页：

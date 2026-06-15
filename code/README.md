@@ -522,6 +522,32 @@ npm run dev:up
 
 如果投递失败原因显示“飞书应用尚未启用机器人能力”，说明应用后台没有开启机器人；启用机器人能力、发布版本并审核生效后，再重启后端服务验证。
 
+## 发布准备
+
+当前对外发布版本为 `v1.5.0`。发布前需要保持以下版本号一致：
+
+- 应用内显示版本：`client/src/lib/version.ts`
+- 根 package：`package.json`
+- 工作区 package：`client/package.json`、`server/package.json`、`shared/package.json`
+- 锁文件：`package-lock.json`
+
+发布前建议执行：
+
+```bash
+npm run typecheck
+npm run test:integration
+npm run test:e2e
+npm run build
+```
+
+如果使用一条命令验收，可以执行：
+
+```bash
+npm run test:acceptance
+```
+
+发布前还需要确认 `.env.example` 覆盖正式环境配置，至少包括数据库、JWT、应用访问地址、系统管理员、SMTP、飞书和 Redis 相关配置。对外发布后不再依赖清空开发数据库解决结构问题；数据库结构变化应通过迁移脚本发布。
+
 ## V2.0 甘特图排期规则
 
 V2.0 先补项目级甘特图排期基础能力，后续再做依赖连线：
