@@ -7,7 +7,9 @@ import {
   FolderKanban,
   ListChecks,
   LogOut,
+  Mail,
   Plus,
+  RefreshCw,
   Settings,
   Trash2,
   Unlink,
@@ -20,12 +22,12 @@ import { MutationError } from "../shared/MutationError";
 import { Select } from "../shared/Select";
 import { UserAvatar } from "../shared/UserAvatar";
 import { UserSelect } from "../shared/UserSelect";
-import { authApi, projectApi, teamApi, userApi } from "../../lib/api";
+import { authApi, projectApi, systemApi, teamApi, userApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
-import { getMemberUser } from "../../lib/members";
+import { getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
 import { useRealtimeEvents } from "../../lib/realtime";
 import { useAuthStore } from "../../stores/authStore";
-import type { Notification, Project } from "../../types/api";
+import type { EmailOutboxItem, Notification, Project } from "../../types/api";
 
 const realtimeStatusLabels = {
   idle: "实时连接未启动",
@@ -46,6 +48,8 @@ export function AppShell() {
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isAccountSettingsOpen, setIsAccountSettingsOpen] = useState(false);
+  const [isEmailOutboxOpen, setIsEmailOutboxOpen] = useState(false);
+  const [emailOutboxStatus, setEmailOutboxStatus] = useState<"ALL" | "PENDING" | "SENT" | "FAILED">("FAILED");
   const [isCreatingTeam, setIsCreatingTeam] = useState(false);
   const [creatingProjectTeamId, setCreatingProjectTeamId] = useState<string | null>(null);
   const [notificationCenterFilter, setNotificationCenterFilter] = useState<"ALL" | "UNREAD">("ALL");
@@ -69,7 +73,8 @@ export function AppShell() {
   const notificationsRef = useRef<HTMLDivElement | null>(null);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
   const realtimeStatus = useRealtimeEvents();
-  const isSystemAdmin = user?.systemRole === "ADMIN";
+  const isEmailVerified = Boolean(user?.emailVerifiedAt);
+  const isSystemAdmin = isVerifiedSystemAdmin(user);
   const userHasPassword = user?.hasPassword ?? true;
   const isFeishuBound = Boolean(user && "feishuBound" in user && user.feishuBound);
   const currentEmail = user?.email ?? "";
@@ -103,6 +108,17 @@ export function AppShell() {
     mutationFn: userApi.markAllNotificationsRead,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    }
+  });
+  const emailOutboxQuery = useQuery({
+    queryKey: ["system-email-outbox", emailOutboxStatus],
+    queryFn: () => systemApi.emailOutbox({ status: emailOutboxStatus, limit: 50 }),
+    enabled: Boolean(isSystemAdmin && isEmailOutboxOpen)
+  });
+  const retryEmailOutboxMutation = useMutation({
+    mutationFn: systemApi.retryEmailOutboxItem,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["system-email-outbox"] });
     }
   });
   const teamsQuery = useQuery({
@@ -581,7 +597,7 @@ export function AppShell() {
   const emailChanged = normalizedProfileEmail !== normalizedCurrentEmail && normalizedProfileEmail !== normalizedPendingEmail;
   const passwordChanged = Boolean(currentPassword || newPassword || confirmPassword);
   const accountSettingsDirty = profileChanged || emailChanged || passwordChanged;
-  const isEmailVerified = Boolean(user?.emailVerifiedAt);
+  const emailOutboxItems = emailOutboxQuery.data ?? [];
 
   return (
     <div className="app-shell">
@@ -864,6 +880,18 @@ export function AppShell() {
                     </button>
                   ) : null}
                   <div className="user-popover-actions">
+                    {isSystemAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEmailOutboxOpen(true);
+                          setIsUserMenuOpen(false);
+                        }}
+                      >
+                        <Mail size={16} />
+                        <span>邮件投递</span>
+                      </button>
+                    ) : null}
                     <button type="button" onClick={handleOpenAccountSettings}>
                       <Settings size={16} />
                       <span>设置</span>
@@ -1212,10 +1240,111 @@ export function AppShell() {
             </section>
           </div>
         ) : null}
+        {isEmailOutboxOpen && isSystemAdmin ? (
+          <div className="modal-backdrop">
+            <section className="modal email-outbox-modal" aria-label="邮件投递">
+              <header className="modal-header">
+                <div>
+                  <h2>邮件投递</h2>
+                  <p>查看账号验证、邮箱变更和密码重置邮件的发送状态。</p>
+                </div>
+                <button
+                  className="icon-button modal-close-button"
+                  type="button"
+                  aria-label="关闭邮件投递"
+                  title="关闭"
+                  onClick={() => setIsEmailOutboxOpen(false)}
+                >
+                  <X size={18} />
+                </button>
+              </header>
+              <div className="email-outbox-toolbar">
+                <Select
+                  className="compact-select"
+                  ariaLabel="邮件状态筛选"
+                  value={emailOutboxStatus}
+                  onChange={(value) => setEmailOutboxStatus(value as typeof emailOutboxStatus)}
+                  options={[
+                    { value: "FAILED", label: "失败" },
+                    { value: "PENDING", label: "待发送" },
+                    { value: "SENT", label: "已发送" },
+                    { value: "ALL", label: "全部" }
+                  ]}
+                />
+                <button
+                  className="secondary-inline-button"
+                  type="button"
+                  disabled={emailOutboxQuery.isFetching}
+                  onClick={() => void emailOutboxQuery.refetch()}
+                >
+                  <RefreshCw size={15} aria-hidden="true" />
+                  <span>刷新</span>
+                </button>
+              </div>
+              <div className="email-outbox-list scroll-contained">
+                {emailOutboxQuery.isLoading ? <span className="muted">邮件投递记录加载中...</span> : null}
+                {emailOutboxItems.map((item: EmailOutboxItem) => (
+                  <article className="email-outbox-item" key={item.id}>
+                    <div className="email-outbox-main">
+                      <div>
+                        <strong>{item.toEmail}</strong>
+                        <span>{formatEmailOutboxType(item.type)} · {item.subject}</span>
+                      </div>
+                      <span className={`email-outbox-status status-${item.status.toLowerCase()}`}>
+                        {formatEmailOutboxStatus(item.status)}
+                      </span>
+                    </div>
+                    <div className="email-outbox-meta">
+                      <span>发起人：{item.user.name} / {item.user.email}</span>
+                      <span>创建：{formatRelativeTime(item.createdAt)}</span>
+                      {item.sentAt ? <span>发送：{formatRelativeTime(item.sentAt)}</span> : null}
+                    </div>
+                    {item.lastError ? <p className="email-outbox-error">{item.lastError}</p> : null}
+                    {!item.sentAt ? (
+                      <button
+                        className="secondary-inline-button"
+                        type="button"
+                        disabled={retryEmailOutboxMutation.isPending}
+                        onClick={() => retryEmailOutboxMutation.mutate(item.id)}
+                      >
+                        <RefreshCw size={15} aria-hidden="true" />
+                        <span>{retryEmailOutboxMutation.isPending ? "重试中..." : "重试发送"}</span>
+                      </button>
+                    ) : null}
+                  </article>
+                ))}
+                {!emailOutboxQuery.isLoading && emailOutboxItems.length === 0 ? (
+                  <span className="muted">暂无邮件投递记录</span>
+                ) : null}
+              </div>
+              <MutationError error={emailOutboxQuery.error ?? retryEmailOutboxMutation.error} />
+            </section>
+          </div>
+        ) : null}
         <section className="content">
           <Outlet />
         </section>
       </main>
     </div>
   );
+}
+
+function formatEmailOutboxType(type: EmailOutboxItem["type"]) {
+  const labels: Record<EmailOutboxItem["type"], string> = {
+    EMAIL_VERIFY: "邮箱验证",
+    EMAIL_CHANGE: "邮箱变更",
+    PASSWORD_RESET: "密码重置"
+  };
+
+  return labels[type];
+}
+
+function formatEmailOutboxStatus(status: EmailOutboxItem["status"]) {
+  const labels: Record<EmailOutboxItem["status"], string> = {
+    PENDING: "待发送",
+    SENT: "已发送",
+    FAILED: "失败"
+  };
+
+  return labels[status];
 }

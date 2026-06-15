@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { getCurrentUserId, requireAuth } from "../../middleware/auth.js";
+import { createRateLimit, userRateLimitKey } from "../../middleware/rate-limit.js";
 import { validate } from "../../middleware/validate.js";
 import { asyncHandler } from "../../utils/async-handler.js";
 import { sendData } from "../../utils/api-response.js";
@@ -29,6 +30,13 @@ export const userRoutes = Router();
 
 userRoutes.use(requireAuth);
 
+const accountChangeRateLimit = createRateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  key: userRateLimitKey("users:account-change"),
+  message: "账号相关请求过于频繁，请稍后再试。"
+});
+
 userRoutes.get(
   "/users/me",
   asyncHandler(async (req, res) => {
@@ -49,6 +57,7 @@ userRoutes.patch(
 userRoutes.patch(
   "/users/me/email",
   validate("body", updateEmailSchema),
+  accountChangeRateLimit,
   asyncHandler(async (req, res) => {
     const data = await updateEmail(getCurrentUserId(req), req.body);
     return sendData(req, res, data);
@@ -57,6 +66,7 @@ userRoutes.patch(
 
 userRoutes.post(
   "/users/me/email-change/resend",
+  accountChangeRateLimit,
   asyncHandler(async (req, res) => {
     const data = await resendPendingEmailChange(getCurrentUserId(req));
     return sendData(req, res, data);

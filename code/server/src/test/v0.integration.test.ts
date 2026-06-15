@@ -57,6 +57,23 @@ type PasswordResetRequestResponse = {
   resetQueued?: boolean;
 };
 
+type EmailOutboxResponse = {
+  id: string;
+  type: AccountTokenType;
+  toEmail: string;
+  subject: string;
+  status: "PENDING" | "SENT" | "FAILED";
+  createdAt: string;
+  sentAt: string | null;
+  lastError: string | null;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  actionPath?: string;
+};
+
 type FeishuAuthorizeResponse = {
   configured: boolean;
   authorizeUrl: string | null;
@@ -624,6 +641,73 @@ describe("V0 HTTP integration", () => {
       },
       data: {
         systemRole: "ADMIN"
+      }
+    });
+    const unverifiedSystemAdmin = (await request<AuthResponse>("POST", "/api/v1/auth/register", {
+      expectedStatus: 201,
+      body: {
+        email: `unverified-system-admin@${emailDomain}`,
+        name: "Unverified System Admin",
+        password: "Password123!"
+      }
+    })).data;
+    await prisma.user.update({
+      where: {
+        id: unverifiedSystemAdmin.user.id
+      },
+      data: {
+        systemRole: "ADMIN"
+      }
+    });
+    await request<TeamResponse[]>("GET", "/api/v1/teams", {
+      token: unverifiedSystemAdmin.accessToken
+    });
+    await request<TeamResponse>("POST", "/api/v1/teams", {
+      token: unverifiedSystemAdmin.accessToken,
+      expectedStatus: 403,
+      body: {
+        name: `Unverified Admin Team ${runId}`,
+        adminEmail: owner.email
+      }
+    });
+    await request<EmailOutboxResponse[]>("GET", "/api/v1/system/email-outbox?status=ALL&limit=20", {
+      token: unverifiedSystemAdmin.accessToken,
+      expectedStatus: 403
+    });
+
+    const systemEmailOutbox = (await request<EmailOutboxResponse[]>(
+      "GET",
+      "/api/v1/system/email-outbox?status=ALL&limit=20",
+      {
+        token: owner.token
+      }
+    )).data;
+    assert.ok(systemEmailOutbox.some((item) => item.toEmail === owner.email));
+    assert.equal("actionPath" in systemEmailOutbox[0], false);
+    await request<EmailOutboxResponse[]>("GET", "/api/v1/system/email-outbox?status=ALL&limit=20", {
+      token: editor.token,
+      expectedStatus: 403
+    });
+    await request<EmailOutboxResponse>("POST", `/api/v1/system/email-outbox/${systemEmailOutbox[0].id}/retry`, {
+      token: owner.token,
+      expectedStatus: 422
+    });
+
+    const rateLimitedEmail = `rate-limited-${runId}@${emailDomain}`;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await request<AuthResponse>("POST", "/api/v1/auth/login", {
+        expectedStatus: 401,
+        body: {
+          email: rateLimitedEmail,
+          password: "wrong-password"
+        }
+      });
+    }
+    await request<AuthResponse>("POST", "/api/v1/auth/login", {
+      expectedStatus: 429,
+      body: {
+        email: rateLimitedEmail,
+        password: "wrong-password"
       }
     });
 

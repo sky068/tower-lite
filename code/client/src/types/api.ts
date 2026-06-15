@@ -46,6 +46,18 @@ export type EmailChangeResponse = {
   user: CurrentUser;
 };
 
+export type EmailOutboxItem = {
+  id: string;
+  type: "EMAIL_VERIFY" | "EMAIL_CHANGE" | "PASSWORD_RESET";
+  toEmail: string;
+  subject: string;
+  status: "PENDING" | "SENT" | "FAILED";
+  createdAt: string;
+  sentAt: string | null;
+  lastError: string | null;
+  user: Pick<User, "id" | "name" | "email">;
+};
+
 export type PasswordResetRequestResponse = {
   ok: boolean;
   resetQueued?: boolean;

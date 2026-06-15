@@ -6,6 +6,7 @@ import { errorHandler } from "./middleware/error-handler.js";
 import { requestId } from "./middleware/request-id.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { activityRoutes } from "./modules/activity/activity.routes.js";
+import { emailRoutes } from "./modules/email/email.routes.js";
 import { feishuRoutes } from "./modules/feishu/feishu.routes.js";
 import { healthRoutes } from "./modules/health/health.routes.js";
 import { invitationRoutes } from "./modules/invitations/invitation.routes.js";
@@ -31,6 +32,7 @@ export function createApp() {
 
   app.use(API_PREFIX, healthRoutes);
   app.use(API_PREFIX, authRoutes);
+  app.use(API_PREFIX, emailRoutes);
   app.use(API_PREFIX, feishuRoutes);
   app.use(API_PREFIX, userRoutes);
   app.use(API_PREFIX, activityRoutes);

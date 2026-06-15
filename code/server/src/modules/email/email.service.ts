@@ -3,6 +3,9 @@ import { AccountTokenType } from "@prisma/client";
 import { env } from "../../config/env.js";
 import { logger } from "../../config/logger.js";
 import { prisma } from "../../lib/prisma.js";
+import { AppError } from "../../middleware/error-handler.js";
+import { requireSystemAdmin } from "../system/system.policy.js";
+import type { EmailOutboxQuery } from "./email.schema.js";
 
 type EmailOutboxInput = {
   type: AccountTokenType;
@@ -74,6 +77,33 @@ function getTransport() {
   return transport;
 }
 
+function toPublicEmailOutboxItem(item: {
+  id: string;
+  type: AccountTokenType;
+  toEmail: string;
+  subject: string;
+  createdAt: Date;
+  sentAt: Date | null;
+  lastError: string | null;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}) {
+  return {
+    id: item.id,
+    type: item.type,
+    toEmail: item.toEmail,
+    subject: item.subject,
+    status: item.sentAt ? "SENT" : item.lastError ? "FAILED" : "PENDING",
+    createdAt: item.createdAt,
+    sentAt: item.sentAt,
+    lastError: item.lastError,
+    user: item.user
+  };
+}
+
 async function sendOutboxItem(input: EmailOutboxInput & { id: string }) {
   const mailTransport = getTransport();
 
@@ -124,4 +154,108 @@ export async function queueAccountEmail(input: EmailOutboxInput) {
   });
 
   return outboxItem;
+}
+
+export async function listEmailOutbox(userId: string, input: EmailOutboxQuery) {
+  await requireSystemAdmin(userId);
+
+  const items = await prisma.emailOutbox.findMany({
+    where: {
+      type: input.type,
+      ...(input.status === "SENT"
+        ? {
+            sentAt: {
+              not: null
+            }
+          }
+        : {}),
+      ...(input.status === "FAILED"
+        ? {
+            sentAt: null,
+            lastError: {
+              not: null
+            }
+          }
+        : {}),
+      ...(input.status === "PENDING"
+        ? {
+            sentAt: null,
+            lastError: null
+          }
+        : {})
+    },
+    orderBy: {
+      createdAt: "desc"
+    },
+    take: input.limit,
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      }
+    }
+  });
+
+  return items.map(toPublicEmailOutboxItem);
+}
+
+export async function retryEmailOutboxItem(userId: string, emailOutboxId: string) {
+  await requireSystemAdmin(userId);
+
+  if (!isEmailDeliveryConfigured()) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Email delivery is not configured", 422);
+  }
+
+  const item = await prisma.emailOutbox.findUnique({
+    where: {
+      id: emailOutboxId
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      }
+    }
+  });
+
+  if (!item) {
+    throw new AppError("RESOURCE_NOT_FOUND", "Email outbox item not found", 404);
+  }
+
+  if (item.sentAt) {
+    throw new AppError("BUSINESS_RULE_VIOLATION", "Email outbox item has already been sent", 422);
+  }
+
+  await sendOutboxItem({
+    id: item.id,
+    type: item.type,
+    toEmail: item.toEmail,
+    subject: item.subject,
+    body: item.body,
+    actionPath: item.actionPath,
+    userId: item.userId
+  });
+
+  const updatedItem = await prisma.emailOutbox.findUniqueOrThrow({
+    where: {
+      id: item.id
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true
+        }
+      }
+    }
+  });
+
+  return toPublicEmailOutboxItem(updatedItem);
 }

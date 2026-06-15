@@ -590,10 +590,12 @@ textarea:focus {
   gap: 8px;
 }
 
+.secondary-inline-button,
 .avatar-editor-actions .secondary-inline-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   min-height: 34px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
@@ -601,6 +603,11 @@ textarea:focus {
   color: #334155;
   padding: 0 10px;
   font-size: 14px;
+}
+
+.secondary-inline-button:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #f8fafc;
 }
 
 .danger-inline-button {
@@ -2930,6 +2937,101 @@ select[multiple] {
   min-height: 0;
   overflow-y: auto;
   padding-right: 4px;
+}
+
+.email-outbox-modal {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(760px, 100%);
+  max-height: min(720px, calc(100vh - 40px));
+}
+
+.email-outbox-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.email-outbox-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.email-outbox-item {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.email-outbox-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.email-outbox-main > div,
+.email-outbox-meta {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.email-outbox-main strong {
+  color: #0f172a;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.email-outbox-main span,
+.email-outbox-meta {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.email-outbox-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 8px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.email-outbox-status.status-sent {
+  background: #16a34a;
+}
+
+.email-outbox-status.status-failed {
+  background: #dc2626;
+}
+
+.email-outbox-status.status-pending {
+  background: #64748b;
+}
+
+.email-outbox-error {
+  margin: 0;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .success-text {
