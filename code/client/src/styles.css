@@ -1291,6 +1291,11 @@ textarea:focus {
   grid-template-columns: 360px minmax(0, 1fr);
 }
 
+.people-gantt-grid {
+  min-width: max(1180px, calc(var(--gantt-units) * var(--gantt-unit-width) + 400px));
+  grid-template-columns: 400px minmax(0, 1fr);
+}
+
 .gantt-header {
   position: sticky;
   top: 0;
@@ -1357,6 +1362,57 @@ textarea:focus {
 
 .gantt-task-title.context .gantt-task-title-text {
   color: #64748b;
+}
+
+.people-gantt-person-title {
+  background: #f8fafc;
+}
+
+.people-gantt-task-title {
+  padding-left: 30px;
+}
+
+.people-gantt-task-name-row {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.people-gantt-task-name-row .gantt-task-title-text {
+  min-width: 0;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.task-level-badge {
+  flex: 0 0 auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.people-gantt-person {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.people-gantt-count {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.people-gantt-group-track {
+  background-color: #f8fafc;
 }
 
 .gantt-task-title-button,
@@ -1461,6 +1517,13 @@ textarea:focus {
   touch-action: none;
   cursor: pointer;
   user-select: none;
+}
+
+.people-gantt-summary-bar {
+  border-color: #93c5fd;
+  background: #dbeafe;
+  color: #1d4ed8;
+  cursor: help;
 }
 
 .gantt-bar[data-reschedulable="true"] {

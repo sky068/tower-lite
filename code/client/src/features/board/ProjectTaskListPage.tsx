@@ -468,7 +468,10 @@ export function ProjectTaskListPage() {
             列表
           </Link>
           <Link to={`/projects/${projectId}/gantt`}>
-            甘特图
+            甘特图(任务)
+          </Link>
+          <Link to={`/projects/${projectId}/gantt/people`}>
+            甘特图(人员)
           </Link>
           {projectId && projectPermissions.canManageProject ? (
             <Link

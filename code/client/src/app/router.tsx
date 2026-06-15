@@ -71,7 +71,11 @@ const routes = [
       },
       {
         path: "/projects/:projectId/gantt",
-        element: <ProjectGanttPage />
+        element: <ProjectGanttPage viewMode="TASK" />
+      },
+      {
+        path: "/projects/:projectId/gantt/people",
+        element: <ProjectGanttPage viewMode="PEOPLE" />
       },
       {
         path: "/teams/:teamId",

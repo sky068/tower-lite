@@ -51,6 +51,10 @@ type TaskResponse = {
   title: string;
 };
 
+type TaskDetailResponse = TaskResponse & {
+  subTasks: TaskResponse[];
+};
+
 type TaskListResponse = {
   id: string;
   name: string;
@@ -208,6 +212,15 @@ async function findTaskIdByTitle(title: string) {
   const task = lists.flatMap((list) => list.tasks).find((item) => item.title === title);
   expect(task, `task ${title} should exist`).toBeTruthy();
   return task!.id;
+}
+
+async function findSubTaskIdByTitle(parentTaskId: string, title: string) {
+  const taskDetail = (await apiRequest<TaskDetailResponse>("GET", `/tasks/${parentTaskId}`, {
+    token: owner.token
+  })).data;
+  const subTask = taskDetail.subTasks.find((item) => item.title === title);
+  expect(subTask, `subtask ${title} should exist`).toBeTruthy();
+  return subTask!.id;
 }
 
 async function logout(page: Page) {
@@ -417,9 +430,13 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
     "href",
     `/projects/${projectId}/list`
   );
-  await expect(projectMenu.getByRole("link", { name: "甘特图" })).toHaveAttribute(
+  await expect(projectMenu.getByRole("link", { name: "甘特图(任务)" })).toHaveAttribute(
     "href",
     `/projects/${projectId}/gantt`
+  );
+  await expect(projectMenu.getByRole("link", { name: "甘特图(人员)" })).toHaveAttribute(
+    "href",
+    `/projects/${projectId}/gantt/people`
   );
   await expect(projectMenu.getByRole("link", { name: "设置" })).toHaveAttribute(
     "href",
@@ -513,6 +530,14 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await detail.getByRole("button", { name: "关闭任务详情" }).click();
   await expect(detail).toBeHidden();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
+  const subTaskId = await findSubTaskIdByTitle(taskId, subTaskTitle);
+  await apiRequest<TaskResponse>("PATCH", `/tasks/${subTaskId}`, {
+    token: owner.token,
+    data: {
+      startDate: taskStartDate,
+      dueDate: taskDueDate
+    }
+  });
   await page.getByPlaceholder("搜索任务、负责人或标签").fill(secondLevelSubTaskTitle);
   await expect(page.getByRole("button", { name: new RegExp(taskTitle) })).toBeVisible();
   await expect(page.getByRole("button", { name: new RegExp(secondLevelSubTaskTitle) })).toHaveCount(0);
@@ -548,30 +573,30 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(detail).toBeVisible();
   await detail.getByRole("button", { name: "关闭任务详情" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/list$`));
-  await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图" }).click();
+  await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图(任务)" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/gantt$`));
-  await expect(page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图" })).toHaveAttribute(
+  await expect(page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图(任务)" })).toHaveAttribute(
     "aria-current",
     "page"
   );
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle).first()).toBeVisible();
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText("未排期").first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(taskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(subTaskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText("未排期").first()).toBeVisible();
   await expect(page.locator(".gantt-unscheduled").getByText(subTaskTitle)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: new RegExp(`${escapeRegExp(subTaskTitle)} 排期`) })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: new RegExp(`${escapeRegExp(subTaskTitle)} 排期`) })).toHaveCount(1);
   await expect(page.getByRole("button", { name: new RegExp(taskTitle) }).first()).toBeVisible();
   await page.getByPlaceholder("搜索任务、负责人或标签").fill(taskTitle);
   await page.getByRole("button", { name: `折叠 ${taskTitle}` }).click();
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(subTaskTitle)).toHaveCount(0);
   await page.getByPlaceholder("搜索任务、负责人或标签").clear();
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(subTaskTitle).first()).toBeVisible();
   await page.getByRole("button", { name: `折叠 ${taskTitle}` }).click();
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(subTaskTitle)).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle)).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(taskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(subTaskTitle)).toHaveCount(0);
   await page.getByRole("button", { name: `展开 ${taskTitle}` }).click();
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(subTaskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(subTaskTitle).first()).toBeVisible();
   const ganttBar = page.getByRole("button", { name: new RegExp(`${escapeRegExp(taskTitle)} 排期`) });
   await expect(ganttBar).toHaveAttribute("data-reschedulable", "true");
   await expect(ganttBar.locator(".gantt-resize-handle.left")).toHaveCount(1);
@@ -582,9 +607,29 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await expect(ganttZoom.getByRole("button", { name: "周" })).toHaveAttribute("aria-pressed", "true");
   await ganttZoom.getByRole("button", { name: "月" }).click();
   await expect(ganttZoom.getByRole("button", { name: "月" })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("region", { name: "甘特图" }).getByText(taskTitle).first()).toBeVisible();
+  await expect(page.getByRole("region", { name: "甘特图(任务)" }).getByText(taskTitle).first()).toBeVisible();
   await ganttZoom.getByRole("button", { name: "季度" }).click();
   await expect(ganttZoom.getByRole("button", { name: "季度" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图(人员)" }).click();
+  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/gantt/people$`));
+  await expect(page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "甘特图(人员)" })).toHaveAttribute(
+    "aria-current",
+    "page"
+  );
+  const peopleGantt = page.getByRole("region", { name: "甘特图(人员)" });
+  await expect(peopleGantt.getByText("人员 / 任务")).toBeVisible();
+  await expect(peopleGantt.getByText("E2E Editor").first()).toBeVisible();
+  await expect(peopleGantt.getByText(taskTitle).first()).toBeVisible();
+  await expect(peopleGantt.getByText(subTaskTitle).first()).toBeVisible();
+  await expect(peopleGantt.getByText("子任务").first()).toBeVisible();
+  await expect(peopleGantt.getByRole("button", { name: new RegExp(`${escapeRegExp(taskTitle)} 排期`) })).toHaveCount(1);
+  await expect(peopleGantt.getByRole("button", { name: new RegExp(`${escapeRegExp(subTaskTitle)} 排期`) })).toHaveCount(1);
+  await expect(peopleGantt.locator(".people-gantt-summary-bar")).toHaveCount(1);
+  await expect(peopleGantt.getByText("未排期任务")).toHaveCount(0);
+  await peopleGantt.getByRole("button", { name: `折叠 ${taskTitle}` }).click();
+  await expect(peopleGantt.getByText(subTaskTitle)).toHaveCount(0);
+  await peopleGantt.getByRole("button", { name: `展开 ${taskTitle}` }).click();
+  await expect(peopleGantt.getByText(subTaskTitle).first()).toBeVisible();
   await page.getByRole("navigation", { name: "项目菜单" }).getByRole("link", { name: "看板" }).click();
   await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/board$`));
 

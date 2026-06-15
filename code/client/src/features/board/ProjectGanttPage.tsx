@@ -13,7 +13,7 @@ import { getMemberName, getMemberUser, isVerifiedSystemAdmin } from "../../lib/m
 import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { useAuthStore } from "../../stores/authStore";
-import type { Task, TaskList } from "../../types/api";
+import type { Member, Task, TaskList, User } from "../../types/api";
 
 type GanttTask = Task & {
   depth: number;
@@ -32,6 +32,7 @@ type GanttFilters = {
 };
 
 type GanttZoom = "DAY" | "WEEK" | "MONTH" | "QUARTER";
+type GanttViewMode = "TASK" | "PEOPLE";
 
 type GanttDragMode = "MOVE" | "START" | "END";
 
@@ -53,6 +54,33 @@ type UpdateTaskDatesInput = {
   dueDate: Date;
   previousLists?: TaskList[];
 };
+
+type PeopleGanttGroup = {
+  id: string;
+  name: string;
+  email: string;
+  user: User | null;
+  tasks: GanttTask[];
+  summarySegments: Array<{ start: Date; end: Date }>;
+};
+
+type PeopleGanttRow =
+  | {
+      id: string;
+      kind: "PERSON";
+      group: PeopleGanttGroup;
+      task: null;
+      depth: number;
+      hasChildren: boolean;
+    }
+  | {
+      id: string;
+      kind: "TASK";
+      group: PeopleGanttGroup;
+      task: GanttTask;
+      depth: number;
+      hasChildren: boolean;
+    };
 
 const GANTT_ZOOM_OPTIONS: Array<{ value: GanttZoom; label: string; unitWidth: number }> = [
   { value: "DAY", label: "天", unitWidth: 68 },
@@ -254,6 +282,37 @@ function GanttTreeToggle({
   );
 }
 
+function PeopleTreeToggle({
+  label,
+  hasChildren,
+  collapsed,
+  onToggle
+}: {
+  label: string;
+  hasChildren: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  if (!hasChildren) {
+    return <span className="gantt-tree-toggle-placeholder" aria-hidden="true" />;
+  }
+
+  return (
+    <button
+      className="gantt-tree-toggle"
+      type="button"
+      aria-label={`${collapsed ? "展开" : "折叠"} ${label}`}
+      aria-expanded={!collapsed}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggle();
+      }}
+    >
+      {collapsed ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+    </button>
+  );
+}
+
 function formatTaskDateRange(task: GanttTask) {
   if (task.barKind === "SUMMARY" && task.barStart && task.barEnd) {
     return `子任务汇总 ${formatCalendarDate(task.barStart.toISOString())} - ${formatCalendarDate(task.barEnd.toISOString())}`;
@@ -264,6 +323,50 @@ function formatTaskDateRange(task: GanttTask) {
   }
 
   return "未排期";
+}
+
+function hasOwnSchedule(task: GanttTask) {
+  return Boolean(task.startDate && task.dueDate);
+}
+
+function hasGanttBar(task: GanttTask) {
+  return Boolean(getGanttTaskStart(task) && getGanttTaskEnd(task) && task.barKind !== "NONE");
+}
+
+function getTaskLevelMarker(task: GanttTask) {
+  return task.depth > 0 ? "子任务" : null;
+}
+
+function mergeGanttTaskRangeSegments(tasks: GanttTask[]) {
+  const ranges = tasks
+    .map((task) => {
+      const start = getGanttTaskStart(task);
+      const end = getGanttTaskEnd(task);
+
+      return start && end && task.barKind !== "NONE" ? { start, end } : null;
+    })
+    .filter((range): range is { start: Date; end: Date } => Boolean(range));
+
+  const sortedRanges = ranges.sort((left, right) => left.start.getTime() - right.start.getTime());
+  const segments: Array<{ start: Date; end: Date }> = [];
+
+  sortedRanges.forEach((range) => {
+    const lastSegment = segments.at(-1);
+
+    if (!lastSegment) {
+      segments.push({ start: range.start, end: range.end });
+      return;
+    }
+
+    if (range.start.getTime() <= addDays(lastSegment.end, 1).getTime()) {
+      lastSegment.end = new Date(Math.max(lastSegment.end.getTime(), range.end.getTime()));
+      return;
+    }
+
+    segments.push({ start: range.start, end: range.end });
+  });
+
+  return segments;
 }
 
 function flattenTasks(lists: TaskList[]) {
@@ -339,30 +442,31 @@ function flattenTasks(lists: TaskList[]) {
   );
 }
 
-function filterTasks(tasks: GanttTask[], filters: GanttFilters) {
+function taskMatchesFilters(task: GanttTask, filters: GanttFilters) {
   const keyword = filters.keyword.trim().toLowerCase();
+
+  const matchesKeyword =
+    !keyword ||
+    task.title.toLowerCase().includes(keyword) ||
+    task.listName.toLowerCase().includes(keyword) ||
+    (task.assignees ?? []).some((assignee) => assignee.name.toLowerCase().includes(keyword)) ||
+    (task.tags ?? []).some((tag) => tag.name.toLowerCase().includes(keyword));
+  const matchesAssignee =
+    filters.assigneeId === "ALL" ||
+    (filters.assigneeId === "UNASSIGNED" && (task.assignees?.length ?? 0) === 0) ||
+    (task.assignees ?? []).some((assignee) => assignee.id === filters.assigneeId);
+  const matchesPriority = filters.priority === "ALL" || task.priority === filters.priority;
+  const matchesCompletion =
+    filters.completion === "ALL" ||
+    (filters.completion === "OPEN" && task.status !== "DONE") ||
+    (filters.completion === "DONE" && task.status === "DONE");
+
+  return matchesKeyword && matchesAssignee && matchesPriority && matchesCompletion;
+}
+
+function filterTasks(tasks: GanttTask[], filters: GanttFilters) {
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const includedTaskIds = new Set<string>();
-
-  function matchesTask(task: GanttTask) {
-    const matchesKeyword =
-      !keyword ||
-      task.title.toLowerCase().includes(keyword) ||
-      task.listName.toLowerCase().includes(keyword) ||
-      (task.assignees ?? []).some((assignee) => assignee.name.toLowerCase().includes(keyword)) ||
-      (task.tags ?? []).some((tag) => tag.name.toLowerCase().includes(keyword));
-    const matchesAssignee =
-      filters.assigneeId === "ALL" ||
-      (filters.assigneeId === "UNASSIGNED" && (task.assignees?.length ?? 0) === 0) ||
-      (task.assignees ?? []).some((assignee) => assignee.id === filters.assigneeId);
-    const matchesPriority = filters.priority === "ALL" || task.priority === filters.priority;
-    const matchesCompletion =
-      filters.completion === "ALL" ||
-      (filters.completion === "OPEN" && task.status !== "DONE") ||
-      (filters.completion === "DONE" && task.status === "DONE");
-
-    return matchesKeyword && matchesAssignee && matchesPriority && matchesCompletion;
-  }
 
   function includeWithAncestors(task: GanttTask) {
     includedTaskIds.add(task.id);
@@ -381,7 +485,7 @@ function filterTasks(tasks: GanttTask[], filters: GanttFilters) {
   }
 
   tasks.forEach((task) => {
-    if (matchesTask(task)) {
+    if (taskMatchesFilters(task, filters)) {
       includeWithAncestors(task);
     }
   });
@@ -485,6 +589,115 @@ function getCollapsedStorageKey(projectId: string) {
   return `tower.gantt.collapsed.${projectId}`;
 }
 
+function getPeopleCollapsedStorageKey(projectId: string) {
+  return `tower.gantt.people.collapsed.${projectId}`;
+}
+
+function buildPeopleGroups(tasks: GanttTask[], members: Member[], assigneeFilter: string) {
+  const groups: PeopleGanttGroup[] = [];
+
+  function isAssignedToMember(task: GanttTask, memberId: string) {
+    return (task.assignees ?? []).some((assignee) => assignee.id === memberId);
+  }
+
+  const memberGroups = members
+    .filter((member) => assigneeFilter === "ALL" || assigneeFilter === member.id)
+    .map((member) => {
+      const memberTasks = tasks.filter((task) => isAssignedToMember(task, member.id) && hasOwnSchedule(task));
+
+      return {
+        id: `member:${member.id}`,
+        name: getMemberName(member),
+        email: member.email,
+        user: getMemberUser(member),
+        tasks: memberTasks,
+        summarySegments: mergeGanttTaskRangeSegments(memberTasks)
+      };
+    });
+
+  if (assigneeFilter !== "UNASSIGNED") {
+    groups.push(...memberGroups);
+  }
+
+  if (assigneeFilter === "ALL" || assigneeFilter === "UNASSIGNED") {
+    const unassignedTasks = tasks.filter((task) => (task.assignees?.length ?? 0) === 0 && hasOwnSchedule(task));
+
+    if (unassignedTasks.length > 0 || assigneeFilter === "UNASSIGNED") {
+      groups.push({
+        id: "unassigned",
+        name: "未分配",
+        email: "",
+        user: null,
+        tasks: unassignedTasks,
+        summarySegments: mergeGanttTaskRangeSegments(unassignedTasks)
+      });
+    }
+  }
+
+  return groups;
+}
+
+function buildPeopleTaskRows(group: PeopleGanttGroup, collapsedRowIds: Set<string>) {
+  const tasks = group.tasks;
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const childrenByParentId = new Map<string, GanttTask[]>();
+
+  tasks.forEach((task) => {
+    if (!task.parentId || !taskIds.has(task.parentId)) {
+      return;
+    }
+
+    childrenByParentId.set(task.parentId, [...(childrenByParentId.get(task.parentId) ?? []), task]);
+  });
+
+  function visit(task: GanttTask, localDepth: number): PeopleGanttRow[] {
+    const children = childrenByParentId.get(task.id) ?? [];
+    const row: PeopleGanttRow = {
+      id: `${group.id}:task:${task.id}`,
+      kind: "TASK",
+      group,
+      task,
+      depth: localDepth + 1,
+      hasChildren: children.length > 0
+    };
+
+    if (collapsedRowIds.has(row.id)) {
+      return [row];
+    }
+
+    return [
+      row,
+      ...children.flatMap((child) => visit(child, localDepth + 1))
+    ];
+  }
+
+  return tasks
+    .filter((task) => !task.parentId || !taskIds.has(task.parentId))
+    .flatMap((task) => visit(task, 0));
+}
+
+function flattenPeopleGroups(groups: PeopleGanttGroup[], collapsedRowIds: Set<string>) {
+  return groups.flatMap<PeopleGanttRow>((group) => {
+    const groupRow: PeopleGanttRow = {
+      id: group.id,
+      kind: "PERSON",
+      group,
+      task: null,
+      depth: 0,
+      hasChildren: group.tasks.length > 0
+    };
+
+    if (collapsedRowIds.has(group.id)) {
+      return [groupRow];
+    }
+
+    return [
+      groupRow,
+      ...buildPeopleTaskRows(group, collapsedRowIds)
+    ];
+  });
+}
+
 function updateTaskDatesInLists(lists: TaskList[] | undefined, taskId: string, startDate: string, dueDate: string) {
   return lists?.map((list) => ({
     ...list,
@@ -500,7 +713,7 @@ function updateTaskDatesInLists(lists: TaskList[] | undefined, taskId: string, s
   }));
 }
 
-export function ProjectGanttPage() {
+export function ProjectGanttPage({ viewMode = "TASK" }: { viewMode?: GanttViewMode }) {
   const { projectId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -512,6 +725,10 @@ export function ProjectGanttPage() {
   const [completionFilter, setCompletionFilter] = useState<"OPEN" | "DONE" | "ALL">("ALL");
   const [zoom, setZoom] = useState<GanttZoom>("DAY");
   const [savedCollapsedState, setSavedCollapsedState] = useState<{ projectId: string; ids: Set<string> }>({
+    projectId: "",
+    ids: new Set()
+  });
+  const [savedPeopleCollapsedState, setSavedPeopleCollapsedState] = useState<{ projectId: string; ids: Set<string> }>({
     projectId: "",
     ids: new Set()
   });
@@ -567,6 +784,23 @@ export function ProjectGanttPage() {
   }, [savedCollapsedState.projectId, projectId]);
 
   useEffect(() => {
+    if (!projectId || savedPeopleCollapsedState.projectId === projectId) {
+      return;
+    }
+
+    try {
+      const rawValue = window.localStorage.getItem(getPeopleCollapsedStorageKey(projectId));
+      const parsedValue = rawValue ? JSON.parse(rawValue) : [];
+      setSavedPeopleCollapsedState({
+        projectId,
+        ids: new Set(Array.isArray(parsedValue) ? parsedValue.filter((item) => typeof item === "string") : [])
+      });
+    } catch {
+      setSavedPeopleCollapsedState({ projectId, ids: new Set() });
+    }
+  }, [savedPeopleCollapsedState.projectId, projectId]);
+
+  useEffect(() => {
     setSessionCollapsedIds(new Set());
   }, [assigneeFilter, completionFilter, priorityFilter, projectId, taskSearch]);
 
@@ -587,6 +821,18 @@ export function ProjectGanttPage() {
       }),
     [allTasks, assigneeFilter, completionFilter, priorityFilter, taskSearch]
   );
+  const filteredPeopleTasks = useMemo(
+    () =>
+      allTasks.filter((task) =>
+        taskMatchesFilters(task, {
+          keyword: taskSearch,
+          assigneeId: assigneeFilter,
+          priority: priorityFilter,
+          completion: completionFilter
+        })
+      ),
+    [allTasks, assigneeFilter, completionFilter, priorityFilter, taskSearch]
+  );
   const scheduledTree = useMemo(() => includeScheduledAncestors(filteredTasks), [filteredTasks]);
   const scheduledTasks = useMemo(
     () => filterCollapsedTasks(scheduledTree.tasks, collapsedTaskIds),
@@ -604,6 +850,27 @@ export function ProjectGanttPage() {
     [collapsedTaskIds, filteredTasks, scheduledTree.scheduledTreeTaskIds]
   );
   const timeline = useMemo(() => buildTimeline(scheduledTasks, zoom), [scheduledTasks, zoom]);
+  const peopleGroups = useMemo(
+    () => buildPeopleGroups(filteredPeopleTasks, membersQuery.data ?? [], assigneeFilter),
+    [assigneeFilter, filteredPeopleTasks, membersQuery.data]
+  );
+  const peopleTimeline = useMemo(
+    () => buildTimeline(peopleGroups.flatMap((group) => group.tasks).filter(hasGanttBar), zoom),
+    [peopleGroups, zoom]
+  );
+  const peopleCollapsedGroupIds =
+    projectId && savedPeopleCollapsedState.projectId === projectId
+      ? savedPeopleCollapsedState.ids
+      : new Set<string>();
+  const peopleScheduledGroups = useMemo(
+    () => peopleGroups.filter((group) => group.tasks.length > 0),
+    [peopleGroups]
+  );
+  const peopleScheduledRows = useMemo(
+    () => flattenPeopleGroups(peopleScheduledGroups, peopleCollapsedGroupIds),
+    [peopleCollapsedGroupIds, peopleScheduledGroups]
+  );
+  const activeTimeline = viewMode === "PEOPLE" ? peopleTimeline : timeline;
   const isArchived = projectQuery.data?.status === "ARCHIVED";
   const canReschedule = projectPermissions.canEditProject && !isArchived;
   const unitWidth = GANTT_ZOOM_OPTIONS.find((option) => option.value === zoom)?.unitWidth ?? 72;
@@ -639,6 +906,29 @@ export function ProjectGanttPage() {
       }
 
       window.localStorage.setItem(getCollapsedStorageKey(projectId), JSON.stringify([...nextIds]));
+      return {
+        projectId,
+        ids: nextIds
+      };
+    });
+  }
+
+  function toggleCollapsedPerson(rowId: string) {
+    if (!projectId) {
+      return;
+    }
+
+    setSavedPeopleCollapsedState((current) => {
+      const ids = current.projectId === projectId ? current.ids : new Set<string>();
+      const nextIds = new Set(ids);
+
+      if (nextIds.has(rowId)) {
+        nextIds.delete(rowId);
+      } else {
+        nextIds.add(rowId);
+      }
+
+      window.localStorage.setItem(getPeopleCollapsedStorageKey(projectId), JSON.stringify([...nextIds]));
       return {
         projectId,
         ids: nextIds
@@ -695,7 +985,7 @@ export function ProjectGanttPage() {
     left: number,
     width: number
   ) {
-    if (!canReschedule || !timeline || event.button !== 0) {
+    if (!canReschedule || !activeTimeline || event.button !== 0) {
       return;
     }
 
@@ -709,9 +999,9 @@ export function ProjectGanttPage() {
     const resizeHandle = target.closest<HTMLElement>(".gantt-resize-handle");
     const mode: GanttDragMode =
       resizeHandle?.dataset.edge === "left" ? "START" : resizeHandle?.dataset.edge === "right" ? "END" : "MOVE";
-    const unitPx = track.getBoundingClientRect().width / timeline.unitCount;
+    const unitPx = track.getBoundingClientRect().width / activeTimeline.unitCount;
     const minDeltaUnits = mode === "END" ? 1 - width : 1 - left;
-    const maxDeltaUnits = mode === "START" ? width - 1 : timeline.unitCount - left - width + 1;
+    const maxDeltaUnits = mode === "START" ? width - 1 : activeTimeline.unitCount - left - width + 1;
 
     const nextState = {
       task,
@@ -851,6 +1141,232 @@ export function ProjectGanttPage() {
     openTask(taskId);
   }
 
+  function renderTaskBar(task: GanttTask, currentTimeline: NonNullable<ReturnType<typeof buildTimeline>>) {
+    const start = getGanttTaskStart(task);
+    const end = getGanttTaskEnd(task);
+    const isSummaryBar = task.barKind === "SUMMARY";
+    const hasBar = Boolean(start && end && task.barKind !== "NONE");
+
+    if (!hasBar) {
+      return null;
+    }
+
+    const left = diffUnits(currentTimeline.start, start!, zoom) + 1;
+    const width = Math.max(diffUnits(start!, end!, zoom) + 1, 1);
+    const isReschedulable = canReschedule && task.barKind === "TASK";
+    const taskDragState = dragState?.task.id === task.id ? dragState : null;
+    const previewLeft =
+      taskDragState?.mode === "MOVE" || taskDragState?.mode === "START"
+        ? left + taskDragState.previewDeltaUnits
+        : left;
+    const previewWidth =
+      taskDragState?.mode === "START"
+        ? width - taskDragState.previewDeltaUnits
+        : taskDragState?.mode === "END"
+          ? width + taskDragState.previewDeltaUnits
+          : width;
+
+    return (
+      <button
+        className={`gantt-bar ${task.status === "DONE" ? "done" : ""} ${isSummaryBar ? "summary" : ""} ${
+          dragState?.task.id === task.id ? "dragging" : ""
+        }`}
+        type="button"
+        data-reschedulable={isReschedulable ? "true" : "false"}
+        style={
+          {
+            "--gantt-left": left,
+            "--gantt-width": width,
+            "--gantt-preview-left": previewLeft,
+            "--gantt-preview-width": previewWidth
+          } as CSSProperties
+        }
+        title={`${task.title} · ${formatTaskDateRange(task)} · ${getPriorityLabel(task.priority)}`}
+        aria-label={`${task.title} 排期 ${formatTaskDateRange(task)}`}
+        onClick={(event) => handleTaskBarClick(event, task.id)}
+        onPointerCancel={isReschedulable ? (event) => finishTaskBarDrag(event, task.id) : undefined}
+        onPointerDown={isReschedulable ? (event) => handleTaskBarPointerDown(event, task, left, width) : undefined}
+        onPointerMove={isReschedulable ? (event) => handleTaskBarPointerMove(event, task.id) : undefined}
+        onPointerUp={isReschedulable ? (event) => finishTaskBarDrag(event, task.id) : undefined}
+      >
+        {isReschedulable ? <span className="gantt-resize-handle left" data-edge="left" aria-hidden="true" /> : null}
+        {isReschedulable ? <span className="gantt-resize-handle right" data-edge="right" aria-hidden="true" /> : null}
+      </button>
+    );
+  }
+
+  function renderPeopleSummaryBar(group: PeopleGanttGroup, currentTimeline: NonNullable<ReturnType<typeof buildTimeline>>) {
+    if (group.summarySegments.length === 0) {
+      return null;
+    }
+
+    return (
+      <>
+        {group.summarySegments.map((segment, index) => {
+          const left = diffUnits(currentTimeline.start, segment.start, zoom) + 1;
+          const width = Math.max(diffUnits(segment.start, segment.end, zoom) + 1, 1);
+          const title = `${group.name} 汇总 ${formatCalendarDate(segment.start.toISOString())} - ${formatCalendarDate(
+            segment.end.toISOString()
+          )}`;
+
+          return (
+            <span
+              className="gantt-bar people-gantt-summary-bar"
+              key={`${segment.start.toISOString()}:${segment.end.toISOString()}:${index}`}
+              style={
+                {
+                  "--gantt-left": left,
+                  "--gantt-width": width
+                } as CSSProperties
+              }
+              title={title}
+              aria-label={title}
+            />
+          );
+        })}
+      </>
+    );
+  }
+
+  function renderTaskScheduledGrid() {
+    if (!timeline || scheduledTasks.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="gantt-scroll">
+        <div
+          className="gantt-grid"
+          style={
+            {
+              "--gantt-units": timeline.unitCount,
+              "--gantt-unit-width": `${unitWidth}px`
+            } as CSSProperties
+          }
+        >
+          <div className="gantt-header gantt-task-column">任务</div>
+          <div className="gantt-header gantt-date-column">
+            {timeline.units.map((unit) => (
+              <span key={unit.toISOString()}>{formatTimelineUnit(unit, zoom)}</span>
+            ))}
+          </div>
+          {scheduledTasks.map((task) => {
+            const isSummaryBar = task.barKind === "SUMMARY";
+
+            return (
+              <div className="gantt-row" key={task.id}>
+                <div className="gantt-task-title" style={{ paddingLeft: `${task.depth * 18 + 12}px` }}>
+                  <GanttTreeToggle task={task} collapsed={collapsedTaskIds.has(task.id)} onToggle={toggleCollapsedTask} />
+                  <button className="gantt-task-title-button" type="button" onClick={() => openTask(task.id)}>
+                    <span className="gantt-task-title-main">
+                      <span className={`gantt-task-title-text ${task.depth === 0 ? "root" : "child"}`}>
+                        {task.title}
+                      </span>
+                      <small>
+                        {task.listName}
+                        {isSummaryBar ? " · 子任务汇总" : ""}
+                        {task.barKind === "NONE" ? " · 未排期" : ""}
+                      </small>
+                    </span>
+                  </button>
+                  <GanttAssigneeAvatars assignees={task.assignees} />
+                </div>
+                <div className="gantt-track">{renderTaskBar(task, timeline)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function renderPeopleScheduledGrid() {
+    if (!peopleTimeline || peopleScheduledRows.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="gantt-scroll">
+        <div
+          className="gantt-grid people-gantt-grid"
+          style={
+            {
+              "--gantt-units": peopleTimeline.unitCount,
+              "--gantt-unit-width": `${unitWidth}px`
+            } as CSSProperties
+          }
+        >
+          <div className="gantt-header gantt-task-column">人员 / 任务</div>
+          <div className="gantt-header gantt-date-column">
+            {peopleTimeline.units.map((unit) => (
+              <span key={unit.toISOString()}>{formatTimelineUnit(unit, zoom)}</span>
+            ))}
+          </div>
+          {peopleScheduledRows.map((row) => {
+            if (row.kind === "PERSON") {
+              const collapsed = peopleCollapsedGroupIds.has(row.group.id);
+
+              return (
+                <div className="gantt-row" key={row.id}>
+                  <div className="gantt-task-title people-gantt-person-title">
+                    <PeopleTreeToggle
+                      label={row.group.name}
+                      hasChildren={row.hasChildren}
+                      collapsed={collapsed}
+                      onToggle={() => toggleCollapsedPerson(row.group.id)}
+                    />
+                    <span className="people-gantt-person">
+                      {row.group.user ? <UserAvatar user={row.group.user} size="xs" /> : null}
+                      <span className="gantt-task-title-main">
+                        <span className="gantt-task-title-text root">{row.group.name}</span>
+                        <small>{row.group.email || `${row.group.tasks.length} 个未分配任务`}</small>
+                      </span>
+                    </span>
+                    <span className="muted people-gantt-count">{row.group.tasks.length} 个任务</span>
+                  </div>
+                  <div className="gantt-track people-gantt-group-track">
+                    {renderPeopleSummaryBar(row.group, peopleTimeline)}
+                  </div>
+                </div>
+              );
+            }
+
+            const levelMarker = getTaskLevelMarker(row.task);
+
+            return (
+              <div className="gantt-row" key={row.id}>
+                <div
+                  className="gantt-task-title people-gantt-task-title"
+                  style={{ paddingLeft: `${row.depth * 18 + 12}px` }}
+                >
+                  <PeopleTreeToggle
+                    label={row.task.title}
+                    hasChildren={row.hasChildren}
+                    collapsed={peopleCollapsedGroupIds.has(row.id)}
+                    onToggle={() => toggleCollapsedPerson(row.id)}
+                  />
+                  <button className="gantt-task-title-button" type="button" onClick={() => openTask(row.task.id)}>
+                    <span className="gantt-task-title-main">
+                      <span className="people-gantt-task-name-row">
+                        <span className="gantt-task-title-text child">{row.task.title}</span>
+                        {levelMarker ? <span className="task-level-badge">{levelMarker}</span> : null}
+                      </span>
+                      <small>{row.task.listName}</small>
+                    </span>
+                  </button>
+                  <span className={`${getPriorityClassName(row.task.priority)} priority-pill`}>
+                    {getPriorityLabel(row.task.priority)}
+                  </span>
+                </div>
+                <div className="gantt-track">{renderTaskBar(row.task, peopleTimeline)}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   if (projectQuery.error) {
     return (
       <div className="page">
@@ -866,8 +1382,19 @@ export function ProjectGanttPage() {
         <nav className="project-menu" aria-label="项目菜单">
           <Link to={`/projects/${projectId}/board`}>看板</Link>
           <Link to={`/projects/${projectId}/list`}>列表</Link>
-          <Link className="active" aria-current="page" to={`/projects/${projectId}/gantt`}>
-            甘特图
+          <Link
+            className={viewMode === "TASK" ? "active" : ""}
+            aria-current={viewMode === "TASK" ? "page" : undefined}
+            to={`/projects/${projectId}/gantt`}
+          >
+            甘特图(任务)
+          </Link>
+          <Link
+            className={viewMode === "PEOPLE" ? "active" : ""}
+            aria-current={viewMode === "PEOPLE" ? "page" : undefined}
+            to={`/projects/${projectId}/gantt/people`}
+          >
+            甘特图(人员)
           </Link>
           {projectId && projectPermissions.canManageProject ? (
             <Link to={`/projects/${projectId}/settings`} state={{ returnTo: location.pathname }}>
@@ -877,7 +1404,11 @@ export function ProjectGanttPage() {
           {projectPermissions.canManageProject ? <Link to={`/projects/${projectId}/trash`}>回收站</Link> : null}
         </nav>
       </div>
-      {isArchived ? <section className="notice-panel">这个项目已归档，当前甘特图为只读状态。</section> : null}
+      {isArchived ? (
+        <section className="notice-panel">
+          这个项目已归档，当前{viewMode === "PEOPLE" ? "人员甘特图" : "任务甘特图"}为只读状态。
+        </section>
+      ) : null}
       <section className="board-filters">
         <input
           value={taskSearch}
@@ -936,136 +1467,25 @@ export function ProjectGanttPage() {
       {!listsQuery.isLoading && allTasks.length > 0 && filteredTasks.length === 0 ? (
         <section className="notice-panel">当前筛选条件隐藏了所有任务，可以清空筛选条件查看。</section>
       ) : null}
-      <section className="gantt-panel" aria-label="甘特图">
-        {listsQuery.isLoading ? <span className="muted">甘特图加载中...</span> : null}
+      <section className="gantt-panel" aria-label={viewMode === "PEOPLE" ? "甘特图(人员)" : "甘特图(任务)"}>
+        {listsQuery.isLoading ? (
+          <span className="muted">{viewMode === "PEOPLE" ? "人员甘特图加载中..." : "任务甘特图加载中..."}</span>
+        ) : null}
         {!listsQuery.isLoading && allTasks.length === 0 ? (
           <section className="empty-state">
             <h2>暂无任务</h2>
             <span>创建带开始日期或截止日期的任务后，会在这里看到排期。</span>
           </section>
         ) : null}
-        {timeline && scheduledTasks.length > 0 ? (
-          <div className="gantt-scroll">
-            <div
-              className="gantt-grid"
-              style={
-                {
-                  "--gantt-units": timeline.unitCount,
-                  "--gantt-unit-width": `${unitWidth}px`
-                } as CSSProperties
-              }
-            >
-              <div className="gantt-header gantt-task-column">任务</div>
-              <div className="gantt-header gantt-date-column">
-                {timeline.units.map((unit) => (
-                  <span key={unit.toISOString()}>{formatTimelineUnit(unit, zoom)}</span>
-                ))}
-              </div>
-              {scheduledTasks.map((task) => {
-                const start = getGanttTaskStart(task);
-                const end = getGanttTaskEnd(task);
-                const isSummaryBar = task.barKind === "SUMMARY";
-                const hasBar = Boolean(start && end && task.barKind !== "NONE");
-                const left = hasBar ? diffUnits(timeline.start, start!, zoom) + 1 : 1;
-                const width =
-                  hasBar && end
-                    ? Math.max(diffUnits(start!, end, zoom) + 1, 1)
-                    : 1;
-                const isReschedulable = canReschedule && task.barKind === "TASK";
-                const taskDragState = dragState?.task.id === task.id ? dragState : null;
-                const previewLeft =
-                  taskDragState?.mode === "MOVE" || taskDragState?.mode === "START"
-                    ? left + taskDragState.previewDeltaUnits
-                    : left;
-                const previewWidth =
-                  taskDragState?.mode === "START"
-                    ? width - taskDragState.previewDeltaUnits
-                    : taskDragState?.mode === "END"
-                      ? width + taskDragState.previewDeltaUnits
-                      : width;
-
-                return (
-                  <div className="gantt-row" key={task.id}>
-                    <div
-                      className="gantt-task-title"
-                      style={{ paddingLeft: `${task.depth * 18 + 12}px` }}
-                    >
-                      <GanttTreeToggle
-                        task={task}
-                        collapsed={collapsedTaskIds.has(task.id)}
-                        onToggle={toggleCollapsedTask}
-                      />
-                      <button
-                        className="gantt-task-title-button"
-                        type="button"
-                        onClick={() => openTask(task.id)}
-                      >
-                        <span className="gantt-task-title-main">
-                          <span className={`gantt-task-title-text ${task.depth === 0 ? "root" : "child"}`}>
-                            {task.title}
-                          </span>
-                          <small>
-                            {task.listName}
-                            {isSummaryBar ? " · 子任务汇总" : ""}
-                            {task.barKind === "NONE" ? " · 未排期" : ""}
-                          </small>
-                        </span>
-                      </button>
-                      <GanttAssigneeAvatars assignees={task.assignees} />
-                    </div>
-                    <div className="gantt-track">
-                      {hasBar ? (
-                        <button
-                          className={`gantt-bar ${
-                            task.status === "DONE" ? "done" : ""
-                          } ${isSummaryBar ? "summary" : ""} ${
-                            dragState?.task.id === task.id ? "dragging" : ""
-                          }`}
-                          type="button"
-                          data-reschedulable={isReschedulable ? "true" : "false"}
-                          style={
-                            {
-                              "--gantt-left": left,
-                              "--gantt-width": width,
-                              "--gantt-preview-left": previewLeft,
-                              "--gantt-preview-width": previewWidth
-                            } as CSSProperties
-                          }
-                          title={`${task.title} · ${formatTaskDateRange(task)} · ${getPriorityLabel(task.priority)}`}
-                          aria-label={`${task.title} 排期 ${formatTaskDateRange(task)}`}
-                          onClick={(event) => handleTaskBarClick(event, task.id)}
-                          onPointerCancel={
-                            isReschedulable ? (event) => finishTaskBarDrag(event, task.id) : undefined
-                          }
-                          onPointerDown={
-                            isReschedulable
-                              ? (event) => handleTaskBarPointerDown(event, task, left, width)
-                              : undefined
-                          }
-                          onPointerMove={
-                            isReschedulable ? (event) => handleTaskBarPointerMove(event, task.id) : undefined
-                          }
-                          onPointerUp={isReschedulable ? (event) => finishTaskBarDrag(event, task.id) : undefined}
-                        >
-                          {isReschedulable ? (
-                            <span className="gantt-resize-handle left" data-edge="left" aria-hidden="true" />
-                          ) : null}
-                          {isReschedulable ? (
-                            <span className="gantt-resize-handle right" data-edge="right" aria-hidden="true" />
-                          ) : null}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        {viewMode === "PEOPLE" ? renderPeopleScheduledGrid() : renderTaskScheduledGrid()}
+        {!listsQuery.isLoading &&
+        allTasks.length > 0 &&
+        (viewMode === "PEOPLE" ? peopleScheduledRows.length === 0 : scheduledTasks.length === 0) ? (
+          <section className="notice-panel">
+            当前{viewMode === "PEOPLE" ? "人员任务" : "任务"}没有可展示的开始日期或截止日期。
+          </section>
         ) : null}
-        {!listsQuery.isLoading && allTasks.length > 0 && scheduledTasks.length === 0 ? (
-          <section className="notice-panel">当前任务没有可展示的开始日期或截止日期。</section>
-        ) : null}
-        {unscheduledTasks.length > 0 ? (
+        {viewMode === "TASK" && unscheduledTasks.length > 0 ? (
           <section className="gantt-unscheduled">
             <h2>未排期任务</h2>
             <div className="gantt-unscheduled-table">
