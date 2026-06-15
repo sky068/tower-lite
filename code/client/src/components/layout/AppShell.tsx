@@ -25,6 +25,7 @@ import { UserSelect } from "../shared/UserSelect";
 import { authApi, projectApi, systemApi, teamApi, userApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
 import { getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
+import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { useRealtimeEvents } from "../../lib/realtime";
 import { useAuthStore } from "../../stores/authStore";
 import type { EmailOutboxItem, Notification, Project } from "../../types/api";
@@ -80,6 +81,8 @@ export function AppShell() {
   const userHasPassword = user?.hasPassword ?? true;
   const isFeishuBound = Boolean(user && "feishuBound" in user && user.feishuBound);
   const currentEmail = user?.email ?? "";
+
+  useModalScrollLock(isAccountSettingsOpen || isNotificationCenterOpen || isEmailOutboxOpen);
 
   const refreshWorkspaceAfterAccountChange = useCallback(async () => {
     await Promise.all([

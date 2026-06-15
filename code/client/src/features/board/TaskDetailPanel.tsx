@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil, X } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { Select } from "../../components/shared/Select";
@@ -8,6 +8,7 @@ import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/dateTime";
 import { getMemberName, getMemberUser } from "../../lib/members";
+import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
 import { useAuthStore } from "../../stores/authStore";
@@ -19,7 +20,6 @@ type TaskDetailPanelProps = {
   readOnly?: boolean;
   readOnlyReason?: string;
   closeOnSave?: boolean;
-  restoreWindowScrollOnClose?: boolean;
   onOpenTask?: (taskId: string) => void;
   onTaskMoved?: (targetTaskListId: string) => void;
   onClose: () => void;
@@ -81,13 +81,37 @@ function updateTaskInTaskLists(lists: TaskList[] | undefined, updatedTask: Task)
   }));
 }
 
+function findScrollableParent(target: EventTarget | null, boundary: HTMLElement | null) {
+  if (!(target instanceof HTMLElement) || !boundary) {
+    return null;
+  }
+
+  if (!boundary.contains(target)) {
+    return null;
+  }
+
+  let current: HTMLElement | null = target;
+
+  while (current && boundary.contains(current)) {
+    const style = window.getComputedStyle(current);
+    const canScrollY = /(auto|scroll)/.test(style.overflowY) && current.scrollHeight > current.clientHeight;
+
+    if (canScrollY) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return boundary;
+}
+
 export function TaskDetailPanel({
   projectId,
   taskId,
   readOnly = false,
   readOnlyReason,
   closeOnSave = true,
-  restoreWindowScrollOnClose = true,
   onOpenTask,
   onTaskMoved,
   onClose
@@ -98,6 +122,7 @@ export function TaskDetailPanel({
   const subTaskAssigneeDropdownRef = useRef<HTMLDivElement | null>(null);
   const commentMentionDropdownRef = useRef<HTMLDivElement | null>(null);
   const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const detailBodyRef = useRef<HTMLDivElement | null>(null);
   const [activeTaskId, setActiveTaskId] = useState(taskId);
   const [comment, setComment] = useState("");
   const [isCommentMentionOpen, setIsCommentMentionOpen] = useState(false);
@@ -127,22 +152,11 @@ export function TaskDetailPanel({
   const [tagColor, setTagColor] = useState("#2563eb");
   const [tagDrafts, setTagDrafts] = useState<Record<string, { name: string; color: string }>>({});
 
+  useModalScrollLock(true);
+
   useEffect(() => {
     setActiveTaskId(taskId);
   }, [taskId]);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    const previousScrollY = window.scrollY;
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      if (restoreWindowScrollOnClose) {
-        window.scrollTo({ top: previousScrollY });
-      }
-    };
-  }, [restoreWindowScrollOnClose]);
 
   useEffect(() => {
     setIsTaskAssigneeOpen(false);
@@ -675,8 +689,31 @@ export function TaskDetailPanel({
     onOpenTask?.(nextTaskId);
   }
 
+  function handleBackdropWheel(event: WheelEvent<HTMLDivElement>) {
+    const scrollable = findScrollableParent(event.target, detailBodyRef.current);
+
+    if (!scrollable) {
+      event.preventDefault();
+      return;
+    }
+
+    const canScroll = scrollable.scrollHeight > scrollable.clientHeight;
+
+    if (!canScroll) {
+      event.preventDefault();
+      return;
+    }
+
+    const isAtTop = scrollable.scrollTop <= 0;
+    const isAtBottom = scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight - 1;
+
+    if ((event.deltaY < 0 && isAtTop) || (event.deltaY > 0 && isAtBottom)) {
+      event.preventDefault();
+    }
+  }
+
   return (
-    <div className="modal-backdrop">
+    <div className="modal-backdrop" onWheel={handleBackdropWheel}>
       <section className="task-detail-modal" aria-label="任务详情">
         <header className="task-detail-header">
           <div>
@@ -709,7 +746,7 @@ export function TaskDetailPanel({
         {taskQuery.isLoading ? <span className="muted">任务加载中...</span> : null}
         {taskQuery.error ? <ResourceState error={taskQuery.error} /> : null}
         {task ? (
-          <div className="task-detail-body">
+          <div className="task-detail-body" ref={detailBodyRef}>
             {readOnly && readOnlyReason ? (
               <section className="notice-panel task-readonly-notice">
                 {readOnlyReason}

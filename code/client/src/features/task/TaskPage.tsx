@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams, type Location } from "react-
 import { ResourceState } from "../../components/shared/ResourceState";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { isVerifiedSystemAdmin } from "../../lib/members";
+import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 import { TaskDetailPanel } from "../board/TaskDetailPanel";
@@ -79,6 +80,7 @@ export function TaskModalRoute() {
   const location = useLocation();
   const state = location.state as TaskRouteState | null;
   const { task, taskQuery, isReadOnly, readOnlyReason } = useTaskRouteData();
+  useModalScrollLock(Boolean(taskQuery.error));
   const closePath = state?.backgroundLocation
     ? locationToPath(state.backgroundLocation)
     : getReturnTo(location) ?? "/dashboard";
@@ -109,7 +111,6 @@ export function TaskModalRoute() {
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
       closeOnSave={false}
-      restoreWindowScrollOnClose={false}
       onOpenTask={(nextTaskId) =>
         navigate(`/tasks/${nextTaskId}`, {
           replace: true,
@@ -161,7 +162,6 @@ export function TaskPage() {
           readOnly={isReadOnly}
           readOnlyReason={readOnlyReason}
           closeOnSave={false}
-          restoreWindowScrollOnClose={false}
           onOpenTask={(nextTaskId) => navigate(`/tasks/${nextTaskId}`, { replace: true })}
           onClose={() => navigate(closePath)}
         />

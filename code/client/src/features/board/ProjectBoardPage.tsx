@@ -10,6 +10,7 @@ import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { openDateInputPicker } from "../../lib/dateInput";
 import { formatCalendarDate } from "../../lib/dateTime";
 import { getMemberName, getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
+import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { getTaskStatusLabel, TASK_STATUS_OPTIONS } from "../../lib/taskStatus";
@@ -66,6 +67,7 @@ export function ProjectBoardPage() {
   const [newTaskStartDate, setNewTaskStartDate] = useState("");
   const [newTaskDueDate, setNewTaskDueDate] = useState("");
   const [newTaskDateError, setNewTaskDateError] = useState("");
+  useModalScrollLock(isCreateTaskOpen);
   const listsQuery = useQuery({
     queryKey: ["board", projectId],
     queryFn: () => boardApi.lists(projectId!),

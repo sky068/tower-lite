@@ -10,6 +10,7 @@ import { activityApi, getApiErrorMessage, projectApi, teamApi } from "../../lib/
 import { formatCalendarDate } from "../../lib/dateTime";
 import { getAcceptUrl } from "../../lib/invitations";
 import { getMemberName, getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
+import { useModalScrollLock } from "../../lib/modalScrollLock";
 import { useAuthStore } from "../../stores/authStore";
 
 type TeamMemberImportRow = {
@@ -130,6 +131,8 @@ export function TeamDetailPage() {
   const [isProjectTrashOpen, setIsProjectTrashOpen] = useState(false);
   const [teamSaveMessage, setTeamSaveMessage] = useState("");
   const isSystemAdmin = isVerifiedSystemAdmin(user);
+
+  useModalScrollLock(isBatchImportOpen || isProjectTrashOpen);
 
   const membersQuery = useQuery({
     queryKey: ["team-members", teamId],
