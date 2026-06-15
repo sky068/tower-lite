@@ -10,7 +10,7 @@ import { UserAvatar } from "../../components/shared/UserAvatar";
 import { UserSelect } from "../../components/shared/UserSelect";
 import { activityApi, projectApi, teamApi } from "../../lib/api";
 import { getAcceptUrl } from "../../lib/invitations";
-import { getMemberName, getMemberUser } from "../../lib/members";
+import { getMemberName, getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 import type { FeishuDelivery } from "../../types/api";
@@ -55,7 +55,7 @@ export function ProjectSettingsPage() {
   const [feishuClearEndDate, setFeishuClearEndDate] = useState("");
   const [feishuClearStatus, setFeishuClearStatus] = useState<FeishuDeliveryClearStatus>("ALL");
   const [projectSaveMessage, setProjectSaveMessage] = useState("");
-  const isSystemAdmin = user?.systemRole === "ADMIN";
+  const isSystemAdmin = isVerifiedSystemAdmin(user);
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],

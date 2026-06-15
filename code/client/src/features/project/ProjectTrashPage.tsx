@@ -4,6 +4,7 @@ import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
+import { isVerifiedSystemAdmin } from "../../lib/members";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 
@@ -43,7 +44,7 @@ export function ProjectTrashPage() {
     user?.id,
     membersQuery.data,
     teamMembersQuery.data,
-    user?.systemRole === "ADMIN"
+    isVerifiedSystemAdmin(user)
   );
   const canManageProject = projectPermissions.canManageProject;
   const isArchived = projectQuery.data?.status === "ARCHIVED";

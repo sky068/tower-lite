@@ -9,7 +9,7 @@ import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
-import { getMemberName, getMemberUser } from "../../lib/members";
+import { getMemberName, getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
 import { getProjectPermissions } from "../../lib/permissions";
 import { getPriorityClassName, getPriorityLabel, PRIORITY_OPTIONS } from "../../lib/priority";
 import { useAuthStore } from "../../stores/authStore";
@@ -545,8 +545,8 @@ export function ProjectGanttPage() {
   });
 
   const projectPermissions = useMemo(
-    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data, user?.systemRole === "ADMIN"),
-    [membersQuery.data, teamMembersQuery.data, user?.id, user?.systemRole]
+    () => getProjectPermissions(user?.id, membersQuery.data, teamMembersQuery.data, isVerifiedSystemAdmin(user)),
+    [membersQuery.data, teamMembersQuery.data, user]
   );
 
   useEffect(() => {

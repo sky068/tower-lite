@@ -17,3 +17,7 @@ export function getMemberName(member: Member) {
 export function isActiveMember(member: Member) {
   return Boolean(member.user);
 }
+
+export function isVerifiedSystemAdmin(user?: User | null) {
+  return user?.systemRole === "ADMIN" && Boolean(user.emailVerifiedAt);
+}

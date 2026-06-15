@@ -10,7 +10,7 @@ import {
   toMemberView
 } from "../memberships/membership.service.js";
 import { publishTeamEvent, publishToUsers } from "../realtime/realtime.service.js";
-import { requireSystemAdmin } from "../system/system.policy.js";
+import { isSystemAdmin, requireSystemAdmin } from "../system/system.policy.js";
 import type {
   AddTeamMemberInput,
   CreateTeamInput,
@@ -114,7 +114,7 @@ export async function createTeam(userId: string, input: CreateTeamInput) {
 }
 
 export async function listMyTeams(userId: string) {
-  const userIsSystemAdmin = await isUserSystemAdmin(userId);
+  const userIsSystemAdmin = await isSystemAdmin(userId);
 
   if (userIsSystemAdmin) {
     const teams = await prisma.team.findMany({
@@ -467,19 +467,6 @@ async function getExistingTeamMember(teamId: string, memberId: string) {
   }
 
   return member;
-}
-
-async function isUserSystemAdmin(userId: string) {
-  const user = await prisma.user.findUnique({
-    where: {
-      id: userId
-    },
-    select: {
-      systemRole: true
-    }
-  });
-
-  return user?.systemRole === "ADMIN";
 }
 
 async function assertTeamKeepsAdminEntry(tx: Prisma.TransactionClient, teamId: string) {

@@ -9,15 +9,31 @@ export async function isSystemAdmin(userId: string) {
       deletedAt: null
     },
     select: {
-      systemRole: true
+      systemRole: true,
+      emailVerifiedAt: true
     }
   });
 
-  return user?.systemRole === SystemRole.ADMIN;
+  return user?.systemRole === SystemRole.ADMIN && Boolean(user.emailVerifiedAt);
 }
 
 export async function requireSystemAdmin(userId: string) {
-  if (!(await isSystemAdmin(userId))) {
+  const user = await prisma.user.findFirst({
+    where: {
+      id: userId,
+      deletedAt: null
+    },
+    select: {
+      systemRole: true,
+      emailVerifiedAt: true
+    }
+  });
+
+  if (user?.systemRole === SystemRole.ADMIN && !user.emailVerifiedAt) {
+    throw new AppError("FORBIDDEN", "System admin email must be verified", 403);
+  }
+
+  if (user?.systemRole !== SystemRole.ADMIN) {
     throw new AppError("FORBIDDEN", "System admin permission is required", 403);
   }
 }

@@ -9,7 +9,7 @@ import { UserAvatar } from "../../components/shared/UserAvatar";
 import { activityApi, getApiErrorMessage, projectApi, teamApi } from "../../lib/api";
 import { formatCalendarDate } from "../../lib/dateTime";
 import { getAcceptUrl } from "../../lib/invitations";
-import { getMemberName, getMemberUser } from "../../lib/members";
+import { getMemberName, getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
 import { useAuthStore } from "../../stores/authStore";
 
 type TeamMemberImportRow = {
@@ -129,7 +129,7 @@ export function TeamDetailPage() {
   const [batchImportMessage, setBatchImportMessage] = useState("");
   const [isProjectTrashOpen, setIsProjectTrashOpen] = useState(false);
   const [teamSaveMessage, setTeamSaveMessage] = useState("");
-  const isSystemAdmin = user?.systemRole === "ADMIN";
+  const isSystemAdmin = isVerifiedSystemAdmin(user);
 
   const membersQuery = useQuery({
     queryKey: ["team-members", teamId],

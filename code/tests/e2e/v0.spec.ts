@@ -67,8 +67,6 @@ type UserFixture = {
 };
 
 const defaultPassword = "Password123!";
-const defaultAdminEmail = process.env.DEFAULT_ADMIN_EMAIL ?? "admin@tower.local";
-const defaultAdminPassword = process.env.DEFAULT_ADMIN_PASSWORD ?? "password123";
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const emailDomain = `${runId}.e2e.test`;
 const apiPort = Number(process.env.PLAYWRIGHT_API_PORT ?? 4000);
@@ -189,23 +187,6 @@ async function registerUser(name: string): Promise<UserFixture> {
   };
 }
 
-async function loginByApi(email: string, password: string): Promise<UserFixture> {
-  const response = await apiRequest<AuthResponse>("POST", "/auth/login", {
-    data: {
-      email,
-      password
-    }
-  });
-
-  return {
-    id: response.data.user.id,
-    email: response.data.user.email,
-    name: response.data.user.name,
-    password,
-    token: response.data.accessToken
-  };
-}
-
 async function login(page: Page, user: UserFixture) {
   await page.goto("/login");
   await page.getByLabel("邮箱").fill(user.email);
@@ -259,7 +240,15 @@ test.beforeAll(async () => {
   owner = await registerUser("E2E Owner");
   editor = await registerUser("E2E Editor");
   viewer = await registerUser("E2E Viewer");
-  systemAdmin = await loginByApi(defaultAdminEmail, defaultAdminPassword);
+  systemAdmin = await registerUser("E2E System Admin");
+  await prisma.user.update({
+    where: {
+      id: systemAdmin.id
+    },
+    data: {
+      systemRole: "ADMIN"
+    }
+  });
 
   const team = await apiRequest<TeamResponse>("POST", "/teams", {
     token: systemAdmin.token,

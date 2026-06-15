@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams, type Location } from "react-router-dom";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { boardApi, projectApi, teamApi } from "../../lib/api";
+import { isVerifiedSystemAdmin } from "../../lib/members";
 import { getProjectPermissions } from "../../lib/permissions";
 import { useAuthStore } from "../../stores/authStore";
 import { TaskDetailPanel } from "../board/TaskDetailPanel";
@@ -54,7 +55,7 @@ function useTaskRouteData() {
     user?.id,
     projectMembersQuery.data,
     teamMembersQuery.data,
-    user?.systemRole === "ADMIN"
+    isVerifiedSystemAdmin(user)
   );
   const isReadOnly = isArchived || !canEditProject;
   const readOnlyReason = isArchived
