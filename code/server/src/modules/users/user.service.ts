@@ -182,7 +182,9 @@ export async function resendPendingEmailChange(userId: string) {
     throw new AppError("RESOURCE_NOT_FOUND", "Pending email change not found", 404);
   }
 
-  const actionPath = await createEmailChangeToken(userId, pendingEmail, { force: true });
+  const actionPath = await createEmailChangeToken(userId, pendingEmail, {
+    force: true
+  });
   const user = await prisma.user.findFirst({
     where: {
       id: userId,

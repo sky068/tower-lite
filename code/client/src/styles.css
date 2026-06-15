@@ -352,6 +352,8 @@ textarea:focus {
   display: flex;
   gap: 12px;
   align-items: baseline;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .topbar-actions {
@@ -381,6 +383,24 @@ textarea:focus {
 .empty-state span,
 .task-card span {
   color: #64748b;
+}
+
+.topbar-email-warning {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.topbar-email-warning:hover {
+  background: #fee2e2;
 }
 
 .icon-button {

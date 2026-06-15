@@ -52,6 +52,13 @@ type EmailVerificationResponse = {
   user: AuthResponse["user"];
 };
 
+type EmailVerificationSendResponse = {
+  ok: boolean;
+  alreadyVerified: boolean;
+  verificationQueued: boolean;
+  devVerificationPath?: string | null;
+};
+
 type PasswordResetRequestResponse = {
   ok: boolean;
   resetQueued?: boolean;
@@ -674,6 +681,11 @@ describe("V0 HTTP integration", () => {
       token: unverifiedSystemAdmin.accessToken,
       expectedStatus: 403
     });
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await request<EmailVerificationSendResponse>("POST", "/api/v1/auth/email-verification/send", {
+        token: unverifiedSystemAdmin.accessToken
+      });
+    }
 
     const systemEmailOutbox = (await request<EmailOutboxResponse[]>(
       "GET",

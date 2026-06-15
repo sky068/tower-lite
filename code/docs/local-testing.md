@@ -322,6 +322,8 @@ EMAIL_DELIVERY_DISABLED="0"
 
 `EMAIL_DELIVERY_DISABLED` 是邮件投递开关：`0` 表示按 SMTP 配置真实发送邮件，`1` 表示即使配置了 SMTP 也强制不发送真实邮件。自动测试会临时设为 `1`，正常本地调试或部署时如果要收真实邮件请保持 `0`。
 
+本地调试时，浏览器访问地址需要和 `APP_BASE_URL` 保持一致。例如 `APP_BASE_URL="http://localhost:5173"` 时就一直用 `http://localhost:5173` 打开页面；如果你习惯用 `http://127.0.0.1:5173`，就把 `APP_BASE_URL` 也改成 `http://127.0.0.1:5173` 并重启后端。不要混用 `localhost` 和 `127.0.0.1`，浏览器会把它们当成两个不同站点，登录态和跨标签页刷新都不会共享。
+
 常见邮箱服务需要使用“SMTP 授权码”而不是登录密码。`SMTP_SECURE=true` 通常配 `465` 端口；如果服务商要求 STARTTLS，一般使用 `SMTP_PORT=587` 和 `SMTP_SECURE=false`。
 
 `SMTP_SECURE` 和 `EMAIL_DELIVERY_DISABLED` 支持 `true` / `false` 或 `1` / `0`。后端会先把验证 / 重置邮件写入 `EmailOutbox`，再根据 SMTP 配置立即发送；发送成功写入 `sentAt`，发送失败写入 `lastError` 并记录后端日志。未配置 SMTP、或设置 `EMAIL_DELIVERY_DISABLED=1`，且 `NODE_ENV` 不是 `production` 时，账号设置和忘记密码页会显示开发调试链接；配置 SMTP 后只走正式邮件投递，前端不再显示链接。系统管理员可从右上角用户菜单打开“邮件投递”，查看失败原因并在 SMTP 已配置时重试未发送成功的邮件；列表不会显示验证 token。

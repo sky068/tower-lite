@@ -38,6 +38,8 @@ const realtimeStatusLabels = {
 
 const maxAvatarFileSize = 200 * 1024;
 const allowedAvatarMimeTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const emailVerificationEventKey = "tower.emailVerificationEvent";
+const emailVerificationChannelName = "tower.emailVerification";
 
 export function AppShell() {
   const queryClient = useQueryClient();
@@ -79,17 +81,39 @@ export function AppShell() {
   const isFeishuBound = Boolean(user && "feishuBound" in user && user.feishuBound);
   const currentEmail = user?.email ?? "";
 
+  const refreshWorkspaceAfterAccountChange = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["me"] }),
+      queryClient.invalidateQueries({ queryKey: ["teams"] }),
+      queryClient.invalidateQueries({ queryKey: ["projects"] }),
+      queryClient.invalidateQueries({ queryKey: ["my-tasks"] }),
+      queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+      queryClient.invalidateQueries({ queryKey: ["team-members"] }),
+      queryClient.invalidateQueries({ queryKey: ["project-members"] })
+    ]);
+  }, [queryClient]);
+
   const refreshCurrentUser = useCallback(async () => {
     if (!useAuthStore.getState().accessToken) {
       return;
     }
 
     try {
-      updateUser(await authApi.me());
+      const previousUser = useAuthStore.getState().user;
+      const freshUser = await authApi.me();
+      updateUser(freshUser);
+
+      const didVerifyEmail = !previousUser?.emailVerifiedAt && Boolean(freshUser.emailVerifiedAt);
+      const didChangePendingEmail = previousUser?.pendingEmail !== freshUser.pendingEmail;
+      const didChangeEmail = previousUser?.email !== freshUser.email;
+
+      if (didVerifyEmail || didChangePendingEmail || didChangeEmail) {
+        await refreshWorkspaceAfterAccountChange();
+      }
     } catch {
       // Session refresh is handled by the API interceptor; a transient /me failure should not interrupt the shell.
     }
-  }, [updateUser]);
+  }, [refreshWorkspaceAfterAccountChange, updateUser]);
 
   const notificationsQuery = useQuery({
     queryKey: ["notifications"],
@@ -236,7 +260,13 @@ export function AppShell() {
   const sendEmailVerificationMutation = useMutation({
     mutationFn: authApi.sendEmailVerification,
     onSuccess: (result) => {
-      setEmailActionMessage(result.alreadyVerified ? "邮箱已验证。" : "验证邮件已生成，请前往邮箱确认。");
+      setEmailActionMessage(
+        result.alreadyVerified
+          ? "邮箱已验证。"
+          : result.devVerificationPath
+          ? "验证链接已生成。"
+          : "验证邮件已发送，请前往邮箱确认。"
+      );
       setDevEmailVerificationPath(result.devVerificationPath ?? null);
       setEmailCopyState("idle");
     }
@@ -336,6 +366,12 @@ export function AppShell() {
 
   useEffect(() => {
     function handleStorage(event: StorageEvent) {
+      if (event.key === emailVerificationEventKey) {
+        void refreshCurrentUser();
+        void refreshWorkspaceAfterAccountChange();
+        return;
+      }
+
       if (event.key !== "tower.user" || !event.newValue) {
         return;
       }
@@ -351,14 +387,25 @@ export function AppShell() {
       void refreshCurrentUser();
     }
 
+    const channel =
+      typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(emailVerificationChannelName);
+
+    if (channel) {
+      channel.onmessage = () => {
+        void refreshCurrentUser();
+        void refreshWorkspaceAfterAccountChange();
+      };
+    }
+
     window.addEventListener("storage", handleStorage);
     window.addEventListener("focus", handleFocus);
 
     return () => {
+      channel?.close();
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [refreshCurrentUser, updateUser]);
+  }, [refreshCurrentUser, refreshWorkspaceAfterAccountChange, updateUser]);
 
   useEffect(() => {
     if (!isNotificationsOpen && !isUserMenuOpen) {
@@ -598,6 +645,15 @@ export function AppShell() {
   const passwordChanged = Boolean(currentPassword || newPassword || confirmPassword);
   const accountSettingsDirty = profileChanged || emailChanged || passwordChanged;
   const emailOutboxItems = emailOutboxQuery.data ?? [];
+  const emailVerificationButtonLabel = sendEmailVerificationMutation.isPending
+    ? devEmailVerificationPath
+      ? "重新生成中..."
+      : "生成中..."
+    : devEmailVerificationPath
+    ? "重新生成验证链接"
+    : emailActionMessage
+    ? "重新发送验证邮件"
+    : "生成验证链接";
 
   return (
     <div className="app-shell">
@@ -777,6 +833,12 @@ export function AppShell() {
           <div className="topbar-title">
             <strong>简化版 Tower</strong>
             <span>{user ? `${user.name}，V0 开发中` : "V0 开发中"}</span>
+            {!isEmailVerified ? (
+              <button className="topbar-email-warning" type="button" onClick={handleOpenAccountSettings}>
+                <AlertCircle size={15} aria-hidden="true" />
+                <span>邮箱未验证，去设置</span>
+              </button>
+            ) : null}
           </div>
           <div className="topbar-actions">
             <span
@@ -998,7 +1060,7 @@ export function AppShell() {
                         disabled={sendEmailVerificationMutation.isPending}
                         onClick={() => sendEmailVerificationMutation.mutate()}
                       >
-                        {sendEmailVerificationMutation.isPending ? "生成中..." : "生成验证链接"}
+                        {emailVerificationButtonLabel}
                       </button>
                     ) : null}
                   </div>

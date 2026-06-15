@@ -46,7 +46,7 @@ const loginRateLimit = createRateLimit({
 });
 const emailVerificationRateLimit = createRateLimit({
   windowMs: 10 * 60 * 1000,
-  max: 3,
+  max: 20,
   key: userRateLimitKey("auth:email-verification"),
   message: accountActionRateLimitMessage
 });

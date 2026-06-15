@@ -1,10 +1,36 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { authApi, getApiErrorMessage } from "../../lib/api";
 import { useAuthStore } from "../../stores/authStore";
 
+const emailVerificationEventKey = "tower.emailVerificationEvent";
+const emailVerificationChannelName = "tower.emailVerification";
+
+function notifyEmailVerificationChanged(userId?: string) {
+  const payload = JSON.stringify({
+    userId: userId ?? null,
+    verifiedAt: new Date().toISOString()
+  });
+
+  try {
+    localStorage.setItem(emailVerificationEventKey, payload);
+  } catch {
+    // Cross-tab refresh is best effort; the verification itself has already succeeded.
+  }
+
+  try {
+    const channel = new BroadcastChannel(emailVerificationChannelName);
+    channel.postMessage(payload);
+    channel.close();
+  } catch {
+    // Older browsers may not support BroadcastChannel.
+  }
+}
+
 export function VerifyEmailPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const token = useMemo(() => searchParams.get("token") ?? "", [searchParams]);
   const updateUser = useAuthStore((state) => state.updateUser);
@@ -12,6 +38,7 @@ export function VerifyEmailPage() {
   const [status, setStatus] = useState<"pending" | "success" | "error">("pending");
   const [message, setMessage] = useState("正在验证邮箱...");
   const [redirectPath, setRedirectPath] = useState("/login");
+  const [shouldAutoRedirect, setShouldAutoRedirect] = useState(false);
 
   useEffect(() => {
     const requestId = requestIdRef.current + 1;
@@ -34,8 +61,11 @@ export function VerifyEmailPage() {
           return;
         }
 
-        const currentUser = useAuthStore.getState().user;
-        const nextRedirectPath = currentUser ? "/dashboard" : "/login";
+        const currentSession = useAuthStore.getState();
+        const currentUser = currentSession.user;
+        const hasSession = Boolean(currentSession.accessToken && currentSession.refreshToken);
+        let nextRedirectPath = "/login";
+        let nextShouldAutoRedirect = false;
 
         if (result.user && currentUser?.id === result.user.id) {
           updateUser({
@@ -45,12 +75,45 @@ export function VerifyEmailPage() {
           });
         }
 
+        if (hasSession) {
+          try {
+            const freshUser = await authApi.me();
+            updateUser(freshUser);
+            queryClient.setQueryData(["me"], freshUser);
+            nextRedirectPath = "/dashboard";
+            nextShouldAutoRedirect = true;
+          } catch {
+            nextRedirectPath = "/login";
+            nextShouldAutoRedirect = false;
+          }
+        }
+
+        notifyEmailVerificationChanged(result.user?.id ?? currentUser?.id);
+
+        queryClient.removeQueries({ queryKey: ["teams"] });
+        queryClient.removeQueries({ queryKey: ["projects"] });
+        queryClient.removeQueries({ queryKey: ["my-tasks"] });
+        queryClient.removeQueries({ queryKey: ["team-members"] });
+        queryClient.removeQueries({ queryKey: ["project-members"] });
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["me"] }),
+          queryClient.invalidateQueries({ queryKey: ["teams"] }),
+          queryClient.invalidateQueries({ queryKey: ["projects"] }),
+          queryClient.invalidateQueries({ queryKey: ["my-tasks"] }),
+          queryClient.invalidateQueries({ queryKey: ["notifications"] })
+        ]);
+
         setRedirectPath(nextRedirectPath);
+        setShouldAutoRedirect(nextShouldAutoRedirect);
         setStatus("success");
         setMessage(
           result.type === "EMAIL_CHANGE"
-            ? "邮箱已更新并验证，即将返回。"
-            : "邮箱验证成功，即将返回。"
+            ? nextShouldAutoRedirect
+              ? "邮箱已更新并验证，即将返回工作台。"
+              : "邮箱已更新并验证，请回到已登录页面继续使用。"
+            : nextShouldAutoRedirect
+              ? "邮箱验证成功，即将返回工作台。"
+              : "邮箱验证成功，请回到已登录页面继续使用。"
         );
       } catch (requestError) {
         if (requestIdRef.current !== requestId) {
@@ -63,10 +126,10 @@ export function VerifyEmailPage() {
     }
 
     void verify();
-  }, [token, updateUser]);
+  }, [queryClient, token, updateUser]);
 
   useEffect(() => {
-    if (status !== "success") {
+    if (status !== "success" || !shouldAutoRedirect) {
       return;
     }
 
@@ -75,7 +138,7 @@ export function VerifyEmailPage() {
     }, 1600);
 
     return () => window.clearTimeout(timer);
-  }, [navigate, redirectPath, status]);
+  }, [navigate, redirectPath, shouldAutoRedirect, status]);
 
   return (
     <main className="auth-page">
@@ -92,7 +155,7 @@ export function VerifyEmailPage() {
         {status === "success" ? <div className="form-success">{message}</div> : null}
         {status === "error" ? <div className="form-error">{message}</div> : null}
         <Link className="text-link" to={status === "success" ? redirectPath : "/login"}>
-          {status === "success" ? "立即返回" : "返回登录"}
+          {status === "success" ? (shouldAutoRedirect ? "立即返回工作台" : "前往登录页") : "返回登录"}
         </Link>
       </section>
     </main>

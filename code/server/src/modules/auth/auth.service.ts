@@ -33,6 +33,10 @@ const FEISHU_LOGIN_SCOPES = [
   "contact:user.email:readonly"
 ];
 
+type AccountEmailOptions = {
+  force?: boolean;
+};
+
 function daysFromNow(days: number) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 }
@@ -214,7 +218,7 @@ async function createAccountEmailAction(input: {
   return actionPath;
 }
 
-export async function createEmailChangeToken(userId: string, email: string, options: { force?: boolean } = {}) {
+export async function createEmailChangeToken(userId: string, email: string, options: AccountEmailOptions = {}) {
   return createAccountEmailAction({
     type: AccountTokenType.EMAIL_CHANGE,
     userId,
