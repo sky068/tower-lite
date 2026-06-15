@@ -369,6 +369,34 @@ function mergeGanttTaskRangeSegments(tasks: GanttTask[]) {
   return segments;
 }
 
+function mergeSummarySegmentsForZoom(segments: Array<{ start: Date; end: Date }>, zoom: GanttZoom) {
+  const normalizedSegments = segments
+    .map((segment) => ({
+      start: startOfUnit(segment.start, zoom),
+      end: startOfUnit(segment.end, zoom)
+    }))
+    .sort((left, right) => left.start.getTime() - right.start.getTime());
+  const mergedSegments: Array<{ start: Date; end: Date }> = [];
+
+  normalizedSegments.forEach((segment) => {
+    const lastSegment = mergedSegments.at(-1);
+
+    if (!lastSegment) {
+      mergedSegments.push({ start: segment.start, end: segment.end });
+      return;
+    }
+
+    if (segment.start.getTime() <= lastSegment.end.getTime()) {
+      lastSegment.end = new Date(Math.max(lastSegment.end.getTime(), segment.end.getTime()));
+      return;
+    }
+
+    mergedSegments.push({ start: segment.start, end: segment.end });
+  });
+
+  return mergedSegments;
+}
+
 function flattenTasks(lists: TaskList[]) {
   const tasks = lists.flatMap((list, listIndex) =>
     list.tasks.map((task, taskIndex) => ({
@@ -1196,13 +1224,15 @@ export function ProjectGanttPage({ viewMode = "TASK" }: { viewMode?: GanttViewMo
   }
 
   function renderPeopleSummaryBar(group: PeopleGanttGroup, currentTimeline: NonNullable<ReturnType<typeof buildTimeline>>) {
-    if (group.summarySegments.length === 0) {
+    const summarySegments = mergeSummarySegmentsForZoom(group.summarySegments, zoom);
+
+    if (summarySegments.length === 0) {
       return null;
     }
 
     return (
       <>
-        {group.summarySegments.map((segment, index) => {
+        {summarySegments.map((segment, index) => {
           const left = diffUnits(currentTimeline.start, segment.start, zoom) + 1;
           const width = Math.max(diffUnits(segment.start, segment.end, zoom) + 1, 1);
           const title = `${group.name} 汇总 ${formatCalendarDate(segment.start.toISOString())} - ${formatCalendarDate(
