@@ -434,6 +434,9 @@ export async function restoreDeletedProject(userId: string, teamId: string, proj
     where: {
       id: projectId,
       teamId,
+      team: {
+        deletedAt: null
+      },
       deletedAt: {
         not: null
       }

@@ -196,8 +196,7 @@ export async function deleteTeam(userId: string, teamId: string) {
 
   const projectCount = await prisma.project.count({
     where: {
-      teamId,
-      deletedAt: null
+      teamId
     }
   });
 

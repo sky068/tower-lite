@@ -1039,6 +1039,40 @@ describe("V0 HTTP integration", () => {
       expectedStatus: 404
     });
 
+    const trashOnlyTeam = (await request<TeamResponse>("POST", "/api/v1/teams", {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: `Trash Only Team ${runId}`,
+        adminEmail: owner.email
+      }
+    })).data;
+    const trashOnlyTeamAdmin = (await request<MemberResponse[]>("GET", `/api/v1/teams/${trashOnlyTeam.id}/members`, {
+      token: owner.token
+    })).data.find((member) => member.user?.id === owner.id);
+    assert.ok(trashOnlyTeamAdmin);
+    const trashOnlyProject = (await request<ProjectResponse>("POST", `/api/v1/teams/${trashOnlyTeam.id}/projects`, {
+      token: owner.token,
+      expectedStatus: 201,
+      body: {
+        name: `Trash Only Project ${runId}`,
+        projectAdminTeamMemberId: trashOnlyTeamAdmin.id
+      }
+    })).data;
+    await request<{ ok: boolean }>("DELETE", `/api/v1/projects/${trashOnlyProject.id}`, {
+      token: owner.token
+    });
+    await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${trashOnlyTeam.id}`, {
+      token: owner.token,
+      expectedStatus: 422
+    });
+    await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${trashOnlyTeam.id}/project-trash/${trashOnlyProject.id}`, {
+      token: owner.token
+    });
+    await request<{ ok: boolean }>("DELETE", `/api/v1/teams/${trashOnlyTeam.id}`, {
+      token: owner.token
+    });
+
     const editorTeamMember = (await request<MemberResponse>("POST", `/api/v1/teams/${team.id}/members`, {
       token: owner.token,
       expectedStatus: 201,
