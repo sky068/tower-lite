@@ -24,7 +24,7 @@ code/
 
 ```bash
 npm install
-cp .env.example .env
+cp .env.local .env
 npm run prisma:generate
 ```
 
@@ -183,11 +183,17 @@ docker ps
 npm run dev:init
 ```
 
-Prisma 命令会自动读取项目根目录的 `.env`。如果提示 `DATABASE_URL is missing`，先创建环境变量文件：
+Prisma 命令会自动读取项目根目录的 `.env`。如果提示 `DATABASE_URL is missing`，先按当前用途创建环境变量文件：
 
 ```bash
-cp .env.example .env
+# 本地开发 / 测试
+cp .env.local .env
+
+# 线上 Docker 部署
+cp .env.online .env
 ```
+
+`.env` 是本机或服务器的实际私密配置文件，不提交 git；`.env.local` 和 `.env.online` 是可提交模板，复制后再填入本机或线上真实密钥。
 
 系统管理员通过 `.env` 初始化。后端启动时会读取这些变量：如果邮箱已存在，会把该用户升级为系统管理员；如果邮箱不存在，会自动创建系统管理员账号。
 
@@ -561,7 +567,7 @@ npm run build
 npm run test:acceptance
 ```
 
-发布前还需要确认 `.env.example` 覆盖正式环境配置，至少包括数据库、JWT、应用访问地址、系统管理员、SMTP、飞书和 Redis 相关配置。对外发布后不再依赖清空开发数据库解决结构问题；数据库结构变化应通过迁移脚本发布。
+发布前还需要确认 `.env.online` 覆盖正式环境配置，至少包括数据库、JWT、应用访问地址、系统管理员、SMTP、飞书和 Redis 相关配置。`.env.example` 作为字段参考，`.env.local` 用于本地开发。对外发布后不再依赖清空开发数据库解决结构问题；数据库结构变化应通过迁移脚本发布。
 
 ### Docker 一键部署
 
@@ -570,9 +576,11 @@ npm run test:acceptance
 首次部署：
 
 ```bash
-cp .env.example .env
+cp .env.online .env
 npm run deploy:up
 ```
+
+部署脚本只读取 `.env`。因此首次部署或切换环境前，需要先从 `.env.online` 复制一份为 `.env`，再把其中的 `APP_BASE_URL`、`DEPLOY_APP_BASE_URL`、JWT 密钥、系统管理员、SMTP 和飞书配置改成线上真实值。
 
 全新演示环境如需写入 demo 数据：
 

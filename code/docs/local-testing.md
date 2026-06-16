@@ -13,9 +13,11 @@
 ```bash
 cd /Users/skyxu/workspace/my/tower/code
 npm install
-cp .env.example .env
+cp .env.local .env
 npm run prisma:generate
 ```
+
+`.env` 是本机实际配置文件，不提交 git；`.env.local` 是本地开发 / 测试模板。首次启动或重建本地环境时，先从 `.env.local` 复制一份为 `.env`，再按需要填写飞书、SMTP 等本地配置。
 
 如果需要跑前端 E2E，首次还需要安装 Playwright 浏览器：
 
@@ -409,7 +411,7 @@ Environment variable not found: DATABASE_URL
 
 ```bash
 cd /Users/skyxu/workspace/my/tower/code
-cp .env.example .env
+cp .env.local .env
 npm run prisma:migrate
 ```
 

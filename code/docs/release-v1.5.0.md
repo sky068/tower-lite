@@ -23,8 +23,10 @@
 复制环境变量模板：
 
 ```bash
-cp .env.example .env
+cp .env.online .env
 ```
+
+`.env` 是服务器实际私密配置文件，不提交 git；`.env.online` 是线上部署模板，复制成 `.env` 后再填写真实 JWT、系统管理员密码、SMTP、飞书和访问地址。本地开发使用 `.env.local`；`.env.example` 仅作为完整字段参考。
 
 正式环境至少确认以下配置：
 
@@ -67,9 +69,11 @@ FEISHU_VERIFICATION_TOKEN
 首次部署：
 
 ```bash
-cp .env.example .env
+cp .env.online .env
 npm run deploy:up
 ```
+
+`deploy:up` 只读取 `.env`，不会自动读取 `.env.online`。每次在新服务器部署或切换环境前，都需要先复制模板并确认 `.env` 中的线上真实配置。
 
 全新演示环境如需写入 seed：
 
