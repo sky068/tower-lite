@@ -9,7 +9,7 @@ import { installRealtimeServer } from "./modules/realtime/realtime.service.js";
 import { ensureConfiguredSystemAdmin } from "./modules/system/system.service.js";
 
 const app = createApp();
-const host = "127.0.0.1";
+const host = env.API_HOST;
 const workerHandles: QueueWorkerHandle[] = [];
 
 await ensureConfiguredSystemAdmin();

@@ -129,6 +129,21 @@ npm run check:v0
 
 # 生成甘特图 / 任务树测试任务，会先清理上次生成的 [测试排期] 任务
 npm run prisma:test-tasks
+
+# 使用生产 Docker Compose 构建镜像、迁移数据库并启动整套服务
+npm run deploy:up
+
+# 全新演示环境可使用该命令额外执行 seed
+npm run deploy:up:seed
+
+# 查看生产 Docker Compose 日志
+npm run deploy:logs
+
+# 停止生产 Docker Compose 服务，保留数据库和 Redis 数据卷
+npm run deploy:down
+
+# 停止生产 Docker Compose 服务并删除数据卷，会清空数据
+npm run deploy:down:volumes
 ```
 
 前端默认地址：
@@ -547,6 +562,47 @@ npm run test:acceptance
 ```
 
 发布前还需要确认 `.env.example` 覆盖正式环境配置，至少包括数据库、JWT、应用访问地址、系统管理员、SMTP、飞书和 Redis 相关配置。对外发布后不再依赖清空开发数据库解决结构问题；数据库结构变化应通过迁移脚本发布。
+
+### Docker 一键部署
+
+生产 Docker 编排文件为 `docker-compose.prod.yml`，会启动 PostgreSQL、Redis、后端 API 和前端 Nginx。前端容器负责静态资源，并代理 `/api` 和 WebSocket 到后端容器。
+
+首次部署：
+
+```bash
+cp .env.example .env
+npm run deploy:up
+```
+
+全新演示环境如需写入 demo 数据：
+
+```bash
+npm run deploy:up:seed
+```
+
+默认访问地址：
+
+```text
+http://localhost:8080
+```
+
+可通过 `.env` 的 `WEB_PORT` 调整宿主机端口；正式域名部署时，需要把 `DEPLOY_APP_BASE_URL` 改成用户访问的外部地址，例如 `https://tower.example.com`。
+
+常用运维命令：
+
+```bash
+npm run deploy:logs
+npm run deploy:down
+npm run deploy:down:volumes
+```
+
+`deploy:down` 会保留 PostgreSQL / Redis 数据卷；`deploy:down:volumes` 会删除数据卷并清空数据，只能在确认要重置环境时使用。
+
+详细发布说明见：
+
+```text
+docs/release-v1.5.0.md
+```
 
 ## V2.0 甘特图排期规则
 
