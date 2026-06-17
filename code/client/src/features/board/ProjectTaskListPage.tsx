@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, MoreHorizontal, Plus } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { MemberCheckboxDropdown } from "../../components/shared/MemberCheckboxPicker";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { Select } from "../../components/shared/Select";
@@ -716,24 +717,11 @@ export function ProjectTaskListPage() {
               </label>
               <fieldset className="checkbox-field">
                 <legend>指派给</legend>
-                <div className="checkbox-list">
-                  {assignableMembers.map((member) => (
-                    <label className="checkbox-row" key={member.id}>
-                      <input
-                        type="checkbox"
-                        checked={newTaskProjectMemberIds.includes(member.id)}
-                        onChange={(event) =>
-                          toggleNewTaskProjectMember(member.id, event.target.checked)
-                        }
-                      />
-                      <UserAvatar user={getMemberUser(member)} size="xs" />
-                      <span>{getMemberName(member)}</span>
-                    </label>
-                  ))}
-                  {assignableMembers.length === 0 ? (
-                    <span className="muted">暂无可选成员</span>
-                  ) : null}
-                </div>
+                <MemberCheckboxDropdown
+                  members={assignableMembers}
+                  selectedIds={newTaskProjectMemberIds}
+                  onToggle={toggleNewTaskProjectMember}
+                />
               </fieldset>
               <label>
                 优先级

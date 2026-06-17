@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, X } from "lucide-react";
+import { X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState, type WheelEvent } from "react";
+import { MemberCheckboxDropdown, MemberCheckboxPicker } from "../../components/shared/MemberCheckboxPicker";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { Select } from "../../components/shared/Select";
@@ -118,7 +119,6 @@ export function TaskDetailPanel({
 }: TaskDetailPanelProps) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
-  const taskAssigneeDropdownRef = useRef<HTMLDivElement | null>(null);
   const subTaskAssigneeDropdownRef = useRef<HTMLDivElement | null>(null);
   const commentMentionDropdownRef = useRef<HTMLDivElement | null>(null);
   const commentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -128,7 +128,6 @@ export function TaskDetailPanel({
   const [isCommentMentionOpen, setIsCommentMentionOpen] = useState(false);
   const [commentMentionQuery, setCommentMentionQuery] = useState("");
   const [commentMentionRange, setCommentMentionRange] = useState<{ start: number; end: number } | null>(null);
-  const [isTaskAssigneeOpen, setIsTaskAssigneeOpen] = useState(false);
   const [isSubTaskCreateOpen, setIsSubTaskCreateOpen] = useState(false);
   const [isSubTaskProjectMemberOpen, setIsSubTaskProjectMemberOpen] = useState(false);
   const [subTaskTitle, setSubTaskTitle] = useState("");
@@ -159,7 +158,6 @@ export function TaskDetailPanel({
   }, [taskId]);
 
   useEffect(() => {
-    setIsTaskAssigneeOpen(false);
     setIsSubTaskCreateOpen(false);
     setIsSubTaskProjectMemberOpen(false);
     setIsCommentMentionOpen(false);
@@ -176,25 +174,17 @@ export function TaskDetailPanel({
 
   useEffect(() => {
     if (readOnly) {
-      setIsTaskAssigneeOpen(false);
       setIsSubTaskProjectMemberOpen(false);
       setIsCommentMentionOpen(false);
     }
   }, [readOnly]);
 
   useEffect(() => {
-    if (!isTaskAssigneeOpen && !isSubTaskProjectMemberOpen && !isCommentMentionOpen) {
+    if (!isSubTaskProjectMemberOpen && !isCommentMentionOpen) {
       return;
     }
 
     function handlePointerDown(event: PointerEvent) {
-      if (
-        isTaskAssigneeOpen &&
-        !taskAssigneeDropdownRef.current?.contains(event.target as Node)
-      ) {
-        setIsTaskAssigneeOpen(false);
-      }
-
       if (!subTaskAssigneeDropdownRef.current?.contains(event.target as Node)) {
         setIsSubTaskProjectMemberOpen(false);
       }
@@ -207,7 +197,7 @@ export function TaskDetailPanel({
     document.addEventListener("pointerdown", handlePointerDown);
 
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isCommentMentionOpen, isTaskAssigneeOpen, isSubTaskProjectMemberOpen]);
+  }, [isCommentMentionOpen, isSubTaskProjectMemberOpen]);
 
   const taskQuery = useQuery({
     queryKey: ["task", activeTaskId],
@@ -777,64 +767,36 @@ export function TaskDetailPanel({
                 </label>
                 <div className="checkbox-field">
                   <span className="field-label">负责人</span>
-                  <div className="task-assignee-editor" ref={taskAssigneeDropdownRef}>
-                    <div className="task-assignee-summary-row">
-                      <div
-                        className="readonly-value task-assignee-summary"
-                        title={
-                          taskProjectMemberNames.length > 0 ? taskProjectMemberNames.join(", ") : "未分配"
-                        }
-                      >
-                        {taskProjectMemberSummaryItems.length > 0 ? (
-                          <span className="assignee-summary-list">
-                            {taskProjectMemberSummaryItems.map((assignee) => (
-                              <AssigneeChip assignee={assignee} key={assignee.id} />
-                            ))}
-                          </span>
-                        ) : (
-                          "未分配"
-                        )}
-                      </div>
-                      {!readOnly ? (
-                        <button
-                          className="assignee-add-button"
-                          type="button"
-                          aria-label="编辑负责人"
-                          aria-expanded={isTaskAssigneeOpen}
-                          onClick={() => setIsTaskAssigneeOpen((current) => !current)}
-                        >
-                          <Pencil size={16} aria-hidden="true" />
-                        </button>
-                      ) : null}
+                  {readOnly ? (
+                    <div
+                      className="readonly-value task-assignee-summary"
+                      title={taskProjectMemberNames.length > 0 ? taskProjectMemberNames.join(", ") : "未分配"}
+                    >
+                      {taskProjectMemberSummaryItems.length > 0 ? (
+                        <span className="assignee-summary-list">
+                          {taskProjectMemberSummaryItems.map((assignee) => (
+                            <AssigneeChip assignee={assignee} key={assignee.id} />
+                          ))}
+                        </span>
+                      ) : (
+                        "未分配"
+                      )}
                     </div>
-                    {isTaskAssigneeOpen && !readOnly ? (
-                      <div className="checkbox-list assignee-dropdown-menu task-assignee-menu">
-                        {(membersQuery.data ?? []).map((member) => (
-                          <label className="checkbox-row" key={member.id}>
-                            <input
-                              type="checkbox"
-                              checked={projectMemberIds.includes(member.id)}
-                              onChange={(event) =>
-                                toggleTaskProjectMember(member.id, event.target.checked)
-                              }
-                            />
-                            <UserAvatar user={getMemberUser(member)} size="xs" />
-                            <span>{getMemberName(member)}</span>
-                          </label>
-                        ))}
-                        {removedAssignees.map((assignee) => (
-                          <label className="checkbox-row disabled" key={assignee.id}>
-                            <input type="checkbox" checked disabled />
-                            <UserAvatar user={assignee} size="xs" />
-                            <span>{formatAssigneeName(assignee)}</span>
-                          </label>
-                        ))}
-                        {(membersQuery.data ?? []).length === 0 && removedAssignees.length === 0 ? (
-                          <span className="muted">暂无可选成员</span>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
+                  ) : (
+                    <MemberCheckboxDropdown
+                      members={membersQuery.data ?? []}
+                      selectedIds={projectMemberIds}
+                      onToggle={toggleTaskProjectMember}
+                      extraItems={removedAssignees.map((assignee) => (
+                        <label className="checkbox-row disabled" key={assignee.id}>
+                          <input className="member-checkbox-input" type="checkbox" checked disabled />
+                          <span className="member-checkbox-box" aria-hidden="true" />
+                          <UserAvatar user={assignee} size="xs" />
+                          <span>{formatAssigneeName(assignee)}</span>
+                        </label>
+                      ))}
+                    />
+                  )}
                 </div>
                 <label>
                   <span className="status-field-label">状态</span>
@@ -1108,25 +1070,13 @@ export function TaskDetailPanel({
                       <span aria-hidden="true">⌄</span>
                     </button>
                     {isSubTaskProjectMemberOpen ? (
-                      <div className="checkbox-list assignee-dropdown-menu">
-                        {(membersQuery.data ?? []).map((member) => (
-                          <label className="checkbox-row" key={member.id}>
-                            <input
-                              type="checkbox"
-                              checked={subTaskProjectMemberIds.includes(member.id)}
-                              disabled={!canCreateSubTask}
-                              onChange={(event) =>
-                                toggleSubTaskProjectMember(member.id, event.target.checked)
-                              }
-                            />
-                            <UserAvatar user={getMemberUser(member)} size="xs" />
-                            <span>{getMemberName(member)}</span>
-                          </label>
-                        ))}
-                        {(membersQuery.data ?? []).length === 0 ? (
-                          <span className="muted">暂无可选成员</span>
-                        ) : null}
-                      </div>
+                      <MemberCheckboxPicker
+                        className="assignee-dropdown-menu"
+                        disabled={!canCreateSubTask}
+                        members={membersQuery.data ?? []}
+                        selectedIds={subTaskProjectMemberIds}
+                        onToggle={toggleSubTaskProjectMember}
+                      />
                     ) : null}
                   </div>
                   <button

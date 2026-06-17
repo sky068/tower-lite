@@ -242,6 +242,24 @@ async function selectCustomOption(trigger: Locator, optionName: string | RegExp)
   await customSelectRoot(trigger).getByRole("option", { name: optionName }).click();
 }
 
+async function setMemberSelection(picker: Locator, memberName: string, checked: boolean) {
+  const row = picker.locator("label.checkbox-row").filter({ hasText: memberName });
+  const checkbox = row.locator('input[type="checkbox"]');
+  await expect(row).toBeVisible();
+
+  if ((await checkbox.isChecked()) !== checked) {
+    await row.click();
+  }
+
+  await expect(checkbox).toBeChecked({ checked });
+}
+
+async function openMemberDropdown(scope: Locator) {
+  const dropdown = scope.locator(".member-checkbox-dropdown").first();
+  await dropdown.locator(".assignee-dropdown-trigger").click();
+  return dropdown.locator(".assignee-dropdown-menu");
+}
+
 test.beforeAll(async () => {
   api = await request.newContext({
     baseURL: `http://127.0.0.1:${apiPort}/api/v1/`,
@@ -468,8 +486,9 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await selectCustomOption(modal.getByLabel("优先级"), "高");
   await modal.getByLabel("开始日期").fill(taskStartDate);
   await modal.getByLabel("截止日期").fill(taskDueDate);
-  await modal.getByLabel("E2E Editor").check();
-  await modal.getByLabel("E2E Owner").uncheck();
+  const newTaskAssigneePicker = await openMemberDropdown(modal);
+  await setMemberSelection(newTaskAssigneePicker, "E2E Editor", true);
+  await setMemberSelection(newTaskAssigneePicker, "E2E Owner", false);
   await modal.getByRole("button", { name: "创建" }).click();
 
   await expect(modal).toBeHidden();
@@ -502,7 +521,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await detail.getByRole("button", { name: "创建子任务" }).click();
   await detail.getByPlaceholder("新增子任务").fill(subTaskTitle);
   await detail.getByRole("button", { name: "选择负责人" }).click();
-  await detail.locator(".assignee-dropdown-menu").getByLabel("E2E Editor").check();
+  await setMemberSelection(detail.locator(".assignee-dropdown-menu"), "E2E Editor", true);
   await detail.getByRole("button", { name: "添加" }).click();
   await expect(detail.getByText(subTaskTitle)).toBeVisible();
 
@@ -511,7 +530,7 @@ test("V0 browser workflow covers project board, task detail, subtasks, drag, per
   await detail.getByRole("button", { name: "创建子任务" }).click();
   await detail.getByPlaceholder("新增子任务").fill(secondLevelSubTaskTitle);
   await detail.getByRole("button", { name: "选择负责人" }).click();
-  await detail.locator(".assignee-dropdown-menu").getByLabel("E2E Editor").check();
+  await setMemberSelection(detail.locator(".assignee-dropdown-menu"), "E2E Editor", true);
   await detail.getByRole("button", { name: "添加" }).click();
   await expect(detail.getByText(secondLevelSubTaskTitle)).toBeVisible();
   await detail.getByRole("button", { name: new RegExp(secondLevelSubTaskTitle) }).click();
