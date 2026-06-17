@@ -7,7 +7,7 @@ import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
 import { Select } from "../../components/shared/Select";
 import { UserAvatar } from "../../components/shared/UserAvatar";
-import { UserSelect } from "../../components/shared/UserSelect";
+import { UserMultiSelect } from "../../components/shared/UserMultiSelect";
 import { activityApi, projectApi, teamApi } from "../../lib/api";
 import { getAcceptUrl } from "../../lib/invitations";
 import { getMemberName, getMemberUser, isVerifiedSystemAdmin } from "../../lib/members";
@@ -47,7 +47,7 @@ export function ProjectSettingsPage() {
   const user = useAuthStore((state) => state.user);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [selectedTeamMemberId, setSelectedTeamMemberId] = useState("");
+  const [selectedTeamMemberIds, setSelectedTeamMemberIds] = useState<string[]>([]);
   const [memberRole, setMemberRole] = useState<"ADMIN" | "EDITOR" | "VIEWER">("EDITOR");
   const [feishuDeliveryStatusFilter, setFeishuDeliveryStatusFilter] =
     useState<(typeof feishuDeliveryStatusFilters)[number]["value"]>("ALL");
@@ -119,6 +119,11 @@ export function ProjectSettingsPage() {
       }));
   }, [membersQuery.data, teamMembersQuery.data]);
 
+  useEffect(() => {
+    const candidateIds = new Set(availableProjectMemberCandidates.map((member) => member.id));
+    setSelectedTeamMemberIds((currentIds) => currentIds.filter((memberId) => candidateIds.has(memberId)));
+  }, [availableProjectMemberCandidates]);
+
   const updateProjectMutation = useMutation({
     mutationFn: () => projectApi.update(projectId!, { name: name.trim(), description: description.trim() }),
     onSuccess: () => {
@@ -153,10 +158,17 @@ export function ProjectSettingsPage() {
   });
 
   const addMemberMutation = useMutation({
-    mutationFn: () => projectApi.addMember(projectId!, { teamMemberId: selectedTeamMemberId, role: memberRole }),
+    mutationFn: (input: { teamMemberIds: string[]; role: "ADMIN" | "EDITOR" | "VIEWER" }) =>
+      Promise.all(
+        input.teamMemberIds.map((teamMemberId) =>
+          projectApi.addMember(projectId!, { teamMemberId, role: input.role })
+        )
+      ),
     onSuccess: () => {
-      setSelectedTeamMemberId("");
+      setSelectedTeamMemberIds([]);
       setMemberRole("EDITOR");
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["project-members", projectId] });
       void queryClient.invalidateQueries({ queryKey: ["team-members", projectQuery.data?.teamId] });
       void queryClient.invalidateQueries({ queryKey: ["project-activity", projectId] });
@@ -238,11 +250,11 @@ export function ProjectSettingsPage() {
   function handleAddMember(event: FormEvent) {
     event.preventDefault();
 
-    if (!selectedTeamMemberId || !canManageProject) {
+    if (selectedTeamMemberIds.length === 0 || !canManageProject) {
       return;
     }
 
-    addMemberMutation.mutate();
+    addMemberMutation.mutate({ teamMemberIds: selectedTeamMemberIds, role: memberRole });
   }
 
   function handleClearFeishuDeliveries(event: FormEvent) {
@@ -319,14 +331,13 @@ export function ProjectSettingsPage() {
       <section className="panel">
         <h2>添加项目成员</h2>
         <form className="settings-form inline" onSubmit={handleAddMember}>
-          <UserSelect
-            value={selectedTeamMemberId}
+          <UserMultiSelect
+            value={selectedTeamMemberIds}
             users={availableProjectMemberCandidates}
-            onChange={setSelectedTeamMemberId}
+            onChange={setSelectedTeamMemberIds}
             placeholder="选择团队成员"
             emptyText={teamMembersQuery.isLoading ? "团队成员加载中..." : "暂无可添加团队成员"}
             searchPlaceholder="按名字或邮箱筛选"
-            searchable
             disabled={!canManageProject}
           />
           <Select
@@ -341,9 +352,9 @@ export function ProjectSettingsPage() {
           />
           <button
             type="submit"
-            disabled={!canManageProject || addMemberMutation.isPending || !selectedTeamMemberId}
+            disabled={!canManageProject || addMemberMutation.isPending || selectedTeamMemberIds.length === 0}
           >
-            添加
+            {addMemberMutation.isPending ? "添加中..." : "添加"}
           </button>
         </form>
         {!canManageProject ? <span className="muted">只有项目 ADMIN、团队 ADMIN 或系统管理员可以管理项目成员。</span> : null}

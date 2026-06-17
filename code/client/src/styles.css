@@ -4267,6 +4267,32 @@ select[multiple] {
   font-size: 13px;
 }
 
+.user-multi-select-menu {
+  gap: 2px;
+}
+
+.user-multi-select-option,
+.settings-form .user-multi-select-option {
+  cursor: pointer;
+  grid-template-columns: auto auto minmax(0, 1fr);
+}
+
+.user-multi-select-option.select-all,
+.settings-form .user-multi-select-option.select-all {
+  grid-template-columns: auto minmax(0, 1fr);
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 7px 7px 0 0;
+  margin-bottom: 2px;
+}
+
+.user-multi-select-option .member-checkbox-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .custom-select.compact-select,
 .custom-select.project-filter-select {
   min-height: 0;
