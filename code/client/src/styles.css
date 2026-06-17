@@ -960,7 +960,7 @@ textarea:focus {
 
 .project-task-list-group {
   display: grid;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #d9dee7;
   border-radius: 8px;
   background: #ffffff;
@@ -1160,8 +1160,73 @@ textarea:focus {
 .project-task-assignees-cell {
   display: flex;
   min-width: 0;
-  flex-wrap: wrap;
+  align-items: center;
+  overflow: visible;
+}
+
+.project-task-assignee-summary {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
   gap: 6px;
+}
+
+.project-task-assignee-summary .assignee-chip {
+  max-width: min(86px, 100%);
+}
+
+.project-task-assignee-more {
+  display: inline-grid;
+  width: 24px;
+  height: 22px;
+  flex: 0 0 24px;
+  place-items: center;
+  border: 1px solid #d9dee7;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.project-task-assignee-more:hover {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.project-task-assignee-popover {
+  position: fixed;
+  z-index: 80;
+  display: grid;
+  width: 190px;
+  transform: translateY(-100%);
+  gap: 4px;
+  border: 1px solid #d9dee7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+  padding: 6px;
+}
+
+.project-task-assignee-popover-item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  color: #334155;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.project-task-assignee-popover-item span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-task-unassigned {

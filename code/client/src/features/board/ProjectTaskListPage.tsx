@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, MoreHorizontal, Plus } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { MutationError } from "../../components/shared/MutationError";
 import { ResourceState } from "../../components/shared/ResourceState";
@@ -19,6 +19,119 @@ import type { Task, TaskList, TaskStatus } from "../../types/api";
 
 function formatAssigneeName(assignee: { name: string; status?: string }) {
   return assignee.status === "REMOVED" ? `${assignee.name}(已移除)` : assignee.name;
+}
+
+type TaskAssignee = NonNullable<Task["assignees"]>[number];
+
+function AssigneeChip({ assignee }: { assignee: TaskAssignee }) {
+  return (
+    <span className="assignee-chip">
+      <UserAvatar user={assignee} size="xs" />
+      <span>{formatAssigneeName(assignee)}</span>
+    </span>
+  );
+}
+
+function TaskAssigneesCell({ assignees }: { assignees?: Task["assignees"] }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number } | null>(null);
+  const rootRef = useRef<HTMLSpanElement | null>(null);
+  const moreButtonRef = useRef<HTMLButtonElement | null>(null);
+  const visibleAssignees = assignees?.slice(0, 2) ?? [];
+  const hiddenAssignees = assignees?.slice(2) ?? [];
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent) {
+      if (rootRef.current?.contains(event.target as Node)) {
+        return;
+      }
+
+      setIsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isOpen]);
+
+  function updatePopoverPosition() {
+    const button = moreButtonRef.current;
+
+    if (!button) {
+      return;
+    }
+
+    const rect = button.getBoundingClientRect();
+    const width = 190;
+    const left = Math.min(window.innerWidth - width - 8, Math.max(8, rect.right - width));
+
+    setPopoverPosition({
+      top: Math.max(8, rect.top - 8),
+      left
+    });
+  }
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    updatePopoverPosition();
+
+    window.addEventListener("resize", updatePopoverPosition);
+    window.addEventListener("scroll", updatePopoverPosition, true);
+
+    return () => {
+      window.removeEventListener("resize", updatePopoverPosition);
+      window.removeEventListener("scroll", updatePopoverPosition, true);
+    };
+  }, [isOpen]);
+
+  if (visibleAssignees.length === 0) {
+    return <span className="project-task-unassigned">未分配</span>;
+  }
+
+  return (
+    <span className="project-task-assignee-summary" ref={rootRef}>
+      {visibleAssignees.map((assignee) => (
+        <AssigneeChip assignee={assignee} key={assignee.id} />
+      ))}
+      {hiddenAssignees.length > 0 ? (
+        <>
+          <button
+            className="project-task-assignee-more"
+            ref={moreButtonRef}
+            type="button"
+            aria-label={`查看另外 ${hiddenAssignees.length} 位负责人`}
+            aria-expanded={isOpen}
+            onClick={() => {
+              updatePopoverPosition();
+              setIsOpen((current) => !current);
+            }}
+          >
+            <MoreHorizontal size={14} aria-hidden="true" />
+          </button>
+          {isOpen ? (
+            <span
+              className="project-task-assignee-popover"
+              role="list"
+              style={popoverPosition ? { left: popoverPosition.left, top: popoverPosition.top } : undefined}
+            >
+              {assignees?.map((assignee) => (
+                <span className="project-task-assignee-popover-item" role="listitem" key={assignee.id}>
+                  <UserAvatar user={assignee} size="xs" />
+                  <span>{formatAssigneeName(assignee)}</span>
+                </span>
+              ))}
+            </span>
+          ) : null}
+        </>
+      ) : null}
+    </span>
+  );
 }
 
 function formatDateRange(task: Task) {
@@ -188,16 +301,7 @@ function TaskTreeRow({
         </span>
         <span className="project-task-date-cell">{formatDateRange(task)}</span>
         <span className="project-task-assignees-cell">
-          {task.assignees && task.assignees.length > 0 ? (
-            task.assignees.map((assignee) => (
-              <span className="assignee-chip" key={assignee.id}>
-                <UserAvatar user={assignee} size="xs" />
-                <span>{formatAssigneeName(assignee)}</span>
-              </span>
-            ))
-          ) : (
-            <span className="project-task-unassigned">未分配</span>
-          )}
+          <TaskAssigneesCell assignees={task.assignees} />
         </span>
       </div>
       {hasChildren && isExpanded ? (
